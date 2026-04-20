@@ -11,9 +11,24 @@ aeAuth.get("/connect", async (c) => {
     return c.json({ error: "Missing code" }, 400);
   }
 
-  const tokens = await connectAliExpress(c.env, code);
+  try {
+    const tokens = await connectAliExpress(c.env, code);
+    return c.json({ success: true, tokens });
+    } catch (error) {
+    console.error("Error connecting AliExpress:", error);
+    
+    let message = "Unknown error occurred";
+    if (error instanceof Error) {
+      try {
+        const parsed = JSON.parse(error.message.replace(/^AliExpress token create error: /, ""));
+        message = parsed.message ?? error.message;
+      } catch {
+        message = error.message;
+      }
+    }
 
-  return c.json({ success: true, tokens });
+    return c.json({ success: false, error: message }, 500);
+  }
 });
 
 export default aeAuth;

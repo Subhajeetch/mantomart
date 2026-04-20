@@ -105,16 +105,3 @@ export const userPermissions = sqliteTable("user_permissions", {
   grantedBy: text("granted_by").references(() => users.id),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
-
-
-// category
-export const categories = sqliteTable("categories", {
-  id: text("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  description: text("description"),
-  image: text("image"),
-  parentId: text("parent_id"),
-  position: integer("position").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});

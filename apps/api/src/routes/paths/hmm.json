@@ -1,0 +1,371 @@
+{
+  "aliexpress_ds_product_get_response": {
+    "result": {
+      "ae_item_sku_info_dtos": {
+        "ae_item_sku_info_d_t_o": [
+          {
+            "sku_attr": "5:361385;14:771#036",
+            "offer_sale_price": "14.66",
+            "sku_id": "12000055925023276",
+            "price_include_tax": false,
+            "currency_code": "USD",
+            "sku_price": "29.33",
+            "offer_bulk_sale_price": "14.66",
+            "sku_available_stock": 9999,
+            "id": "5:361385;14:771#036",
+            "ae_sku_property_dtos": {
+              "ae_sku_property_d_t_o": [
+                {
+                  "sku_property_value": "L",
+                  "sku_property_name": "Size",
+                  "property_value_id": 361385,
+                  "sku_property_id": 5
+                },
+                {
+                  "sku_property_value": "Beige",
+                  "sku_image": "https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg",
+                  "sku_property_name": "Color",
+                  "property_value_definition_name": "036",
+                  "property_value_id": 771,
+                  "sku_property_id": 14
+                }
+              ]
+            }
+          },
+          {
+            "sku_attr": "5:100014065;14:771#036",
+            "offer_sale_price": "13.31",
+            "sku_id": "12000055925023277",
+            "price_include_tax": false,
+            "currency_code": "USD",
+            "sku_price": "26.61",
+            "offer_bulk_sale_price": "13.31",
+            "sku_available_stock": 9996,
+            "id": "5:100014065;14:771#036",
+            "ae_sku_property_dtos": {
+              "ae_sku_property_d_t_o": [
+                {
+                  "sku_property_value": "XL",
+                  "sku_property_name": "Size",
+                  "property_value_id": 100014065,
+                  "sku_property_id": 5
+                },
+                {
+                  "sku_property_value": "Beige",
+                  "sku_image": "https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg",
+                  "sku_property_name": "Color",
+                  "property_value_definition_name": "036",
+                  "property_value_id": 771,
+                  "sku_property_id": 14
+                }
+              ]
+            }
+          },
+          {
+            "sku_attr": "5:4182;14:771#036",
+            "offer_sale_price": "13.57",
+            "sku_id": "12000055925023278",
+            "price_include_tax": false,
+            "currency_code": "USD",
+            "sku_price": "27.14",
+            "offer_bulk_sale_price": "13.57",
+            "sku_available_stock": 9998,
+            "id": "5:4182;14:771#036",
+            "ae_sku_property_dtos": {
+              "ae_sku_property_d_t_o": [
+                {
+                  "sku_property_value": "XXL",
+                  "sku_property_name": "Size",
+                  "property_value_id": 4182,
+                  "sku_property_id": 5
+                },
+                {
+                  "sku_property_value": "Beige",
+                  "sku_image": "https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg",
+                  "sku_property_name": "Color",
+                  "property_value_definition_name": "036",
+                  "property_value_id": 771,
+                  "sku_property_id": 14
+                }
+              ]
+            }
+          },
+          {
+            "sku_attr": "5:4183;14:771#036",
+            "offer_sale_price": "14.66",
+            "sku_id": "12000055925023279",
+            "price_include_tax": false,
+            "currency_code": "USD",
+            "sku_price": "29.33",
+            "offer_bulk_sale_price": "14.66",
+            "sku_available_stock": 9999,
+            "id": "5:4183;14:771#036",
+            "ae_sku_property_dtos": {
+              "ae_sku_property_d_t_o": [
+                {
+                  "sku_property_value": "XXXL",
+                  "sku_property_name": "Size",
+                  "property_value_id": 4183,
+                  "sku_property_id": 5
+                },
+                {
+                  "sku_property_value": "Beige",
+                  "sku_image": "https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg",
+                  "sku_property_name": "Color",
+                  "property_value_definition_name": "036",
+                  "property_value_id": 771,
+                  "sku_property_id": 14
+                }
+              ]
+            }
+          },
+          {
+            "sku_attr": "5:100014064;14:771#036",
+            "offer_sale_price": "14.66",
+            "sku_id": "12000055925023274",
+            "price_include_tax": false,
+            "currency_code": "USD",
+            "sku_price": "29.33",
+            "offer_bulk_sale_price": "14.66",
+            "sku_available_stock": 9999,
+            "id": "5:100014064;14:771#036",
+            "ae_sku_property_dtos": {
+              "ae_sku_property_d_t_o": [
+                {
+                  "sku_property_value": "S",
+                  "sku_property_name": "Size",
+                  "property_value_id": 100014064,
+                  "sku_property_id": 5
+                },
+                {
+                  "sku_property_value": "Beige",
+                  "sku_image": "https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg",
+                  "sku_property_name": "Color",
+                  "property_value_definition_name": "036",
+                  "property_value_id": 771,
+                  "sku_property_id": 14
+                }
+              ]
+            }
+          },
+          {
+            "sku_attr": "5:361386;14:771#036",
+            "offer_sale_price": "14.66",
+            "sku_id": "12000055925023275",
+            "price_include_tax": false,
+            "currency_code": "USD",
+            "sku_price": "29.33",
+            "offer_bulk_sale_price": "14.66",
+            "sku_available_stock": 9999,
+            "id": "5:361386;14:771#036",
+            "ae_sku_property_dtos": {
+              "ae_sku_property_d_t_o": [
+                {
+                  "sku_property_value": "M",
+                  "sku_property_name": "Size",
+                  "property_value_id": 361386,
+                  "sku_property_id": 5
+                },
+                {
+                  "sku_property_value": "Beige",
+                  "sku_image": "https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg",
+                  "sku_property_name": "Color",
+                  "property_value_definition_name": "036",
+                  "property_value_id": 771,
+                  "sku_property_id": 14
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "ae_multimedia_info_dto": {
+        "image_urls": "https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg;https://ae01.alicdn.com/kf/S0a4f387dc2664667b4e16d27a51e9ae7t.jpg;https://ae01.alicdn.com/kf/S5409c6abf3e14226a1a96d631dc93128C.jpg;https://ae01.alicdn.com/kf/Sf2f09dba0d094639aebe1e05f14ec2c9n.jpg;https://ae01.alicdn.com/kf/S5ea8730411bf4645992797e563501737j.jpg"
+      },
+      "package_info_dto": {
+        "package_width": 30,
+        "package_height": 5,
+        "package_length": 35,
+        "gross_weight": "0.35",
+        "package_type": false,
+        "product_unit": 100000015
+      },
+      "logistics_info_dto": {
+        "delivery_time": 7,
+        "ship_to_country": "us"
+      },
+      "product_id_converter_result": {
+        "main_product_id": 1005011561597062,
+        "sub_product_id": "{\"US\":3256811375282310}"
+      },
+      "ae_item_base_info_dto": {
+        "mobile_detail": "{\"version\":\"2.0.0\",\"moduleList\":[{\"type\":\"image\",\"data\":{\"url\":\"https://ae01.alicdn.com/kf/S0a4f387dc2664667b4e16d27a51e9ae7t.jpg\",\"style\":{\"width\":1000,\"height\":1000}}},{\"type\":\"image\",\"data\":{\"url\":\"https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg\",\"style\":{\"width\":1200,\"height\":1200}}},{\"type\":\"image\",\"data\":{\"url\":\"https://ae01.alicdn.com/kf/S5409c6abf3e14226a1a96d631dc93128C.jpg\",\"style\":{\"width\":899,\"height\":898}}},{\"type\":\"image\",\"data\":{\"url\":\"https://ae01.alicdn.com/kf/Sf2f09dba0d094639aebe1e05f14ec2c9n.jpg\",\"style\":{\"width\":918,\"height\":909}}},{\"type\":\"image\",\"data\":{\"url\":\"https://ae01.alicdn.com/kf/S5ea8730411bf4645992797e563501737j.jpg\",\"style\":{\"width\":916,\"height\":900}}}]}",
+        "subject": "Tee Shirt Homme Graphic T-Shirts Men Tshirt for Men Ropa Hombre Serial Experiments Lain Washed Sci Fi Anime Japanese Camisetas",
+        "evaluation_count": "1",
+        "sales_count": "4",
+        "product_status_type": "onSelling",
+        "avg_evaluation_rating": "5.0",
+        "separated_listing": false,
+        "currency_code": "CNY",
+        "sl_product": false,
+        "category_id": 200000783,
+        "product_id": 1005011561597062,
+        "detail": "\u003Cdiv class=\"detailmodule_html\"\u003E\u003Cdiv class=\"detail-desc-decorate-richtext\"\u003E\u003Cimg referrerpolicy=\"no-referrer\" src=\"https://ae01.alicdn.com/kf/S0a4f387dc2664667b4e16d27a51e9ae7t.jpg\" /\u003E\u003Cimg referrerpolicy=\"no-referrer\" src=\"https://ae01.alicdn.com/kf/S9b51d2f567314c5e834f2d60f4c542eaq.jpg\" /\u003E\u003Cimg referrerpolicy=\"no-referrer\" src=\"https://ae01.alicdn.com/kf/S5409c6abf3e14226a1a96d631dc93128C.jpg\" /\u003E\u003Cimg referrerpolicy=\"no-referrer\" src=\"https://ae01.alicdn.com/kf/Sf2f09dba0d094639aebe1e05f14ec2c9n.jpg\" /\u003E\u003Cimg referrerpolicy=\"no-referrer\" src=\"https://ae01.alicdn.com/kf/S5ea8730411bf4645992797e563501737j.jpg\" /\u003E\u003C/div\u003E\u003C/div\u003E\r\n"
+      },
+      "has_whole_sale": false,
+      "ae_item_properties": {
+        "ae_item_property": [
+          {
+            "attr_name_id": 2,
+            "attr_value_id": 201512802,
+            "attr_name": "Brand Name",
+            "attr_value": "NONE"
+          },
+          {
+            "attr_name_id": 200006489,
+            "attr_value_id": 100006596,
+            "attr_name": "Applicable Scene",
+            "attr_value": "CASUAL"
+          },
+          {
+            "attr_name_id": 400000603,
+            "attr_value_id": 23399591357,
+            "attr_name": "High-concerned chemical",
+            "attr_value": "None"
+          },
+          {
+            "attr_name_id": 100007732,
+            "attr_value_id": 200001498,
+            "attr_name": "Sleeve Length(cm)",
+            "attr_value": "Short (4 - 16 Inch)"
+          },
+          {
+            "attr_name_id": 200443303,
+            "attr_value_id": 200010266,
+            "attr_name": "Applicable Season",
+            "attr_value": "Four Seasons"
+          },
+          {
+            "attr_name_id": 340863826,
+            "attr_value_id": 4388665,
+            "attr_name": "Craft of Weaving",
+            "attr_value": "Knit"
+          },
+          {
+            "attr_name_id": 326,
+            "attr_value_id": 200000072,
+            "attr_name": "Style",
+            "attr_value": "Casual"
+          },
+          {
+            "attr_name_id": 290294697,
+            "attr_value_id": 32455544127,
+            "attr_name": "Product Care Instructions",
+            "attr_value": "Machine Wash"
+          },
+          {
+            "attr_name_id": 200000202,
+            "attr_value_id": 32455465457,
+            "attr_name": "Special Features",
+            "attr_value": "Breathable"
+          },
+          {
+            "attr_name_id": 219,
+            "attr_value_id": 9441741844,
+            "attr_name": "Origin",
+            "attr_value": "Mainland China"
+          },
+          {
+            "attr_name_id": 266081643,
+            "attr_value_id": 100015190,
+            "attr_name": "CN",
+            "attr_value": "Guangdong"
+          },
+          {
+            "attr_name_id": 10,
+            "attr_value_id": 47,
+            "attr_name": "Material",
+            "attr_value": "COTTON"
+          },
+          {
+            "attr_name_id": 200000457,
+            "attr_value_id": 100006504,
+            "attr_name": "Collar",
+            "attr_value": "O-Neck"
+          },
+          {
+            "attr_name_id": 200000362,
+            "attr_value_id": -1,
+            "attr_name": "Sleeve Style",
+            "attr_value": "Short Sleeved"
+          },
+          {
+            "attr_name_id": 200001031,
+            "attr_value_id": 200005297,
+            "attr_name": "Hooded",
+            "attr_value": "No"
+          },
+          {
+            "attr_name_id": 100002012,
+            "attr_value_id": 100006537,
+            "attr_name": "Fabric Type",
+            "attr_value": "Broadcloth"
+          },
+          {
+            "attr_name_id": 284,
+            "attr_value_id": 493,
+            "attr_name": "Gender",
+            "attr_value": "Men"
+          },
+          {
+            "attr_name_id": 200000329,
+            "attr_value_id": 200001250,
+            "attr_name": "Pattern Type",
+            "attr_value": "Print"
+          },
+          {
+            "attr_name_id": 200000317,
+            "attr_value_id": 200001205,
+            "attr_name": "Tops Type",
+            "attr_value": "TEES"
+          },
+          {
+            "attr_name_id": 200000137,
+            "attr_value_id": 3233,
+            "attr_name": "Item Type",
+            "attr_value": "tops"
+          },
+          {
+            "attr_name_id": 200005985,
+            "attr_value_id": 200660004,
+            "attr_name": "Place Of Origin",
+            "attr_value": "China (mainland)"
+          },
+          {
+            "attr_name_id": 200001153,
+            "attr_value_id": 1981792210,
+            "attr_name": "Closure Type",
+            "attr_value": "Pull On"
+          },
+          {
+            "attr_name_id": -1,
+            "attr_name": "Choice",
+            "attr_value": "yes"
+          }
+        ]
+      },
+      "ae_store_info": {
+        "store_id": 1104911820,
+        "shipping_speed_rating": "4.8",
+        "communication_rating": "4.7",
+        "store_name": "DFCF T-Shirt Store",
+        "store_country_code": "CN",
+        "item_as_described_rating": "4.6"
+      }
+    },
+    "rsp_code": 200,
+    "rsp_msg": "Call succeeds",
+    "request_id": "212a639d17766993780864664",
+    "_trace_id_": "214114e317766993780834918e0f40"
+  }
+}

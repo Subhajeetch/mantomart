@@ -124,6 +124,9 @@ importers:
       hono:
         specifier: ^4.12.5
         version: 4.12.8
+      nanoid:
+        specifier: ^5.1.9
+        version: 5.1.9
     devDependencies:
       '@types/node':
         specifier: ^22.15.3
@@ -4740,6 +4743,11 @@ packages:
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+    hasBin: true
+
+  nanoid@5.1.9:
+    resolution: {integrity: sha512-ZUvP7KeBLe3OZ1ypw6dI/TzYJuvHP77IM4Ry73waSQTLn8/g8rpdjfyVAh7t1/+FjBtG4lCP42MEbDxOsRpBMw==}
+    engines: {node: ^18 || >=20}
     hasBin: true
 
   nanostores@1.2.0:
@@ -10708,6 +10716,8 @@ snapshots:
   mute-stream@2.0.0: {}
 
   nanoid@3.3.11: {}
+
+  nanoid@5.1.9: {}
 
   nanostores@1.2.0: {}
 
