@@ -29,6 +29,13 @@
       "when": 1776181869153,
       "tag": "0003_chemical_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777007939565,
+      "tag": "0004_mature_emma_frost",
+      "breakpoints": true
     }
   ]
 }

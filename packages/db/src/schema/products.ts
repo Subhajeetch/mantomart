@@ -11,6 +11,9 @@ export const products = sqliteTable("products", {
   name: text("name").notNull(),
   description: text("description"),
   mobileDetail: text("mobile_detail"),
+  hasSizeChart: integer("has_size_chart", { mode: "boolean" }).notNull().default(false),
+  sizeChartImage: text("size_chart_image"),
+  sizeChartDescription: text("size_chart_description"),
 
   // ── Our pricing (what we charge the customer) ──
   // Always stored in cents. We mark up from AE price.
@@ -35,13 +38,6 @@ export const products = sqliteTable("products", {
   videoUrl: text("video_url"),
   videoPosterUrl: text("video_poster_url"),
 
-  // ── Package / shipping ── (ae: package_info_dto)
-  packageWidth: real("package_width"),                 // cm
-  packageHeight: real("package_height"),               // cm
-  packageLength: real("package_length"),               // cm
-  grossWeight: real("gross_weight"),                   // kg
-  deliveryTime: integer("delivery_time"),              // ae: logistics_info_dto.delivery_time (days)
-
   // ── Organisation ──
   categoryId: text("category_id").references(() => categories.id),
   published: integer("published", { mode: "boolean" }).notNull().default(false),
@@ -52,6 +48,11 @@ export const products = sqliteTable("products", {
   metaTitle: text("meta_title"),
   metaDescription: text("meta_description"),
   tags: text("tags", { mode: "json" }).$type<string[]>().default([]),
+
+  // analytics
+  orderCount: integer("order_count").notNull().default(0),
+  totalRevenue: integer("total_revenue").notNull().default(0), // in cents
+  
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -77,14 +78,11 @@ export const productSkus = sqliteTable("product_skus", {
   // AE source prices — kept for reference/markup calculation
   aePrice: integer("ae_price"),                        // ae: sku_price (cents)
   aeSalePrice: integer("ae_sale_price"),               // ae: offer_sale_price (cents)
-  aeBulkPrice: integer("ae_bulk_price"),               // ae: offer_bulk_sale_price (cents)
 
   stock: integer("stock").notNull().default(0),        // ae: sku_available_stock
   sku: text("sku"),                                    // our internal SKU code
-  barcode: text("barcode"),
   priceIncludesTax: integer("price_includes_tax", { mode: "boolean" }).default(false),
 
-  position: integer("position").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
