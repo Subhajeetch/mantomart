@@ -158,12 +158,6 @@ export function mapAEProductToSchema(
     videoUrl: null,
     videoPosterUrl: null,
 
-    packageWidth: packageInfo.package_width,
-    packageHeight: packageInfo.package_height,
-    packageLength: packageInfo.package_length,
-    grossWeight: parseFloat(packageInfo.gross_weight),
-    deliveryTime: logisticsInfo.delivery_time,
-
     categoryId: options.categoryId ?? null,
     published: false,
     featured: false,
@@ -193,12 +187,9 @@ export function mapAEProductToSchema(
       compareAtPrice: applyMarkup(aeOriginalPrice, markupPercent),
       aePrice: aeOriginalPrice,
       aeSalePrice,
-      aeBulkPrice: toCents(skuInfo.offer_bulk_sale_price),
       stock: skuInfo.sku_available_stock,
       sku: null,
-      barcode: null,
       priceIncludesTax: skuInfo.price_include_tax,
-      position: index,
       createdAt: now,
     };
 
