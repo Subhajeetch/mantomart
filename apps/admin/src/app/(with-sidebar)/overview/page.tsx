@@ -11,60 +11,8 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 
-import { BarChart, type BarDatum } from "@/components/custom-barchart"
-
 import {ChartBarInteractive} from "@/components/chart-bar"
 
-const chartData: BarDatum[] = [
-  { label: "Jan", value: 2400, color: "#F59F27" },
-  { label: "Feb", value: 1398, color: "#F59F27" },
-  { label: "Mar", value: 9800, color: "#F59F27" },
-  { label: "Apr", value: 3908, color: "#F59F27" },
-  { label: "May", value: 4800, color: "#F59F27" },
-  { label: "Jun", value: 3800, color: "#F59F27" },
-  { label: "Jul", value: 4300, color: "#F59F27" },
-  { label: "Aug", value: 5200, color: "#F59F27" },
-  { label: "Sep", value: 3200, color: "#F59F27" },
-  { label: "Oct", value: 4100, color: "#F59F27" },
-  { label: "Nov", value: 5600, color: "#F59F27" },
-  { label: "Dec", value: 6200, color: "#F59F27" },
-   { label: "Jan", value: 2400, color: "#F59F27" },
-  { label: "Feb", value: 1398, color: "#F59F27" },
-  { label: "Mar", value: 9800, color: "#F59F27" },
-  { label: "Apr", value: 3908, color: "#F59F27" },
-  { label: "May", value: 4800, color: "#F59F27" },
-  { label: "Jun", value: 3800, color: "#F59F27" },
-  { label: "Jul", value: 4300, color: "#F59F27" },
-  { label: "Aug", value: 5200, color: "#F59F27" },
-  { label: "Sep", value: 3200, color: "#F59F27" },
-  { label: "Oct", value: 4100, color: "#F59F27" },
-  { label: "Nov", value: 5600, color: "#F59F27" },
-  { label: "Dec", value: 6200, color: "#F59F27" },
-  { label: "Jan", value: 2400, color: "#F59F27" },
-  { label: "Feb", value: 1398, color: "#F59F27" },
-  { label: "Mar", value: 9800, color: "#F59F27" },
-  { label: "Apr", value: 3908, color: "#F59F27" },
-  { label: "May", value: 4800, color: "#F59F27" },
-  { label: "Jun", value: 3800, color: "#F59F27" },
-  { label: "Jul", value: 4300, color: "#F59F27" },
-  { label: "Aug", value: 5200, color: "#F59F27" },
-  { label: "Sep", value: 3200, color: "#F59F27" },
-  { label: "Oct", value: 4100, color: "#F59F27" },
-  { label: "Nov", value: 5600, color: "#F59F27" },
-  { label: "Dec", value: 6200, color: "#F59F27" },
-   { label: "Jan", value: 2400, color: "#F59F27" },
-  { label: "Feb", value: 1398, color: "#F59F27" },
-  { label: "Mar", value: 9800, color: "#F59F27" },
-  { label: "Apr", value: 3908, color: "#F59F27" },
-  { label: "May", value: 4800, color: "#F59F27" },
-  { label: "Jun", value: 3800, color: "#F59F27" },
-  { label: "Jul", value: 4300, color: "#F59F27" },
-  { label: "Aug", value: 5200, color: "#F59F27" },
-  { label: "Sep", value: 3200, color: "#F59F27" },
-  { label: "Oct", value: 4100, color: "#F59F27" },
-  { label: "Nov", value: 5600, color: "#F59F27" },
-  { label: "Dec", value: 6200, color: "#F59F27" },
-]
 
 export default function Page() {
   return (

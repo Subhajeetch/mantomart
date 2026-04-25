@@ -60,11 +60,11 @@ const sidebarLinks: {
     items: [
       {
         title: "Manage Products",
-        url: "#",
+        url: "/product/manage",
       },
       {
         title: "Add Product",
-        url: "#",
+        url: "/product/add",
       }
     ]
   },
