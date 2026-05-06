@@ -1,3 +1,5 @@
+"use client";
+
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -5,11 +7,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Image from "next/image";
 import { LayoutGrid } from 'lucide-react';
 
+import { useRouter, useSearchParams } from "next/navigation";
+
 import SearchProduct from "./search-product";
 import MyList from "./my-list";
 
+const VALID_TABS = ["search-product", "my-list"] as const;
+type TabValue = typeof VALID_TABS[number];
+
 export default function Page() {
-    
+    const router = useRouter();
+    const searchParams = useSearchParams();
+
+    const tabParam = searchParams.get("tab");
+    const activeTab: TabValue = VALID_TABS.includes(tabParam as TabValue)
+        ? (tabParam as TabValue)
+        : "search-product";
+
+    const handleTabChange = (value: string) => {
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("tab", value);
+        router.push(`?${params.toString()}`);
+    };
+
     return (
         <>
         <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
@@ -30,10 +50,10 @@ export default function Page() {
         </header>
 
        <main className="px-4">
-        <Tabs defaultValue="search-product" className="w-full flex">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full flex">
           <TabsList className="w-full bg-background my-2 gap-3">
             <TabsTrigger value="search-product" className="flex-1 h-12 data-[state=active]:bg-muted/80! bg-muted/50 font-semibold">
-            <Image src="/icons/aliexpress_logo.webp" alt="Search Icon" width={16} height={16} />
+              <Image src="/icons/aliexpress_logo.webp" alt="Search Icon" width={16} height={16} />
               Search Product
             </TabsTrigger>
             <TabsTrigger value="my-list" className="flex-1 h-12 data-[state=active]:bg-muted/80! bg-muted/50 font-semibold">
