@@ -9,20 +9,20 @@ const aeProduct = new Hono<{ Bindings: Env }>();
 
 //search products by keyword
 aeProduct.get("/product/search", async (c) => {
-  const { keyword, local, cc, pagesize, pageindex, currency } = c.req.query();
+  const { q, local, cc, itemnum, page, currency } = c.req.query();
 
-  if (!keyword) {
-    return c.json({ error: "keyword is required" }, 400);
+  if (!q) {
+    return c.json({ error: "q is required" }, 400);
   }
 
-  const pageSizeNum = Number(pagesize) || 20;
+  const pageSizeNum = Number(itemnum) || 20;
   if (pageSizeNum <= 0 || pageSizeNum > 100) {
-    return c.json({ error: "pagesize must be between 1 and 100" }, 400);
+    return c.json({ error: "itemnum must be between 1 and 100" }, 400);
   }
 
-  const pageIndexNum = Number(pageindex) || 1;
+  const pageIndexNum = Number(page) || 1;
   if (pageIndexNum <= 0) {
-    return c.json({ error: "pageindex must be greater than 0" }, 400);
+    return c.json({ error: "page must be greater than 0" }, 400);
   }
 
   let session: string;
@@ -37,7 +37,7 @@ aeProduct.get("/product/search", async (c) => {
       c.env,
       "aliexpress.ds.text.search",
       {
-        keyWord: keyword,
+        keyWord: q,
         pageSize: pageSizeNum,
         pageIndex: pageIndexNum,
         local: local || "en_US",

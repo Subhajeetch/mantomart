@@ -14,8 +14,8 @@ const nextConfig: NextConfig = {
 			{
 				source: '/api/:path*',
 				destination: process.env.NEXT_PUBLIC_API_URL
-					? `${process.env.NEXT_PUBLIC_API_URL}/:path*`  // Production
-					: 'http://localhost:8002/:path*',   // Local
+					? `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`  // Production
+					: 'http://localhost:8002/api/:path*',   // Local
 			},
 		];
 	}
