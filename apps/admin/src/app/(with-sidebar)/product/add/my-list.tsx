@@ -1,6 +1,8 @@
 const MyList = () => {
     return (
-        <p>my list</p>
+        <div>
+            <p>my list</p>
+        </div>
     )
 }
 

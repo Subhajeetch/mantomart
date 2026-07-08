@@ -1,13 +1,22 @@
-const KV_KEY = "ali_tokens";
 import config from "@/base.config";
 
-const { AE_API_BASE, AE_AUTH_BASE } = config;
+const { AE_AUTH_BASE } = config;
 
-// Types
-type TokenData = {
+const KV_KEY = "ali_tokens";
+const REFRESH_WINDOW_MS = 5 * 60 * 1000;
+
+export type TokenData = {
   access_token: string;
   refresh_token: string;
   expires_at: number;
+};
+
+export type AliExpressConnectionStatus = {
+  connected: boolean;
+  expires_at: number | null;
+  expires_in_ms: number | null;
+  is_expired: boolean;
+  should_refresh: boolean;
 };
 
 type AEEnv = {
@@ -15,6 +24,44 @@ type AEEnv = {
   AE_APP_SECRET: string;
   KV: KVNamespace;
 };
+
+type RawTokenResponse = {
+  access_token?: unknown;
+  refresh_token?: unknown;
+  expires_in?: unknown;
+  [key: string]: unknown;
+};
+
+export class AliExpressNotConnectedError extends Error {
+  constructor() {
+    super("AliExpress not connected. Complete OAuth flow first via /api/ae/connect.");
+    this.name = "AliExpressNotConnectedError";
+  }
+}
+
+export class AliExpressTokenError extends Error {
+  publicMessage: string;
+  raw: unknown;
+
+  constructor(context: string, raw: unknown) {
+    const publicMessage = AliExpressTokenError.extractMessage(raw);
+    super(`${context}: ${publicMessage}`);
+    this.name = "AliExpressTokenError";
+    this.publicMessage = publicMessage;
+    this.raw = raw;
+  }
+
+  private static extractMessage(raw: unknown): string {
+    if (raw && typeof raw === "object") {
+      const obj = raw as Record<string, unknown>;
+      const candidate = obj.msg ?? obj.message ?? obj.sub_msg;
+      if (typeof candidate === "string" && candidate.length > 0) {
+        return candidate;
+      }
+    }
+    return "Unexpected response from AliExpress";
+  }
+}
 
 async function hmacSha256(message: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(
@@ -54,11 +101,8 @@ async function generateSignSystem(
   const paramString = sortedKeys.map((k) => `${k}${filtered[k]}`).join("");
   const stringToSign = apiPath + paramString;
 
-  console.log("SIGN STRING:", stringToSign);
-
   return hmacSha256(stringToSign, appSecret);
 }
-
 
 function buildQueryString(params: Record<string, string>): string {
   return Object.entries(params)
@@ -82,27 +126,73 @@ async function buildSystemParams(
   return { ...base, sign };
 }
 
-//kvhelpers
-
 async function readTokens(kv: KVNamespace): Promise<TokenData | null> {
   const raw = await kv.get(KV_KEY);
   if (!raw) return null;
+
   try {
     return JSON.parse(raw) as TokenData;
-  } catch {
+  } catch (err) {
+    console.error("Failed to parse stored AliExpress tokens:", err);
     return null;
   }
 }
 
 async function writeTokens(kv: KVNamespace, tokens: TokenData): Promise<void> {
-  const ttlSeconds = Math.max(
-    Math.floor((tokens.expires_at - Date.now()) / 1000) + 60,
-    60
-  );
-  await kv.put(KV_KEY, JSON.stringify(tokens), { expirationTtl: ttlSeconds });
+  await kv.put(KV_KEY, JSON.stringify(tokens));
 }
 
-//token fetcher
+
+async function parseTokenResponse(res: Response, context: string): Promise<RawTokenResponse> {
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new AliExpressTokenError(context, {
+      non_json_response: true,
+      status: res.status,
+    });
+  }
+
+  if (!res.ok) {
+    throw new AliExpressTokenError(context, data);
+  }
+
+  return data as RawTokenResponse;
+}
+
+function toTokenData(
+  data: RawTokenResponse,
+  context: string,
+  fallbackRefreshToken?: string
+): TokenData {
+  const { access_token, refresh_token, expires_in } = data;
+
+  const refreshToken =
+    typeof refresh_token === "string" && refresh_token.length > 0
+      ? refresh_token
+      : fallbackRefreshToken;
+
+  const expiresInNum = Number(expires_in);
+
+  if (
+    typeof access_token !== "string" ||
+    access_token.length === 0 ||
+    typeof refreshToken !== "string" ||
+    refreshToken.length === 0 ||
+    !Number.isFinite(expiresInNum) ||
+    expiresInNum <= 0
+  ) {
+    throw new AliExpressTokenError(context, data);
+  }
+
+  return {
+    access_token,
+    refresh_token: refreshToken,
+    expires_at: Date.now() + expiresInNum * 1000,
+  };
+}
+
 async function fetchNewTokens(env: AEEnv, code: string): Promise<TokenData> {
   const apiPath = "/auth/token/create";
 
@@ -114,18 +204,8 @@ async function fetchNewTokens(env: AEEnv, code: string): Promise<TokenData> {
   const url = `${AE_AUTH_BASE}${apiPath}?${buildQueryString(params)}`;
 
   const res = await fetch(url, { method: "GET" });
-  const data = await res.json<any>();
- // console.log("token create response:", data);
-
-  if (!data.access_token) {
-    throw new Error(`AliExpress token create error: ${JSON.stringify(data)}`);
-  }
-
-  return {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    expires_at: Date.now() + Number(data.expires_in) * 1000,
-  };
+  const data = await parseTokenResponse(res, "AliExpress token create failed");
+  return toTokenData(data, "AliExpress token create failed");
 }
 
 async function fetchRefreshedTokens(
@@ -142,21 +222,27 @@ async function fetchRefreshedTokens(
   const url = `${AE_AUTH_BASE}${apiPath}?${buildQueryString(params)}`;
 
   const res = await fetch(url, { method: "GET" });
-  const data = await res.json<any>();
-  //console.log("token refresh response:", data);
-
-  if (!data.access_token) {
-    throw new Error(`AliExpress token refresh error: ${JSON.stringify(data)}`);
-  }
-
-  return {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    expires_at: Date.now() + Number(data.expires_in) * 1000,
-  };
+  const data = await parseTokenResponse(res, "AliExpress token refresh failed");
+  return toTokenData(data, "AliExpress token refresh failed", currentRefreshToken);
 }
 
-//to get the tokens
+let refreshInFlight: Promise<TokenData> | null = null;
+
+async function refreshAndStore(env: AEEnv, refreshToken: string): Promise<TokenData> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const refreshed = await fetchRefreshedTokens(env, refreshToken);
+        await writeTokens(env.KV, refreshed);
+        return refreshed;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
 export async function connectAliExpress(
   env: AEEnv,
   code: string
@@ -170,15 +256,11 @@ export async function getAccessToken(env: AEEnv): Promise<string> {
   const tokens = await readTokens(env.KV);
 
   if (!tokens) {
-    throw new Error(
-      "AliExpress not connected. Complete OAuth flow first via /api/ae/connect."
-    );
+    throw new AliExpressNotConnectedError();
   }
 
-  const fiveMinutes = 5 * 60 * 1000;
-  if (tokens.expires_at - Date.now() <= fiveMinutes) {
-    const refreshed = await fetchRefreshedTokens(env, tokens.refresh_token);
-    await writeTokens(env.KV, refreshed);
+  if (tokens.expires_at - Date.now() <= REFRESH_WINDOW_MS) {
+    const refreshed = await refreshAndStore(env, tokens.refresh_token);
     return refreshed.access_token;
   }
 
@@ -192,4 +274,41 @@ export async function isConnected(env: AEEnv): Promise<boolean> {
 
 export async function disconnectAliExpress(env: AEEnv): Promise<void> {
   await env.KV.delete(KV_KEY);
+}
+
+
+export async function getAliExpressConnectionStatus(
+  env: AEEnv
+): Promise<AliExpressConnectionStatus> {
+  const tokens = await readTokens(env.KV);
+
+  if (!tokens) {
+    return {
+      connected: false,
+      expires_at: null,
+      expires_in_ms: null,
+      is_expired: false,
+      should_refresh: false,
+    };
+  }
+
+  const expiresInMs = tokens.expires_at - Date.now();
+
+  return {
+    connected: true,
+    expires_at: tokens.expires_at,
+    expires_in_ms: Math.max(0, expiresInMs),
+    is_expired: expiresInMs <= 0,
+    should_refresh: expiresInMs <= REFRESH_WINDOW_MS,
+  };
+}
+
+export async function refreshAliExpressTokens(env: AEEnv): Promise<TokenData> {
+  const tokens = await readTokens(env.KV);
+
+  if (!tokens) {
+    throw new AliExpressNotConnectedError();
+  }
+
+  return refreshAndStore(env, tokens.refresh_token);
 }

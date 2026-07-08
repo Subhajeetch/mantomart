@@ -98,7 +98,7 @@ const sidebarLinks: {
   {
     title: "AliExpress Connection",
     type: "link",
-    url: "#",
+    url: "/aliexpress-connect",
     icon: ShoppingBag,
   }
 ]
