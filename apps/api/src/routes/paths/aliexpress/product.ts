@@ -1,35 +1,191 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type Env from "@/types/env";
 import { callAE } from "@/utils/callAE";
-
-import { getAccessToken } from "@/utils/manageAEauthTokens";
+import {
+  AliExpressNotConnectedError,
+  AliExpressTokenError,
+  getAccessToken,
+} from "@/utils/manageAEauthTokens";
 
 const aeProduct = new Hono<{ Bindings: Env }>();
 
+type AppContext = Context<{ Bindings: Env }>;
+type ErrorStatus = 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503;
 
-//search products by keyword
+function errorJson(
+  c: AppContext,
+  status: ErrorStatus,
+  code: string,
+  message: string
+) {
+  return c.json(
+    {
+      success: false,
+      error: message,
+      code,
+    },
+    status
+  );
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof AliExpressTokenError) {
+    return error.publicMessage;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unknown error occurred.";
+}
+
+function mapAliExpressError(error: unknown, fallbackMessage: string) {
+  const message = getErrorMessage(error);
+  const lowerMessage = message.toLowerCase();
+
+  if (
+    error instanceof AliExpressNotConnectedError ||
+    lowerMessage.includes("not connected")
+  ) {
+    return {
+      status: 401 as const,
+      code: "ALIEXPRESS_NOT_CONNECTED",
+      message: "AliExpress is not connected. Please connect AliExpress first.",
+    };
+  }
+
+  if (
+    lowerMessage.includes("invalid token") ||
+    lowerMessage.includes("expired token") ||
+    lowerMessage.includes("invalid session") ||
+    lowerMessage.includes("session expired")
+  ) {
+    return {
+      status: 401 as const,
+      code: "ALIEXPRESS_AUTH_EXPIRED",
+      message: "AliExpress authorization expired. Please reconnect AliExpress.",
+    };
+  }
+
+  if (
+    lowerMessage.includes("permission") ||
+    lowerMessage.includes("forbidden") ||
+    lowerMessage.includes("access denied")
+  ) {
+    return {
+      status: 403 as const,
+      code: "ALIEXPRESS_PERMISSION_DENIED",
+      message: "AliExpress denied permission for this request.",
+    };
+  }
+
+  if (
+    lowerMessage.includes("rate limit") ||
+    lowerMessage.includes("too many requests")
+  ) {
+    return {
+      status: 429 as const,
+      code: "ALIEXPRESS_RATE_LIMITED",
+      message: "AliExpress rate limit reached. Please try again later.",
+    };
+  }
+
+  if (lowerMessage.includes("not found")) {
+    return {
+      status: 404 as const,
+      code: "ALIEXPRESS_RESOURCE_NOT_FOUND",
+      message: "The requested AliExpress resource was not found.",
+    };
+  }
+
+  if (
+    lowerMessage.includes("timeout") ||
+    lowerMessage.includes("fetch failed") ||
+    lowerMessage.includes("network")
+  ) {
+    return {
+      status: 503 as const,
+      code: "ALIEXPRESS_UNAVAILABLE",
+      message: "AliExpress is temporarily unavailable. Please try again later.",
+    };
+  }
+
+  if (error instanceof AliExpressTokenError || lowerMessage.includes("aliexpress")) {
+    return {
+      status: 502 as const,
+      code: "ALIEXPRESS_UPSTREAM_ERROR",
+      message,
+    };
+  }
+
+  return {
+    status: 500 as const,
+    code: "INTERNAL_ERROR",
+    message: fallbackMessage,
+  };
+}
+
+type PositiveIntegerResult =
+  | { ok: true; value: number }
+  | { ok: false; error: string };
+
+function parsePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  fieldName: string,
+  max?: number
+): PositiveIntegerResult {
+  if (value === undefined || value === "") {
+    return { ok: true, value: fallback };
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return {
+      ok: false,
+      error: `${fieldName} must be a positive integer.`,
+    };
+  }
+
+  if (max !== undefined && parsed > max) {
+    return {
+      ok: false,
+      error: `${fieldName} must be between 1 and ${max}.`,
+    };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+// search products by keyword
 aeProduct.get("/product/search", async (c) => {
   const { q, local, cc, itemnum, page, currency } = c.req.query();
 
-  if (!q) {
-    return c.json({ error: "q is required" }, 400);
+  const keyword = q?.trim();
+
+  if (!keyword) {
+    return errorJson(c, 400, "MISSING_QUERY", "q is required.");
   }
 
-  const pageSizeNum = Number(itemnum) || 20;
-  if (pageSizeNum <= 0 || pageSizeNum > 100) {
-    return c.json({ error: "itemnum must be between 1 and 100" }, 400);
+  const pageSizeResult = parsePositiveInteger(itemnum, 20, "itemnum", 100);
+  if (!pageSizeResult.ok) {
+    return errorJson(c, 400, "INVALID_ITEMNUM", pageSizeResult.error);
   }
 
-  const pageIndexNum = Number(page) || 1;
-  if (pageIndexNum <= 0) {
-    return c.json({ error: "page must be greater than 0" }, 400);
+  const pageIndexResult = parsePositiveInteger(page, 1, "page");
+  if (!pageIndexResult.ok) {
+    return errorJson(c, 400, "INVALID_PAGE", pageIndexResult.error);
   }
 
   let session: string;
+
   try {
     session = await getAccessToken(c.env);
   } catch (error) {
-    return c.json({ error: "AliExpress not connected. Please complete OAuth flow." }, 401);
+    const mappedError = mapAliExpressError(error, "Failed to get AliExpress access token.");
+    return errorJson(c, mappedError.status, mappedError.code, mappedError.message);
   }
 
   try {
@@ -37,57 +193,90 @@ aeProduct.get("/product/search", async (c) => {
       c.env,
       "aliexpress.ds.text.search",
       {
-        keyWord: q,
-        pageSize: pageSizeNum,
-        pageIndex: pageIndexNum,
+        keyWord: keyword,
+        pageSize: pageSizeResult.value,
+        pageIndex: pageIndexResult.value,
         local: local || "en_US",
         countryCode: cc || "US",
-        currency: currency || "USD"
+        currency: currency || "USD",
       },
       session
     );
+
     return c.json(data);
   } catch (error) {
     console.error("Error searching products:", error);
-    return c.json({ error: "Failed to search products" }, 500);
+
+    const mappedError = mapAliExpressError(error, "Failed to search products.");
+    return errorJson(c, mappedError.status, mappedError.code, mappedError.message);
   }
 });
 
-
-//get product info by id
+// get product info by id
 aeProduct.get("/product/:id", async (c) => {
   const { id } = c.req.param();
-  const { shipToCountry, currency, lang, provinceCode, cityCode, bizModel, removePersonalBenefit } = c.req.query();
+  const {
+    shipToCountry,
+    currency,
+    lang,
+    provinceCode,
+    cityCode,
+    bizModel,
+    removePersonalBenefit,
+  } = c.req.query();
 
-  if (!shipToCountry) {
-    return c.json({ error: "shipToCountry is required" }, 400);
+  const productId = id?.trim();
+
+  if (!productId) {
+    return errorJson(c, 400, "MISSING_PRODUCT_ID", "Product id is required.");
+  }
+
+  if (!shipToCountry?.trim()) {
+    return errorJson(
+      c,
+      400,
+      "MISSING_SHIP_TO_COUNTRY",
+      "shipToCountry is required."
+    );
   }
 
   let session: string;
+
   try {
     session = await getAccessToken(c.env);
   } catch (error) {
-    return c.json({ error: "AliExpress not connected. Please complete OAuth flow." }, 401);
+    const mappedError = mapAliExpressError(error, "Failed to get AliExpress access token.");
+    return errorJson(c, mappedError.status, mappedError.code, mappedError.message);
   }
 
   try {
-    const params: Record<string, any> = {
-      product_id: id,
+    const params: Record<string, string> = {
+      product_id: productId,
       ship_to_country: shipToCountry,
       target_currency: currency || "USD",
       target_language: lang || "en",
-      remove_personal_benefit: removePersonalBenefit === "true" ? "true" : "false",
+      remove_personal_benefit:
+        removePersonalBenefit === "true" ? "true" : "false",
     };
 
     if (provinceCode) params.province_code = provinceCode;
     if (cityCode) params.city_code = cityCode;
     if (bizModel) params.biz_model = bizModel;
 
-    const data = await callAE(c.env, "aliexpress.ds.product.get", params, session);
+    const data = await callAE(
+      c.env,
+      "aliexpress.ds.product.get",
+      params,
+      session
+    );
+
     return c.json(data);
+    console.log("Product info fetched successfully:", data);
   } catch (error) {
     console.error("Error fetching product info:", error);
-    return c.json({ error: "Failed to fetch product info" }, 500);
+
+    const mappedError = mapAliExpressError(error, "Failed to fetch product info.");
+    return errorJson(c, mappedError.status, mappedError.code, mappedError.message);
   }
 });
 
