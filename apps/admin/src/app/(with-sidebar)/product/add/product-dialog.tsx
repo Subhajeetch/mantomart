@@ -429,7 +429,10 @@ function ProductDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[94dvh] w-[calc(100vw-1rem)] max-w-5xl overflow-hidden rounded-lg p-0 sm:w-full">
+      <DialogContent
+        className="max-h-[94dvh] overflow-hidden rounded-lg p-0"
+        style={{ width: "min(96vw, 1120px)", maxWidth: "none" }}
+      >
         <DialogHeader className="border-b bg-background px-4 py-3 sm:px-5 sm:py-4">
           <DialogTitle className="line-clamp-2 pr-7 text-sm leading-5 sm:text-base sm:leading-6">
             {parsed.title}
@@ -463,8 +466,8 @@ function ProductDetailDialog({
 
           {!loading ? (
             <div className="space-y-4 sm:space-y-5">
-              <div className="grid gap-4 lg:grid-cols-[minmax(280px,420px)_1fr]">
-                <div className="space-y-3">
+              <div className="flex min-w-0 flex-col gap-4 xl:flex-row">
+                <div className="w-full shrink-0 space-y-3 xl:w-[420px]">
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border bg-muted sm:aspect-square">
                     {selectedImageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -508,7 +511,7 @@ function ProductDetailDialog({
                   ) : null}
                 </div>
 
-                <div className="space-y-4">
+                <div className="min-w-0 flex-1 space-y-4">
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="secondary">
                       Status: {formatValue(parsed.baseInfo.product_status_type)}
@@ -529,7 +532,7 @@ function ProductDetailDialog({
                     />
                     <InfoRow
                       label="Rating"
-                      value={parsed.baseInfo.avg_evaluation_rating}
+                      value={`⭐ ${parsed.baseInfo.avg_evaluation_rating}`}
                     />
                     <InfoRow
                       label="Wholesale"
@@ -547,7 +550,7 @@ function ProductDetailDialog({
                       value={parsed.storeInfo.store_country_code}
                     />
                     <InfoRow
-                      label="Delivery Time"
+                      label="Delivery Time (US)"
                       value={
                         parsed.logisticsInfo.delivery_time
                           ? `${formatValue(parsed.logisticsInfo.delivery_time)} days`
@@ -598,7 +601,7 @@ function ProductDetailDialog({
                 </Section>
               ) : null}
 
-              <Section title="Store Ratings">
+              <Section title="⭐ Store Ratings">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <InfoRow
                     label="Item as described"
