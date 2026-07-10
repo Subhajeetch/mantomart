@@ -1,5 +1,6 @@
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { categories } from "./categories";
+import { users } from "./auth";
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 
@@ -28,15 +29,13 @@ export const products = sqliteTable("products", {
   aeReviewCount: integer("ae_review_count"),           // ae: evaluation_count
   aeSalesCount: text("ae_sales_count"),                // ae: sales_count (can be "1000+")
   aeStatus: text("ae_status"),                         // ae: product_status_type "onSelling"
-  aeHasWholesale: integer("ae_has_wholesale", { mode: "boolean" }).default(false),
-  aeCurrencyCode: text("ae_currency_code"),            // ae: currency_code (source currency)
   aeLastSynced: integer("ae_last_synced", { mode: "timestamp" }),
 
   // ── Media ──
   // ae: image_urls is semicolon-separated — we split and store as JSON array
   images: text("images", { mode: "json" }).$type<string[]>().default([]),
-  videoUrl: text("video_url"),
-  videoPosterUrl: text("video_poster_url"),
+  videos: text("videos", { mode: "json" }).$type<string[]>().default([]),
+  mainVideo: text("main_video"),
 
   // ── Organisation ──
   categoryId: text("category_id").references(() => categories.id),
@@ -51,7 +50,11 @@ export const products = sqliteTable("products", {
 
   // analytics
   orderCount: integer("order_count").notNull().default(0),
-  totalRevenue: integer("total_revenue").notNull().default(0), // in cents
+  totalRevenue: integer("total_revenue").notNull().default(0),
+
+  // for admins
+  productAddedBy: text("product_added_by").references(() => users.id),
+  productNotes: text("product_notes"),
   
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
