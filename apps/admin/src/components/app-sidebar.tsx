@@ -79,7 +79,7 @@ const sidebarLinks: {
       },
       {
         title: "Manage Admins",
-        url: "#",
+        url: "/manage/admins",
       }
     ]
   },

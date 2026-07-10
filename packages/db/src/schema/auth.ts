@@ -8,7 +8,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
   image: text("image"),
-  role: text("role", { enum: ["customer", "admin"] }).notNull().default("customer"),
+  role: text("role", { enum: ["customer", "admin", "owner"] }).notNull().default("customer"),
 
 
   firstName: text("first_name"),
@@ -52,7 +52,6 @@ export const users = sqliteTable("users", {
   lastLoginAt: integer("last_login_at", { mode: "timestamp" }),
   lastLoginIp: text("last_login_ip"),
   lastActiveAt: integer("last_active_at", { mode: "timestamp" }),
-  loginCount: integer("login_count").notNull().default(0),
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
