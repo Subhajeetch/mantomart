@@ -21,6 +21,8 @@ export const PERMISSIONS = {
 
   ADMIN_ACCESS:    "admin:access",
   AE_CONNECTION_MANAGE: "ae_connection:manage",
+
+  AUDIT_LOG_READ: 'audit_log:read',
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -51,6 +53,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.USER_MANAGE,
     PERMISSIONS.ADMIN_ACCESS,
     PERMISSIONS.AE_CONNECTION_MANAGE,
+    PERMISSIONS.AUDIT_LOG_READ,
   ],
   owner: Object.values(PERMISSIONS) as Permission[],
 };
