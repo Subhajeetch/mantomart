@@ -1,6 +1,5 @@
-'use client';
-
 import { Crown, Shield, Users } from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
 
 export function RoleBadge({ role }: { role: string }) {
