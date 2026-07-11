@@ -4,7 +4,7 @@ type SessionUser = {
   email: string;
   emailVerified: boolean;
   image?: string | null;
-  role?: "customer" | "admin";
+  role?: "customer" | "admin" | "owner";
   createdAt: Date;
   updatedAt: Date;
 };

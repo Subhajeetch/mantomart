@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import type Env from "@/types/env";
 import { callAE } from "@/utils/callAE";
 import {
@@ -6,27 +6,9 @@ import {
   AliExpressTokenError,
   getAccessToken,
 } from "@/utils/manageAEauthTokens";
+import { errorJson } from "@/utils/errorJson";
 
 const aeProduct = new Hono<{ Bindings: Env }>();
-
-type AppContext = Context<{ Bindings: Env }>;
-type ErrorStatus = 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503;
-
-function errorJson(
-  c: AppContext,
-  status: ErrorStatus,
-  code: string,
-  message: string
-) {
-  return c.json(
-    {
-      success: false,
-      error: message,
-      code,
-    },
-    status
-  );
-}
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof AliExpressTokenError) {

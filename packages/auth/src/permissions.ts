@@ -52,7 +52,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.ADMIN_ACCESS,
     PERMISSIONS.AE_CONNECTION_MANAGE,
   ],
-  superadmin: Object.values(PERMISSIONS) as Permission[],
+  owner: Object.values(PERMISSIONS) as Permission[],
 };
 
 
