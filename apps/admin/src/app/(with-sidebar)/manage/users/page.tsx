@@ -273,13 +273,11 @@ export default function ManageUsersPage() {
       <main className="flex flex-1 flex-col gap-6 p-4 pt-0">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">
+            <h1 className="text-2xl font-semibold tracking-tight sr-only">
               Manage Users
             </h1>
             <p className="text-muted-foreground max-w-xl text-sm">
-              View accounts, ban or unban users, and soft-delete accounts. To
-              promote someone to admin or owner, use{' '}
-              <strong>Manage Admins</strong>.
+              View accounts, ban or unban users, and soft-delete accounts.
             </p>
           </div>
 
