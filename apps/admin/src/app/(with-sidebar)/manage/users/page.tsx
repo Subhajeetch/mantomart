@@ -72,11 +72,12 @@ export default function ManageUsersPage() {
 
   const currentUserId = meta?.currentUserId ?? session?.user.id ?? '';
   const canBan = meta?.canBan ?? false;
+  const canDelete = meta?.canDelete ?? false;
   const canManage = meta?.canManage ?? false;
 
   const capabilities = useMemo(
-    () => ({ canBan, canManage }),
-    [canBan, canManage]
+    () => ({ canBan, canManage, canDelete }),
+    [canBan, canManage, canDelete]
   );
 
   // Debounce search input
@@ -114,6 +115,8 @@ export default function ManageUsersPage() {
           data: AdminUser[];
           meta: ListMeta;
         }>(`/all${qs ? `?${qs}` : ''}`);
+
+        console.log('Loaded users:', res.data, res.meta);
 
         setUsers(res.data);
         setMeta(res.meta);
@@ -214,7 +217,7 @@ export default function ManageUsersPage() {
   }
 
   const showLimitedAccessBanner =
-    !loading && meta && (!canManage || !canBan);
+    !loading && meta && !(canManage || canBan || canDelete);
 
   return (
     <>
@@ -359,13 +362,13 @@ export default function ManageUsersPage() {
           </Card>
         </div>
 
-        {showLimitedAccessBanner && (
+        {showLimitedAccessBanner && !canManage && (
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
             <ShieldAlert className="mt-0.5 size-4 shrink-0" />
             <p>
               Your permissions are limited.
               {!canBan && ' You cannot ban users.'}
-              {!canManage && ' You cannot delete users.'}
+              {!canDelete && ' You cannot delete users.'}
             </p>
           </div>
         )}

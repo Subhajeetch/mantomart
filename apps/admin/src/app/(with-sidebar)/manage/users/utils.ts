@@ -34,6 +34,7 @@ export type ListMeta = {
   currentUserId: string;
   currentUserRole: UserRole;
   canBan: boolean;
+  canDelete: boolean;
   canManage: boolean;
   total: number;
   page: number;

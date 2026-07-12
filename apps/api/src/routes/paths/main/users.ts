@@ -10,7 +10,7 @@ import {
 import { adminHasPermission } from '@/utils/permissions';
 import {
   requireAdminMiddleware,
-  requirePermission,
+  requireAnyPermission,
   getActor,
   getDb,
 } from '@/middleware/permission';
@@ -101,15 +101,16 @@ async function resolveActorCapabilities(
   role: string
 ) {
   if (isOwner(role)) {
-    return { canBan: true, canManage: true };
+    return { canBan: true, canManage: true, canDelete: true };
   }
 
-  const [canBan, canManage] = await Promise.all([
+  const [canBan, canManage, canDelete] = await Promise.all([
     adminHasPermission(db, actorId, PERMISSIONS.USER_BAN),
     adminHasPermission(db, actorId, PERMISSIONS.USER_MANAGE),
+    adminHasPermission(db, actorId, PERMISSIONS.USER_DELETE),
   ]);
 
-  return { canBan, canManage };
+  return { canBan, canManage, canDelete };
 }
 
 function buildWhere(
@@ -253,6 +254,7 @@ async function listUsersHandler(c: AppContext) {
         currentUserId: actor.id,
         currentUserRole: actor.role,
         canBan: capabilities.canBan,
+        canDelete: capabilities.canDelete,
         canManage: capabilities.canManage,
         total,
         page,
@@ -376,8 +378,7 @@ usersRouter.get('/:id', async (c) => {
 // ─── PATCH /:id/ban — ban or unban (USER_BAN) ─────────────────────────────────
 usersRouter.patch(
   '/:id/ban',
-  requirePermission(PERMISSIONS.USER_BAN),
-  requirePermission(PERMISSIONS.USER_MANAGE),
+  requireAnyPermission(PERMISSIONS.USER_BAN, PERMISSIONS.USER_MANAGE),
   async (c) => {
     const actor = getActor(c);
     const db = getDb(c);
@@ -518,8 +519,7 @@ usersRouter.patch(
 // Role promotion lives on /api/admins — not here.
 usersRouter.delete(
   '/:id',
-  requirePermission(PERMISSIONS.USER_DELETE),
-  requirePermission(PERMISSIONS.USER_MANAGE),
+  requireAnyPermission(PERMISSIONS.USER_DELETE, PERMISSIONS.USER_MANAGE),
   async (c) => {
     const db = getDb(c);
     const actor = getActor(c);

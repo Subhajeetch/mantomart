@@ -47,6 +47,7 @@ import {
 
 export type UserCardCapabilities = {
   canBan: boolean;
+  canDelete: boolean;
   canManage: boolean;
 };
 
@@ -136,15 +137,15 @@ export function UserCard({
   busyId,
 }: UserCardProps) {
   const busy = busyId === user.id;
-  const { canBan, canManage } = capabilities;
+  const { canBan, canManage, canDelete } = capabilities;
 
   // Only act on customer accounts from this page.
   // Admin/owner promotion is handled on Manage Admins.
   const isCustomerTarget =
     !isSelf && !user.isDeleted && user.role === 'customer';
 
-  const canShowBan = canBan && isCustomerTarget;
-  const canShowDelete = canManage && isCustomerTarget;
+  const canShowBan = isCustomerTarget && (canManage || canBan);
+  const canShowDelete = isCustomerTarget && (canManage || canDelete);
   const hasAnyAction = canShowBan || canShowDelete;
 
   return (

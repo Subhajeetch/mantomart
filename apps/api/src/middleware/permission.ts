@@ -196,6 +196,41 @@ export function requirePermission(
   };
 }
 
+/** Middleware factory: requires at least one of the supplied permissions. */
+export function requireAnyPermission(
+  ...permissions: Permission[]
+): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    let actor = c.get('actor');
+    let db = c.get('db');
+
+    if (!actor || !db) {
+      const auth = await authenticateAdmin(c);
+      if (!auth.ok) return auth.response;
+      actor = auth.actor;
+      db = auth.db;
+      attachAuth(c, auth);
+    }
+
+    if (!isOwner(actor.role)) {
+      const hasAnyPermission = await Promise.all(
+        permissions.map((permission) => adminHasPermission(db, actor.id, permission))
+      );
+
+      if (!hasAnyPermission.some(Boolean)) {
+        return errorJson(
+          c,
+          403,
+          'INSUFFICIENT_PERMISSION',
+          `Requires one of permissions: ${permissions.join(', ')}`
+        );
+      }
+    }
+
+    await next();
+  };
+}
+
 /** Read the authenticated actor set by middleware. */
 export function getActor(c: AppContext): AdminActor {
   const actor = c.get('actor');
