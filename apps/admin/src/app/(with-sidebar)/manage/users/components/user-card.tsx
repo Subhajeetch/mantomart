@@ -4,6 +4,7 @@ import {
   Ban,
   Crown,
   MoreHorizontal,
+  RotateCcw,
   Shield,
   ShieldAlert,
   Trash2,
@@ -57,6 +58,7 @@ interface UserCardProps {
   isSelf: boolean;
   onRequestBan: (user: AdminUser) => void;
   onRequestDelete: (user: AdminUser) => void;
+  onRequestUndelete: (user: AdminUser) => void;
   busyId: string | null;
 }
 
@@ -134,6 +136,7 @@ export function UserCard({
   isSelf,
   onRequestBan,
   onRequestDelete,
+  onRequestUndelete,
   busyId,
 }: UserCardProps) {
   const busy = busyId === user.id;
@@ -143,10 +146,11 @@ export function UserCard({
   // Admin/owner promotion is handled on Manage Admins.
   const isCustomerTarget =
     !isSelf && !user.isDeleted && user.role === 'customer';
+  const canShowUndelete = !isSelf && user.isDeleted && (canManage || canDelete);
 
   const canShowBan = isCustomerTarget && (canManage || canBan);
   const canShowDelete = isCustomerTarget && (canManage || canDelete);
-  const hasAnyAction = canShowBan || canShowDelete;
+  const hasAnyAction = canShowBan || canShowDelete || canShowUndelete;
 
   return (
     <Card
@@ -216,13 +220,26 @@ export function UserCard({
 
                     {canShowDelete && (
                       <>
-                        {canShowBan && <DropdownMenuSeparator />}
+                        {(canShowBan || canShowUndelete) && <DropdownMenuSeparator />}
                         <DropdownMenuItem
                           onClick={() => onRequestDelete(user)}
                           className="text-destructive"
                         >
                           <Trash2 className="mr-2 size-4" />
                           Delete user
+                        </DropdownMenuItem>
+                      </>
+                    )}
+
+                    {canShowUndelete && (
+                      <>
+                        {(canShowBan || canShowDelete) && <DropdownMenuSeparator />}
+                        <DropdownMenuItem
+                          onClick={() => onRequestUndelete(user)}
+                          className="text-green-600"
+                        >
+                          <RotateCcw className="mr-2 size-4" />
+                          Undelete user
                         </DropdownMenuItem>
                       </>
                     )}

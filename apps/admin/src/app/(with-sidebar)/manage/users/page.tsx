@@ -36,6 +36,7 @@ import type { Session } from '@repo/types/session-client';
 
 import { BanUserDialog } from './components/ban-user-dialog';
 import { DeleteUserDialog } from './components/delete-user-dialog';
+import { UndeleteUserDialog } from './components/undelete-user-dialog';
 import { UserCard, UserCardSkeleton } from './components/user-card';
 import {
   requestJson,
@@ -69,6 +70,7 @@ export default function ManageUsersPage() {
 
   const [banTarget, setBanTarget] = useState<AdminUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [undeleteTarget, setUndeleteTarget] = useState<AdminUser | null>(null);
 
   const currentUserId = meta?.currentUserId ?? session?.user.id ?? '';
   const canBan = meta?.canBan ?? false;
@@ -208,9 +210,39 @@ export default function ManageUsersPage() {
       setDeleteTarget(null);
       void loadStats();
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : 'Failed to delete user.'
-      );
+      const message =
+        err instanceof Error ? err.message : 'Failed to delete user.';
+      toast.error(message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleUndeleteConfirm() {
+    if (!undeleteTarget) return;
+    const user = undeleteTarget;
+    setBusyId(user.id);
+
+    try {
+      const res = await requestJson<{
+        success: true;
+        message?: string;
+        data?: AdminUser;
+      }>(`/${user.id}/undelete`, { method: 'PATCH' });
+
+      toast.success(res.message || 'User undeleted.');
+      if (res.data) {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === user.id ? { ...u, ...res.data } : u))
+        );
+      }
+      setUndeleteTarget(null);
+      void loadUsers(true);
+      void loadStats();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to undelete user.';
+      toast.error(message);
     } finally {
       setBusyId(null);
     }
@@ -472,6 +504,7 @@ export default function ManageUsersPage() {
                   isSelf={user.id === currentUserId}
                   onRequestBan={setBanTarget}
                   onRequestDelete={setDeleteTarget}
+                  onRequestUndelete={setUndeleteTarget}
                   busyId={busyId}
                 />
               ))}
@@ -527,6 +560,16 @@ export default function ManageUsersPage() {
         }}
         onConfirm={() => void handleDeleteConfirm()}
         loading={busyId === deleteTarget?.id}
+      />
+
+      <UndeleteUserDialog
+        user={undeleteTarget}
+        open={!!undeleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setUndeleteTarget(null);
+        }}
+        onConfirm={() => void handleUndeleteConfirm()}
+        loading={busyId === undeleteTarget?.id}
       />
     </>
   );

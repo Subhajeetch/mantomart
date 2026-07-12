@@ -515,6 +515,104 @@ usersRouter.patch(
   }
 );
 
+// ─── PATCH /:id/undelete — restore a deleted account ───────────────────────
+usersRouter.patch(
+  '/:id/undelete',
+  requireAnyPermission(PERMISSIONS.USER_DELETE, PERMISSIONS.USER_MANAGE),
+  async (c) => {
+    const db = getDb(c);
+    const actor = getActor(c);
+
+    const targetId = c.req.param('id')?.trim() ?? '';
+    if (!isValidUserId(targetId)) {
+      return errorJson(c, 400, 'INVALID_ID', 'Invalid user id.');
+    }
+
+    if (targetId === actor.id) {
+      return errorJson(
+        c,
+        400,
+        'CANNOT_UNDELETE_SELF',
+        'You cannot undelete yourself.'
+      );
+    }
+
+    try {
+      const [target] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, targetId))
+        .limit(1);
+
+      if (!target) {
+        return errorJson(c, 404, 'USER_NOT_FOUND', 'User not found.');
+      }
+
+      if (!target.isDeleted) {
+        return errorJson(
+          c,
+          409,
+          'USER_NOT_DELETED',
+          'User is not deleted and does not need to be restored.'
+        );
+      }
+
+      if (isOwner(target.role)) {
+        return errorJson(
+          c,
+          403,
+          'CANNOT_UNDELETE_OWNER',
+          'Cannot undelete an owner.'
+        );
+      }
+
+      if (!isOwner(actor.role) && target.role === 'admin') {
+        return errorJson(
+          c,
+          403,
+          'CANNOT_UNDELETE_ADMIN',
+          'Only owners can undelete admin accounts.'
+        );
+      }
+
+      const now = new Date();
+      const updated = await db
+        .update(users)
+        .set({
+          isDeleted: false,
+          deletedAt: null,
+          isBanned: false,
+          bannedAt: null,
+          bannedBy: null,
+          bannedReason: null,
+          updatedAt: now,
+        })
+        .where(
+          and(eq(users.id, targetId), eq(users.isDeleted, true), eq(users.role, target.role))
+        )
+        .returning();
+
+      if (updated.length === 0) {
+        return errorJson(
+          c,
+          409,
+          'CONFLICT',
+          'Could not undelete user. They may have changed — refresh and try again.'
+        );
+      }
+
+      return c.json({
+        success: true,
+        message: `${target.name} has been restored.`,
+        data: serializeUser(updated[0]),
+      });
+    } catch (error) {
+      console.error('Error undeleting user:', error);
+      return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to undelete user.');
+    }
+  }
+);
+
 // ─── DELETE /:id — soft-delete (USER_MANAGE) ──────────────────────────────────
 // Role promotion lives on /api/admins — not here.
 usersRouter.delete(
