@@ -11,7 +11,7 @@ import {
 } from '@repo/auth/permissions';
 import { createDb, userPermissions, users } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson, type AppContext } from '@/utils/errorJson';
+import { errorJson, type EnvContext } from '@/utils/errorJson';
 import { touchLastActive } from '@/utils/userActivity';
 
 type AdminRole = 'admin' | 'owner';
@@ -42,7 +42,7 @@ type PermissionState = {
 
 const admins = new Hono<{ Bindings: Env }>();
 
-function createAuthFromEnv(c: AppContext) {
+function createAuthFromEnv(c: EnvContext) {
   const db = createDb(c.env.DB);
   const auth = createAuth(db, {
     GOOGLE_CLIENT_ID: c.env.GOOGLE_CLIENT_ID,
@@ -107,7 +107,7 @@ async function countOwners(db: ReturnType<typeof createDb>) {
  * Authenticate via better-auth session, then re-load role from DB so
  * permission checks cannot be bypassed with a stale session role.
  */
-async function requireAdminAccess(c: AppContext) {
+async function requireAdminAccess(c: EnvContext) {
   const { db, auth } = createAuthFromEnv(c);
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
 
@@ -170,7 +170,7 @@ async function requireAdminAccess(c: AppContext) {
 }
 
 /** Only owners can mutate admin membership / roles. */
-async function requireOwnerAccess(c: AppContext) {
+async function requireOwnerAccess(c: EnvContext) {
   const access = await requireAdminAccess(c);
   if (!access.ok) return access;
 
@@ -298,7 +298,7 @@ function normalizePermissionOverrides(
  * Hono already limits body size at the platform level; this is defense-in-depth.
  */
 async function readJsonObject(
-  c: AppContext
+  c: EnvContext
 ): Promise<
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; response: Response }

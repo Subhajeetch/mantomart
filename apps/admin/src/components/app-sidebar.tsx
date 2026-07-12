@@ -75,7 +75,7 @@ const sidebarLinks: {
     items: [
       {
         title: "Manage Users",
-        url: "#",
+        url: "/manage/users",
       },
       {
         title: "Manage Admins",

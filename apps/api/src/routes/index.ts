@@ -4,5 +4,6 @@ import aeAuth from "./paths/aliexpress/connectAE";
 
 // from main
 import admins from "./paths/main/admins";
+import users from "./paths/main/users";
 
-export { aeProduct, aeAuth, admins };
+export { aeProduct, aeAuth, admins, users };
