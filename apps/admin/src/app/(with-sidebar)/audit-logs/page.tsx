@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  BarChart3,
   Database,
   RefreshCw,
   ScrollText,
@@ -35,6 +36,7 @@ import {
   AuditLogGroupCard,
 } from './components/audit-log-group';
 import { AuditLogDetailDialog } from './components/audit-log-detail-dialog';
+import { AuditStatsDialog } from './components/audit-stats-dialog';
 import {
   groupAuditLogs,
   requestJson,
@@ -56,7 +58,8 @@ export default function AuditLogsPage() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsDialogOpen, setStatsDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
@@ -156,10 +159,17 @@ export default function AuditLogsPage() {
     void loadLogs();
   }, [loadLogs]);
 
+  // Fetch stats only when the dialog is opened for the first time.
   useEffect(() => {
-    void loadStats();
+    if (statsDialogOpen && !stats) {
+      setStatsLoading(true);
+      void loadStats();
+    }
+  }, [statsDialogOpen, stats, loadStats]);
+
+  useEffect(() => {
     void loadCatalog();
-  }, [loadStats, loadCatalog]);
+  }, [loadCatalog]);
 
   const categories = catalog?.usedCategories?.length
     ? catalog.usedCategories
@@ -204,7 +214,7 @@ export default function AuditLogsPage() {
             </h1>
             <p className="text-muted-foreground max-w-xl text-sm">
               Who changed what, when, and from where. Only the latest{' '}
-              {stats?.maxEntries ?? meta?.maxEntries ?? 1000} entries are kept.
+              {meta?.maxEntries ?? 1000} entries are kept.
             </p>
           </div>
 
@@ -214,7 +224,7 @@ export default function AuditLogsPage() {
               size="sm"
               onClick={() => {
                 void loadLogs(true);
-                void loadStats();
+                if (stats) void loadStats();
                 void loadCatalog();
               }}
               disabled={loading || refreshing}
@@ -225,67 +235,26 @@ export default function AuditLogsPage() {
               />
               Refresh
             </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatsDialogOpen(true)}
+              className="gap-1.5"
+            >
+              <BarChart3 className="size-3.5" />
+              Stats
+            </Button>
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
-                <ScrollText className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Stored entries</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading ? '—' : (stats?.total ?? '—')}
-                  <span className="text-muted-foreground ml-1 text-xs font-normal">
-                    / {stats?.maxEntries ?? 1000}
-                  </span>
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="bg-destructive/10 text-destructive flex size-9 items-center justify-center rounded-lg">
-                <AlertTriangle className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Critical</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading ? '—' : (stats?.critical ?? '—')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <ShieldAlert className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Warnings</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading ? '—' : (stats?.bySeverity?.warning ?? 0)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                <Database className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Capacity left</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading ? '—' : (stats?.remaining ?? '—')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Stats dialog — only fetches API data when opened */}
+        <AuditStatsDialog
+          open={statsDialogOpen}
+          onOpenChange={setStatsDialogOpen}
+          stats={stats}
+          loading={statsLoading}
+        />
 
         {/* Filters */}
         <div className="flex flex-col gap-3">

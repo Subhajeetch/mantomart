@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Crown, Plus, RefreshCw, Shield, ShieldAlert, Users } from 'lucide-react';
+import { BarChart3, Crown, Plus, RefreshCw, Shield, ShieldAlert, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -22,10 +22,11 @@ import {
 import { useSession } from '@/lib/auth-client';
 import type { Session } from '@repo/types/session-client';
 
-import { AddAdminDialog } from './sections/add-admin-dialog';
-import { AdminCard, AdminCardSkeleton } from './sections/admin-card';
-import { RemoveAdminDialog } from './sections/remove-admin-dialog';
-import { UpdatePermissionsDialog } from './sections/update-permissions-dialog';
+import { AddAdminDialog } from './components/add-admin-dialog';
+import { AdminCard, AdminCardSkeleton } from './components/admin-card';
+import { AdminStatsDialog } from './components/admin-stats-dialog';
+import { RemoveAdminDialog } from './components/remove-admin-dialog';
+import { UpdatePermissionsDialog } from './components/update-permissions-dialog';
 import type { AdminRole, AdminUser, ListMeta } from './utils';
 import { requestJson } from './utils';
 
@@ -40,6 +41,7 @@ export default function ManageAdminsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const [statsDialogOpen, setStatsDialogOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [permissionsTarget, setPermissionsTarget] = useState<AdminUser | null>(
     null
@@ -185,6 +187,16 @@ export default function ManageAdminsPage() {
               Refresh
             </Button>
 
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatsDialogOpen(true)}
+              className="gap-1.5"
+            >
+              <BarChart3 className="size-3.5" />
+              Stats
+            </Button>
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex">
@@ -206,48 +218,15 @@ export default function ManageAdminsPage() {
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Users className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Total</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {loading ? '—' : (meta?.total ?? admins.length)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <Crown className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Owners</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {loading ? '—' : ownerCount}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                <Shield className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Admins</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {loading ? '—' : adminCount}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Stats dialog — computed from loaded admin list */}
+        <AdminStatsDialog
+          open={statsDialogOpen}
+          onOpenChange={setStatsDialogOpen}
+          total={meta?.total ?? admins.length}
+          ownerCount={ownerCount}
+          adminCount={adminCount}
+          loading={loading}
+        />
 
         {!canManage && !loading && (
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">

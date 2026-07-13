@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Ban,
+  BarChart3,
   Crown,
   RefreshCw,
   Search,
@@ -38,6 +39,7 @@ import { BanUserDialog } from './components/ban-user-dialog';
 import { DeleteUserDialog } from './components/delete-user-dialog';
 import { UndeleteUserDialog } from './components/undelete-user-dialog';
 import { UserCard, UserCardSkeleton } from './components/user-card';
+import { UserStatsDialog } from './components/user-stats-dialog';
 import {
   requestJson,
   type AdminUser,
@@ -58,7 +60,8 @@ export default function ManageUsersPage() {
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsDialogOpen, setStatsDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -152,9 +155,13 @@ export default function ManageUsersPage() {
     void loadUsers();
   }, [loadUsers]);
 
+  // Fetch stats only when the dialog is opened for the first time.
   useEffect(() => {
-    void loadStats();
-  }, [loadStats]);
+    if (statsDialogOpen && !stats) {
+      setStatsLoading(true);
+      void loadStats();
+    }
+  }, [statsDialogOpen, stats, loadStats]);
 
   async function handleBanConfirm(banned: boolean, reason?: string) {
     if (!banTarget) return;
@@ -181,7 +188,7 @@ export default function ManageUsersPage() {
         prev.map((u) => (u.id === user.id ? { ...u, ...res.data } : u))
       );
       setBanTarget(null);
-      void loadStats();
+      if (stats) void loadStats();
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : 'Failed to update ban status.'
@@ -208,7 +215,7 @@ export default function ManageUsersPage() {
         m ? { ...m, total: Math.max(0, m.total - 1) } : m
       );
       setDeleteTarget(null);
-      void loadStats();
+      if (stats) void loadStats();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to delete user.';
@@ -238,7 +245,7 @@ export default function ManageUsersPage() {
       }
       setUndeleteTarget(null);
       void loadUsers(true);
-      void loadStats();
+      if (stats) void loadStats();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to undelete user.';
@@ -281,116 +288,39 @@ export default function ManageUsersPage() {
             </p>
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void loadUsers(true);
-              void loadStats();
-            }}
-            disabled={loading || refreshing}
-            className="gap-1.5"
-          >
-            <RefreshCw
-              className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`}
-            />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadUsers(true)}
+              disabled={loading || refreshing}
+              className="gap-1.5"
+            >
+              <RefreshCw
+                className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`}
+              />
+              Refresh
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStatsDialogOpen(true)}
+              className="gap-1.5"
+            >
+              <BarChart3 className="size-3.5" />
+              Stats
+            </Button>
+          </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
-                <Users className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Total Users</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading ? '—' : (stats?.total ?? '—')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
-                <UserCheck className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Active</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading ? '—' : (stats?.active ?? '—')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="bg-destructive/10 text-destructive flex size-9 items-center justify-center rounded-lg">
-                <Ban className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Banned</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading ? '—' : (stats?.banned ?? '—')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <Crown className="size-4" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Admins & Owners</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {statsLoading
-                    ? '—'
-                    : (stats?.byRole?.admin ?? 0) + (stats?.byRole?.owner ?? 0)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-2 px-3 py-2">
-              <UserCheck className="text-muted-foreground size-4" />
-              <div>
-                <p className="text-muted-foreground text-xs">Customers</p>
-                <p className="text-primary text-lg font-semibold tabular-nums">
-                  {stats?.byRole?.customer ?? '—'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-2 px-3 py-2">
-              <Shield className="size-4 text-sky-500" />
-              <div>
-                <p className="text-muted-foreground text-xs">Admins</p>
-                <p className="text-lg font-semibold tabular-nums text-sky-600">
-                  {stats?.byRole?.admin ?? '—'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card size="sm" className="bg-card/60">
-            <CardContent className="flex items-center gap-2 px-3 py-2">
-              <Crown className="size-4 text-amber-500" />
-              <div>
-                <p className="text-muted-foreground text-xs">Owners</p>
-                <p className="text-lg font-semibold tabular-nums text-amber-600">
-                  {stats?.byRole?.owner ?? '—'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Stats dialog — only fetches API data when opened */}
+        <UserStatsDialog
+          open={statsDialogOpen}
+          onOpenChange={setStatsDialogOpen}
+          stats={stats}
+          loading={statsLoading}
+        />
 
         {showLimitedAccessBanner && !canManage && (
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
