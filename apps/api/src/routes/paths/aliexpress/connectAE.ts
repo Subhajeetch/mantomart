@@ -1,14 +1,28 @@
 import {
   connectAliExpress,
   disconnectAliExpress,
-  getAccessToken,
   getAliExpressConnectionStatus,
-  refreshAliExpressTokens
-} from "@/utils/manageAEauthTokens";
-import type Env from "@/types/env";
-import { Hono } from "hono";
+  refreshAliExpressTokens,
+} from '@/utils/manageAEauthTokens';
+import { PERMISSIONS } from '@repo/auth/permissions';
+import {
+  requireAdminMiddleware,
+  requireAnyPermission,
+} from '@/middleware/permission';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CATEGORIES,
+  AUDIT_TARGET_TYPES,
+  logAuditFromContext,
+  type AuditAction,
+  type AuditChangeMap,
+  type AuditSeverity,
+  type AuditStatus,
+} from '@/utils/auditLog';
+import type { AppContext, AppEnv } from '@/utils/errorJson';
+import { Hono } from 'hono';
 
-const aeAuth = new Hono<{ Bindings: Env }>();
+const aeAuth = new Hono<AppEnv>();
 
 type ApiErrorResponse = {
   success: false;
@@ -41,19 +55,15 @@ function errorResponse(
 
 function parseAliExpressError(error: unknown) {
   if (!(error instanceof Error)) {
-    return errorResponse(
-      "An unexpected error occurred",
-      "UNKNOWN_ERROR",
-      500
-    );
+    return errorResponse('An unexpected error occurred', 'UNKNOWN_ERROR', 500);
   }
 
-  const rawMessage = error.message || "An unexpected error occurred";
+  const rawMessage = error.message || 'An unexpected error occurred';
 
   const possibleJson = rawMessage
-    .replace(/^AliExpress token create error:\s*/i, "")
-    .replace(/^AliExpress token refresh error:\s*/i, "")
-    .replace(/^AliExpress API error:\s*/i, "");
+    .replace(/^AliExpress token create (?:error|failed):\s*/i, '')
+    .replace(/^AliExpress token refresh (?:error|failed):\s*/i, '')
+    .replace(/^AliExpress API error:\s*/i, '');
 
   try {
     const parsed = JSON.parse(possibleJson);
@@ -70,171 +80,284 @@ function parseAliExpressError(error: unknown) {
       parsed.error ||
       parsed.error_code ||
       parsed.errorCode ||
-      "ALIEXPRESS_ERROR";
+      'ALIEXPRESS_ERROR';
 
     if (
-      aliExpressCode === "invalid_grant" ||
-      aliExpressCode === "invalid_code" ||
-      message.toLowerCase().includes("invalid code") ||
-      message.toLowerCase().includes("authorization code")
+      aliExpressCode === 'invalid_grant' ||
+      aliExpressCode === 'invalid_code' ||
+      message.toLowerCase().includes('invalid code') ||
+      message.toLowerCase().includes('authorization code')
     ) {
       return errorResponse(
-        "Invalid or expired AliExpress authorization code",
-        "INVALID_AUTHORIZATION_CODE",
+        'Invalid or expired AliExpress authorization code',
+        'INVALID_AUTHORIZATION_CODE',
         400,
         parsed
       );
     }
 
     if (
-      aliExpressCode === "invalid_token" ||
-      message.toLowerCase().includes("invalid token") ||
-      message.toLowerCase().includes("expired token")
+      aliExpressCode === 'invalid_token' ||
+      message.toLowerCase().includes('invalid token') ||
+      message.toLowerCase().includes('expired token')
     ) {
       return errorResponse(
-        "AliExpress access token is invalid or expired",
-        "INVALID_ACCESS_TOKEN",
+        'AliExpress access token is invalid or expired',
+        'INVALID_ACCESS_TOKEN',
         401,
         parsed
       );
     }
 
     if (
-      message.toLowerCase().includes("permission") ||
-      message.toLowerCase().includes("forbidden") ||
-      aliExpressCode === "forbidden"
+      message.toLowerCase().includes('permission') ||
+      message.toLowerCase().includes('forbidden') ||
+      aliExpressCode === 'forbidden'
     ) {
       return errorResponse(
-        "AliExpress permission was denied",
-        "ALIEXPRESS_PERMISSION_DENIED",
+        'AliExpress permission was denied',
+        'ALIEXPRESS_PERMISSION_DENIED',
         403,
         parsed
       );
     }
 
-    return errorResponse(
-      message,
-      String(aliExpressCode),
-      502,
-      parsed
-    );
+    return errorResponse(message, String(aliExpressCode), 502, parsed);
   } catch {
     const lowerMessage = rawMessage.toLowerCase();
 
-    if (lowerMessage.includes("not connected")) {
+    if (lowerMessage.includes('not connected')) {
       return errorResponse(
-        "AliExpress is not connected",
-        "ALIEXPRESS_NOT_CONNECTED",
+        'AliExpress is not connected',
+        'ALIEXPRESS_NOT_CONNECTED',
         409
       );
     }
 
     if (
-      lowerMessage.includes("network") ||
-      lowerMessage.includes("fetch failed") ||
-      lowerMessage.includes("timeout")
+      lowerMessage.includes('network') ||
+      lowerMessage.includes('fetch failed') ||
+      lowerMessage.includes('timeout')
     ) {
       return errorResponse(
-        "Unable to reach AliExpress right now",
-        "ALIEXPRESS_UNAVAILABLE",
+        'Unable to reach AliExpress right now',
+        'ALIEXPRESS_UNAVAILABLE',
         503
       );
     }
 
-    return errorResponse(
-      rawMessage,
-      "INTERNAL_ERROR",
-      500
-    );
+    return errorResponse(rawMessage, 'INTERNAL_ERROR', 500);
   }
 }
 
-aeAuth.get("/connect", async (c) => {
-  const code = c.req.query("code");
-
-  if (!code || code.trim().length === 0) {
-    return c.json(
-      {
-        success: false,
-        error: "Missing AliExpress authorization code",
-        code: "MISSING_AUTHORIZATION_CODE",
-      },
-      400
-    );
+function recordAliExpressAudit(
+  c: AppContext,
+  input: {
+    action: AuditAction;
+    description: string;
+    status?: AuditStatus;
+    severity?: AuditSeverity;
+    changes?: AuditChangeMap | null;
+    metadata?: Record<string, unknown> | null;
   }
+) {
+  c.executionCtx.waitUntil(
+    logAuditFromContext(c, {
+      category: AUDIT_CATEGORIES.AE,
+      targetType: AUDIT_TARGET_TYPES.AE_CONNECTION,
+      targetId: 'aliexpress',
+      targetLabel: 'AliExpress',
+      ...input,
+    }).then(() => undefined)
+  );
+}
 
-  try {
-    const tokens = await connectAliExpress(c.env, code.trim());
+aeAuth.use('*', requireAdminMiddleware);
 
-    return c.json({
-      success: true,
-      message: "AliExpress connected successfully",
-      tokens,
-    });
-  } catch (error) {
-    console.error("Error connecting AliExpress:", error);
+aeAuth.get(
+  '/connect',
+  requireAnyPermission(PERMISSIONS.AE_CONNECTION_MANAGE),
+  async (c) => {
+    const code = c.req.query('code');
 
-    const response = parseAliExpressError(error);
-    return c.json(response.body, response.status);
-  }
-});
+    if (!code || code.trim().length === 0) {
+      recordAliExpressAudit(c, {
+        action: AUDIT_ACTIONS.AE_CONNECT,
+        description:
+          'AliExpress connection failed because the authorization code was missing',
+        status: 'failure',
+        severity: 'warning',
+        metadata: { code: 'MISSING_AUTHORIZATION_CODE' },
+      });
 
-aeAuth.get("/disconnect", async (c) => {
-  try {
-    await disconnectAliExpress(c.env);
-
-    return c.json({
-      success: true,
-      message: "AliExpress disconnected successfully",
-    });
-  } catch (error) {
-    console.error("Error disconnecting AliExpress:", error);
-
-    const response = parseAliExpressError(error);
-    return c.json(response.body, response.status);
-  }
-});
-
-aeAuth.get("/status", async (c) => {
-  try {
-    const status = await getAliExpressConnectionStatus(c.env);
-    return c.json({ success: true, ...status });
-  } catch (error) {
-    console.error("Error checking AliExpress connection status:", error);
-
-    const response = parseAliExpressError(error);
-    return c.json(response.body, response.status);
-  }
-});
-
-aeAuth.get("/refresh", async (c) => {
-  try {
-    const accessToken = await getAccessToken(c.env);
-
-    if (!accessToken) {
       return c.json(
         {
           success: false,
-          error: "AliExpress is not connected",
-          code: "ALIEXPRESS_NOT_CONNECTED",
+          error: 'Missing AliExpress authorization code',
+          code: 'MISSING_AUTHORIZATION_CODE',
         },
-        409
+        400
       );
     }
 
-    const tokens = await refreshAliExpressTokens(c.env);
-    return c.json({
-      success: true,
-      message: "AliExpress token refreshed successfully",
-      tokens,
-      expires_at: tokens.expires_at,
-    });
-  } catch (error) {
-    console.error("Error refreshing AliExpress access token:", error);
+    try {
+      const tokens = await connectAliExpress(c.env, code.trim());
 
-    const response = parseAliExpressError(error);
-    return c.json(response.body, response.status);
+      recordAliExpressAudit(c, {
+        action: AUDIT_ACTIONS.AE_CONNECT,
+        description: 'AliExpress connected successfully',
+        status: 'success',
+        severity: 'info',
+        changes: { connected: { from: false, to: true } },
+        metadata: { expiresAt: tokens.expires_at },
+      });
+
+      return c.json({
+        success: true,
+        message: 'AliExpress connected successfully',
+        tokens,
+      });
+    } catch (error) {
+      console.error('Error connecting AliExpress:', error);
+
+      const response = parseAliExpressError(error);
+      recordAliExpressAudit(c, {
+        action: AUDIT_ACTIONS.AE_CONNECT,
+        description: 'AliExpress connection failed',
+        status: 'failure',
+        severity: 'warning',
+        metadata: { code: response.body.code },
+      });
+
+      return c.json(response.body, response.status);
+    }
   }
-});
+);
+
+aeAuth.get(
+  '/disconnect',
+  requireAnyPermission(PERMISSIONS.AE_CONNECTION_MANAGE),
+  async (c) => {
+    try {
+      const status = await getAliExpressConnectionStatus(c.env);
+      await disconnectAliExpress(c.env);
+
+      recordAliExpressAudit(c, {
+        action: AUDIT_ACTIONS.AE_DISCONNECT,
+        description: 'AliExpress disconnected successfully',
+        status: 'success',
+        severity: 'warning',
+        changes: { connected: { from: status.connected, to: false } },
+        metadata: {
+          previousExpiresAt: status.expires_at,
+          wasConnected: status.connected,
+        },
+      });
+
+      return c.json({
+        success: true,
+        message: 'AliExpress disconnected successfully',
+      });
+    } catch (error) {
+      console.error('Error disconnecting AliExpress:', error);
+
+      const response = parseAliExpressError(error);
+      recordAliExpressAudit(c, {
+        action: AUDIT_ACTIONS.AE_DISCONNECT,
+        description: 'AliExpress disconnect failed',
+        status: 'failure',
+        severity: 'warning',
+        metadata: { code: response.body.code },
+      });
+
+      return c.json(response.body, response.status);
+    }
+  }
+);
+
+aeAuth.get(
+  '/status',
+  requireAnyPermission(
+    PERMISSIONS.AE_CONNECTION_REFRESH,
+    PERMISSIONS.AE_CONNECTION_MANAGE
+  ),
+  async (c) => {
+    try {
+      const status = await getAliExpressConnectionStatus(c.env);
+      return c.json({ success: true, ...status });
+    } catch (error) {
+      console.error('Error checking AliExpress connection status:', error);
+
+      const response = parseAliExpressError(error);
+      return c.json(response.body, response.status);
+    }
+  }
+);
+
+aeAuth.get(
+  '/refresh',
+  requireAnyPermission(
+    PERMISSIONS.AE_CONNECTION_REFRESH,
+    PERMISSIONS.AE_CONNECTION_MANAGE
+  ),
+  async (c) => {
+    try {
+      const before = await getAliExpressConnectionStatus(c.env);
+
+      if (!before.connected) {
+        recordAliExpressAudit(c, {
+          action: AUDIT_ACTIONS.AE_TOKEN_REFRESH,
+          description:
+            'AliExpress token refresh failed because AliExpress is not connected',
+          status: 'failure',
+          severity: 'warning',
+          metadata: { code: 'ALIEXPRESS_NOT_CONNECTED' },
+        });
+
+        return c.json(
+          {
+            success: false,
+            error: 'AliExpress is not connected',
+            code: 'ALIEXPRESS_NOT_CONNECTED',
+          },
+          409
+        );
+      }
+
+      const tokens = await refreshAliExpressTokens(c.env);
+
+      recordAliExpressAudit(c, {
+        action: AUDIT_ACTIONS.AE_TOKEN_REFRESH,
+        description: 'AliExpress token refreshed successfully',
+        status: 'success',
+        severity: 'info',
+        changes: {
+          expiresAt: { from: before.expires_at, to: tokens.expires_at },
+        },
+        metadata: { expiresAt: tokens.expires_at },
+      });
+
+      return c.json({
+        success: true,
+        message: 'AliExpress token refreshed successfully',
+        tokens,
+        expires_at: tokens.expires_at,
+      });
+    } catch (error) {
+      console.error('Error refreshing AliExpress access token:', error);
+
+      const response = parseAliExpressError(error);
+      recordAliExpressAudit(c, {
+        action: AUDIT_ACTIONS.AE_TOKEN_REFRESH,
+        description: 'AliExpress token refresh failed',
+        status: 'failure',
+        severity: 'warning',
+        metadata: { code: response.body.code },
+      });
+
+      return c.json(response.body, response.status);
+    }
+  }
+);
 
 export default aeAuth;

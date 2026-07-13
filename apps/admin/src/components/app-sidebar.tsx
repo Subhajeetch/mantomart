@@ -92,7 +92,7 @@ const sidebarLinks: {
   {
     title: "Audit Logs",
     type: "link",
-    url: "#",
+    url: "/audit-logs",
     icon: ScrollText,
   },
   {

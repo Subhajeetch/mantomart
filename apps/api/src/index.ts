@@ -10,7 +10,7 @@ import {
 } from "@/utils/userActivity";
 
 // routes import
-import { aeProduct, aeAuth, admins, users } from "./routes";
+import { aeProduct, aeAuth, admins, users, auditLogs } from "./routes";
 
 
 const app = new Hono<{ Bindings: Env }>();
@@ -79,5 +79,6 @@ app.route("/api/ae/", aeProduct);
 app.route("/api/ae/", aeAuth);
 app.route("/api/admins", admins);
 app.route("/api/users", users);
+app.route("/api/audit-logs", auditLogs);
 
 export default app;

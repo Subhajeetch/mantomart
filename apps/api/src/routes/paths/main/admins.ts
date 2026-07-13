@@ -13,6 +13,14 @@ import { createDb, userPermissions, users } from '@repo/db';
 import type Env from '@/types/env';
 import { errorJson, type EnvContext } from '@/utils/errorJson';
 import { touchLastActive } from '@/utils/userActivity';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CATEGORIES,
+  AUDIT_TARGET_TYPES,
+  createAuditLog,
+  extractRequestAuditContext,
+  type AuditActor,
+} from '@/utils/auditLog';
 
 type AdminRole = 'admin' | 'owner';
 type UserRole = 'customer' | AdminRole;
@@ -93,6 +101,34 @@ function serializeUser(user: typeof users.$inferSelect) {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
+}
+
+function toAuditActor(actor: Actor): AuditActor {
+  return {
+    id: actor.id,
+    name: actor.name,
+    email: actor.email,
+    role: actor.role,
+  };
+}
+
+function scheduleAdminAudit(
+  c: EnvContext,
+  db: ReturnType<typeof createDb>,
+  actor: Actor,
+  input: Parameters<typeof createAuditLog>[1]
+) {
+  const request = extractRequestAuditContext(c);
+  c.executionCtx.waitUntil(
+    createAuditLog(db, {
+      ...input,
+      actor: input.actor ?? toAuditActor(actor),
+      ipAddress: input.ipAddress ?? request.ipAddress,
+      userAgent: input.userAgent ?? request.userAgent,
+      requestMethod: input.requestMethod ?? request.requestMethod,
+      requestPath: input.requestPath ?? request.requestPath,
+    }).then(() => undefined)
+  );
 }
 
 async function countOwners(db: ReturnType<typeof createDb>) {
@@ -603,11 +639,25 @@ admins.post('/add', async (c) => {
       );
     }
 
+    const promoted = updated[0];
+    scheduleAdminAudit(c, access.db, access.actor, {
+      action: AUDIT_ACTIONS.ADMIN_PROMOTE,
+      category: AUDIT_CATEGORIES.ADMIN,
+      description: `Promoted ${promoted.name} (${promoted.email}) to ${role}`,
+      targetType: AUDIT_TARGET_TYPES.ADMIN,
+      targetId: promoted.id,
+      targetLabel: promoted.email,
+      severity: role === 'owner' ? 'critical' : 'warning',
+      changes: {
+        role: { from: 'customer', to: role },
+      },
+    });
+
     return c.json(
       {
         success: true,
-        message: `${updated[0].name} is now an ${role}.`,
-        data: serializeUser(updated[0]),
+        message: `${promoted.name} is now an ${role}.`,
+        data: serializeUser(promoted),
       },
       201
     );
@@ -721,10 +771,25 @@ admins.patch('/:id/role', async (c) => {
       }
     }
 
+    const roleUpdated = updated[0];
+    scheduleAdminAudit(c, access.db, access.actor, {
+      action: AUDIT_ACTIONS.ADMIN_ROLE_CHANGE,
+      category: AUDIT_CATEGORIES.ADMIN,
+      description: `Changed role of ${roleUpdated.name} from ${previousRole} to ${newRole}`,
+      targetType: AUDIT_TARGET_TYPES.ADMIN,
+      targetId: roleUpdated.id,
+      targetLabel: roleUpdated.email,
+      severity:
+        previousRole === 'owner' || newRole === 'owner' ? 'critical' : 'warning',
+      changes: {
+        role: { from: previousRole, to: newRole },
+      },
+    });
+
     return c.json({
       success: true,
       message: `Role updated to ${newRole}.`,
-      data: serializeUser(updated[0]),
+      data: serializeUser(roleUpdated),
     });
   } catch (error) {
     console.error('Error updating admin role:', error);
@@ -864,6 +929,26 @@ admins.patch('/:id/permissions', async (c) => {
       await access.db.batch([deleteOverrides, insertOverrides]);
     }
 
+    scheduleAdminAudit(c, access.db, access.actor, {
+      action: AUDIT_ACTIONS.ADMIN_PERMISSIONS_UPDATE,
+      category: AUDIT_CATEGORIES.ADMIN,
+      description: `Updated permissions for ${target.name} (${target.email})`,
+      targetType: AUDIT_TARGET_TYPES.ADMIN,
+      targetId: target.id,
+      targetLabel: target.email,
+      severity: 'warning',
+      changes: {
+        permissions: {
+          to: parsedPermissions.permissions,
+          overrides,
+        },
+      },
+      metadata: {
+        grantedCount: parsedPermissions.permissions.length,
+        overrideCount: overrides.length,
+      },
+    });
+
     return c.json({
       success: true,
       message: 'Permissions updated.',
@@ -967,10 +1052,24 @@ admins.delete('/:id', async (c) => {
       }
     }
 
+    const demoted = updated[0];
+    scheduleAdminAudit(c, access.db, access.actor, {
+      action: AUDIT_ACTIONS.ADMIN_DEMOTE,
+      category: AUDIT_CATEGORIES.ADMIN,
+      description: `Removed admin access from ${demoted.name} (${demoted.email})`,
+      targetType: AUDIT_TARGET_TYPES.ADMIN,
+      targetId: demoted.id,
+      targetLabel: demoted.email,
+      severity: previousRole === 'owner' ? 'critical' : 'warning',
+      changes: {
+        role: { from: previousRole, to: 'customer' },
+      },
+    });
+
     return c.json({
       success: true,
-      message: `${updated[0].name} is no longer an admin.`,
-      data: serializeUser(updated[0]),
+      message: `${demoted.name} is no longer an admin.`,
+      data: serializeUser(demoted),
     });
   } catch (error) {
     console.error('Error removing admin:', error);

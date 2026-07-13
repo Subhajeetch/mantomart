@@ -14,6 +14,12 @@ import {
   getActor,
   getDb,
 } from '@/middleware/permission';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CATEGORIES,
+  AUDIT_TARGET_TYPES,
+  logAuditFromContext,
+} from '@/utils/auditLog';
 
 type UserRole = 'customer' | 'admin' | 'owner';
 type UserStatus = 'active' | 'banned' | 'deleted';
@@ -496,12 +502,39 @@ usersRouter.patch(
         );
       }
 
+      const updatedUser = updated[0];
+      c.executionCtx.waitUntil(
+        logAuditFromContext(c, {
+          action: banned ? AUDIT_ACTIONS.USER_BAN : AUDIT_ACTIONS.USER_UNBAN,
+          category: AUDIT_CATEGORIES.USER,
+          description: banned
+            ? `Banned user ${updatedUser.name} (${updatedUser.email})`
+            : `Unbanned user ${updatedUser.name} (${updatedUser.email})`,
+          targetType: AUDIT_TARGET_TYPES.USER,
+          targetId: updatedUser.id,
+          targetLabel: updatedUser.email,
+          severity: banned ? 'warning' : 'info',
+          changes: {
+            isBanned: { from: target.isBanned, to: banned },
+            bannedReason: {
+              from: target.bannedReason,
+              to: banned ? rawReason : null,
+            },
+            bannedBy: {
+              from: target.bannedBy,
+              to: banned ? actor.id : null,
+            },
+          },
+          metadata: banned ? { reason: rawReason } : undefined,
+        }).then(() => undefined)
+      );
+
       return c.json({
         success: true,
         message: banned
-          ? `${updated[0].name} has been banned.`
-          : `${updated[0].name} has been unbanned.`,
-        data: serializeUser(updated[0]),
+          ? `${updatedUser.name} has been banned.`
+          : `${updatedUser.name} has been unbanned.`,
+        data: serializeUser(updatedUser),
       });
     } catch (error) {
       console.error('Error banning/unbanning user:', error);
@@ -601,10 +634,28 @@ usersRouter.patch(
         );
       }
 
+      const restored = updated[0];
+      c.executionCtx.waitUntil(
+        logAuditFromContext(c, {
+          action: AUDIT_ACTIONS.USER_UNDELETE,
+          category: AUDIT_CATEGORIES.USER,
+          description: `Restored user ${restored.name} (${restored.email})`,
+          targetType: AUDIT_TARGET_TYPES.USER,
+          targetId: restored.id,
+          targetLabel: restored.email,
+          severity: 'warning',
+          changes: {
+            isDeleted: { from: true, to: false },
+            isBanned: { from: target.isBanned, to: false },
+            deletedAt: { from: target.deletedAt, to: null },
+          },
+        }).then(() => undefined)
+      );
+
       return c.json({
         success: true,
         message: `${target.name} has been restored.`,
-        data: serializeUser(updated[0]),
+        data: serializeUser(restored),
       });
     } catch (error) {
       console.error('Error undeleting user:', error);
@@ -702,10 +753,36 @@ usersRouter.delete(
         .delete(userPermissions)
         .where(eq(userPermissions.userId, targetId));
 
+      const deletedUser = updated[0];
+      c.executionCtx.waitUntil(
+        logAuditFromContext(c, {
+          action: AUDIT_ACTIONS.USER_DELETE,
+          category: AUDIT_CATEGORIES.USER,
+          description: `Soft-deleted user ${target.name} (${target.email})`,
+          targetType: AUDIT_TARGET_TYPES.USER,
+          targetId: target.id,
+          targetLabel: target.email,
+          severity: 'critical',
+          changes: {
+            isDeleted: { from: false, to: true },
+            isBanned: { from: target.isBanned, to: true },
+            role: { from: target.role, to: 'customer' },
+            bannedReason: {
+              from: target.bannedReason,
+              to: 'Account deleted by admin',
+            },
+          },
+          metadata: {
+            previousRole: target.role,
+            previousName: target.name,
+          },
+        }).then(() => undefined)
+      );
+
       return c.json({
         success: true,
         message: `${target.name} has been deleted.`,
-        data: serializeUser(updated[0]),
+        data: serializeUser(deletedUser),
       });
     } catch (error) {
       console.error('Error deleting user:', error);

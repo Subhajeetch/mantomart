@@ -1,41 +1,88 @@
 export const PERMISSIONS = {
-  ANALYTICS_VIEW:  "analytics:view",
-  PRODUCT_READ:    "product:read",
-  PRODUCT_CREATE:  "product:create",
-  PRODUCT_UPDATE:  "product:update",
-  PRODUCT_DELETE:  "product:delete",
+  ANALYTICS_VIEW: 'analytics:view',
+  PRODUCT_READ: 'product:read',
+  PRODUCT_CREATE: 'product:create',
+  PRODUCT_UPDATE: 'product:update',
+  PRODUCT_DELETE: 'product:delete',
 
-  CATEGORY_TREE_READ: "category_tree:read",
-  CATEGORY_MANAGE:    "category:manage",
-  CATEGORY_CREATE:    "category:create",
-  CATEGORY_UPDATE:    "category:update",
-  CATEGORY_DELETE:    "category:delete",
+  CATEGORY_TREE_READ: 'category_tree:read',
+  CATEGORY_MANAGE: 'category:manage',
+  CATEGORY_CREATE: 'category:create',
+  CATEGORY_UPDATE: 'category:update',
+  CATEGORY_DELETE: 'category:delete',
 
-  REVIEW_WRITE:    "review:write",
-  REVIEW_DELETE:   "review:delete",
-  REVIEW_MODERATE: "review:moderate",
+  REVIEW_WRITE: 'review:write',
+  REVIEW_DELETE: 'review:delete',
+  REVIEW_MODERATE: 'review:moderate',
 
-  ORDER_MANAGE:    "order:manage",
-  ORDER_CREATE:    "order:create",
-  ORDER_READ:      "order:read",
-  ORDER_CANCEL:    "order:cancel",
-  ORDER_REFUND:    "order:refund",
+  ORDER_MANAGE: 'order:manage',
+  ORDER_CREATE: 'order:create',
+  ORDER_READ: 'order:read',
+  ORDER_CANCEL: 'order:cancel',
+  ORDER_REFUND: 'order:refund',
 
-  USER_MANAGE:     "user:manage",
-  USER_BAN:        "user:ban",
-  USER_DELETE:     "user:delete",
+  USER_MANAGE: 'user:manage',
+  USER_BAN: 'user:ban',
+  USER_DELETE: 'user:delete',
 
-  ADMIN_ACCESS:    "admin:access",
+  ADMIN_ACCESS: 'admin:access',
 
-  AE_CONNECTION_REFRESH: "ae_connection:refresh",
-  AE_CONNECTION_MANAGE: "ae_connection:manage",
+  AE_CONNECTION_REFRESH: 'ae_connection:refresh',
+  AE_CONNECTION_MANAGE: 'ae_connection:manage',
 
   AUDIT_LOG_READ: 'audit_log:read',
   AUDIT_LOG_MANAGE: 'audit_log:manage',
 } as const;
 
-export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
+export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
+export const AUDIT_ACTIONS = {
+  // Users
+  USER_BAN: 'user.ban',
+  USER_UNBAN: 'user.unban',
+  USER_DELETE: 'user.delete',
+  USER_UNDELETE: 'user.undelete',
+  USER_UPDATE: 'user.update',
+
+  // Admins
+  ADMIN_PROMOTE: 'admin.promote',
+  ADMIN_DEMOTE: 'admin.demote',
+  ADMIN_ROLE_CHANGE: 'admin.role_change',
+  ADMIN_PERMISSIONS_UPDATE: 'admin.permissions_update',
+
+  // Products
+  PRODUCT_CREATE: 'product.create',
+  PRODUCT_UPDATE: 'product.update',
+  PRODUCT_DELETE: 'product.delete',
+  PRODUCT_PUBLISH: 'product.publish',
+  PRODUCT_UNPUBLISH: 'product.unpublish',
+
+  // Categories
+  CATEGORY_CREATE: 'category.create',
+  CATEGORY_UPDATE: 'category.update',
+  CATEGORY_DELETE: 'category.delete',
+
+  // Orders
+  ORDER_UPDATE: 'order.update',
+  ORDER_CANCEL: 'order.cancel',
+  ORDER_REFUND: 'order.refund',
+
+  // Reviews
+  REVIEW_MODERATE: 'review.moderate',
+  REVIEW_DELETE: 'review.delete',
+
+  // AliExpress
+  AE_CONNECT: 'ae.connect',
+  AE_DISCONNECT: 'ae.disconnect',
+  AE_TOKEN_REFRESH: 'ae.token_refresh',
+
+  // System
+  SYSTEM: 'system.event',
+} as const;
+
+export type AuditAction =
+  | (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS]
+  | (string & {});
 
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   customer: [
@@ -71,7 +118,6 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   owner: Object.values(PERMISSIONS) as Permission[],
 };
 
-
 export type PermissionOverride = {
   permission: Permission;
   granted: boolean;
@@ -86,9 +132,9 @@ export function hasPermission(role: string, permission: Permission): boolean {
 export function resolvePermission(
   role: string,
   permission: Permission,
-  overrides: PermissionOverride[],
+  overrides: PermissionOverride[]
 ): boolean {
-  const override = overrides.find(o => o.permission === permission);
+  const override = overrides.find((o) => o.permission === permission);
   if (override !== undefined) return override.granted;
   return hasPermission(role, permission);
 }
@@ -96,8 +142,8 @@ export function resolvePermission(
 //resolve all permissions a user has (for frontend use)
 export function resolveAllPermissions(
   role: string,
-  overrides: PermissionOverride[],
+  overrides: PermissionOverride[]
 ): Permission[] {
   const all = Object.values(PERMISSIONS) as Permission[];
-  return all.filter(p => resolvePermission(role, p, overrides));
+  return all.filter((p) => resolvePermission(role, p, overrides));
 }

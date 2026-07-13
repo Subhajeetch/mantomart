@@ -5,6 +5,7 @@ import type {
   productAttributes,
 } from "./schema/products";
 import type { categories } from "./schema/categories";
+import type { auditLogs } from "./schema/audit-logs";
 
 // ─── Inferred row types ───────────────────────────────────────────────────────
 
@@ -22,6 +23,9 @@ export type NewProductAttribute = typeof productAttributes.$inferInsert;
 
 export type Category    = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
+
+export type AuditLog    = typeof auditLogs.$inferSelect;
+export type NewAuditLog = typeof auditLogs.$inferInsert;
 
 // ─── Composite types (with relations) ────────────────────────────────────────
 // Use these when you query with .with() in drizzle
