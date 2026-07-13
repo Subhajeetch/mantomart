@@ -263,13 +263,13 @@ export function prettyJson(value: unknown): string {
   }
 }
 
-// ─── Discord-style grouping ───────────────────────────────────────────────────
+// ─── Timeline grouping ────────────────────────────────────────────────────────
 
 /**
- * Consecutive same actor + same action within this window are stacked into one
- * collapsible group (Discord message-group style).
+ * Same actor + same action within this window are stacked into one
+ * collapsible timeline group.
  */
-export const AUDIT_GROUP_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+export const AUDIT_GROUP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
 export type AuditLogGroup = {
   /** Stable key for React lists (first log id + count). */
@@ -313,20 +313,19 @@ function actorKey(log: AuditLog): string {
 }
 
 function canGroupWith(
-  previous: AuditLog,
+  anchor: AuditLog,
   current: AuditLog,
   windowMs: number
 ): boolean {
-  if (actorKey(previous) !== actorKey(current)) return false;
-  if (previous.action !== current.action) return false;
-  if (previous.category !== current.category) return false;
+  if (actorKey(anchor) !== actorKey(current)) return false;
+  if (anchor.action !== current.action) return false;
 
-  const prevMs = toMs(previous.createdAt);
+  const anchorMs = toMs(anchor.createdAt);
   const currMs = toMs(current.createdAt);
-  if (!prevMs || !currMs) return false;
+  if (!anchorMs || !currMs) return false;
 
-  // Adjacent gap must be within the window (works for both asc/desc lists).
-  return Math.abs(prevMs - currMs) <= windowMs;
+  // Strict bucket: every member must be within the window of the anchor event.
+  return Math.abs(anchorMs - currMs) <= windowMs;
 }
 
 function maxSeverity(logs: AuditLog[]): AuditSeverity {
@@ -350,7 +349,13 @@ function maxStatus(logs: AuditLog[]): AuditStatus {
 }
 
 /**
- * Collapse consecutive logs into Discord-style groups.
+ * Collapse logs into timeline groups.
+ *
+ * The group starts at the first ungrouped log in the current sort order and
+ * absorbs later logs on the same page from the same actor/action within the
+ * configured window. Matching logs do not need to be adjacent, so an unrelated
+ * event between two matching events will not split the group.
+ *
  * Expects the list already sorted (typically newest-first from the API).
  */
 export function groupAuditLogs(
@@ -359,15 +364,12 @@ export function groupAuditLogs(
 ): AuditLogGroup[] {
   if (logs.length === 0) return [];
 
-  const first = logs[0];
-  if (!first) return [];
-
   const groups: AuditLogGroup[] = [];
-  let bucket: AuditLog[] = [first];
+  const grouped = new Set<string>();
 
-  const flush = () => {
+  const makeGroup = (bucket: AuditLog[]) => {
     const head = bucket[0];
-    if (!head || bucket.length === 0) return;
+    if (!head || bucket.length === 0) return null;
 
     const times = bucket.map((l) => toMs(l.createdAt)).filter((t) => t > 0);
     const newestMs =
@@ -375,11 +377,11 @@ export function groupAuditLogs(
     const oldestMs =
       times.length > 0 ? Math.min(...times) : toMs(head.createdAt);
 
-    groups.push({
+    return {
       id: `${head.id}:${bucket.length}`,
       logs: bucket,
       action: head.action,
-      category: head.category,
+      category: bucket[0]?.category ?? head.category,
       actorId: head.actorId,
       actorName: head.actorName,
       actorEmail: head.actorEmail,
@@ -388,23 +390,31 @@ export function groupAuditLogs(
       status: maxStatus(bucket),
       newestAt: new Date(newestMs || Date.now()).toISOString(),
       oldestAt: new Date(oldestMs || Date.now()).toISOString(),
-    });
-    bucket = [];
+    } satisfies AuditLogGroup;
   };
 
-  for (let i = 1; i < logs.length; i++) {
-    const prev = bucket[bucket.length - 1];
-    const curr = logs[i];
-    if (!prev || !curr) continue;
+  for (let i = 0; i < logs.length; i++) {
+    const anchor = logs[i];
+    if (!anchor || grouped.has(anchor.id)) continue;
 
-    if (canGroupWith(prev, curr, windowMs)) {
-      bucket.push(curr);
-    } else {
-      flush();
-      bucket = [curr];
+    const bucket: AuditLog[] = [anchor];
+    grouped.add(anchor.id);
+
+    for (let j = i + 1; j < logs.length; j++) {
+      const candidate = logs[j];
+      if (!candidate || grouped.has(candidate.id)) continue;
+
+      if (canGroupWith(anchor, candidate, windowMs)) {
+        bucket.push(candidate);
+        grouped.add(candidate.id);
+      }
+    }
+
+    const group = makeGroup(bucket);
+    if (group) {
+      groups.push(group);
     }
   }
-  flush();
 
   return groups;
 }
@@ -460,7 +470,7 @@ export function formatGroupSummary(group: AuditLogGroup): string {
   return `${label} · ${n} events`;
 }
 
-/** Initials for avatar chip (Discord-style header). */
+/** Initials for avatar chip. */
 export function getActorInitials(group: AuditLogGroup | AuditLog): string {
   const name =
     ('actorName' in group ? group.actorName : null) ||

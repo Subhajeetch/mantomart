@@ -53,7 +53,7 @@ function SeverityDot({ severity }: { severity: AuditLog['severity'] }) {
   );
 }
 
-/** Single log row inside an expanded group — full detail preview. */
+/** Single log row inside an expanded group. */
 function GroupMemberRow({
   log,
   onSelect,
@@ -77,7 +77,7 @@ function GroupMemberRow({
       <button
         type="button"
         onClick={() => onSelect(log)}
-        className="hover:bg-muted/60 min-w-0 flex-1 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border"
+        className="hover:bg-muted/60 focus-visible:ring-ring min-w-0 flex-1 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border focus-visible:ring-2 focus-visible:outline-none"
       >
         <div className="flex items-start justify-between gap-2">
           <p className="line-clamp-2 text-sm font-medium leading-snug">
@@ -130,7 +130,7 @@ function GroupMemberRow({
 }
 
 /**
- * Discord-style audit group:
+ * Audit timeline group:
  * - 1 event → compact card (click opens detail)
  * - N same actor+action events → one card with collapsible stack
  */
@@ -159,8 +159,7 @@ export function AuditLogGroupCard({ group, onSelect }: GroupProps) {
         <div
           className={cn(
             'bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-            log.severity === 'critical' &&
-              'bg-destructive/15 text-destructive',
+            log.severity === 'critical' && 'bg-destructive/15 text-destructive',
             log.severity === 'warning' &&
               'bg-amber-500/15 text-amber-700 dark:text-amber-400'
           )}
@@ -194,10 +193,7 @@ export function AuditLogGroupCard({ group, onSelect }: GroupProps) {
             <Badge variant={getStatusBadgeVariant(log.status)}>
               {log.status}
             </Badge>
-            <Badge
-              variant="outline"
-              className={getCategoryColor(log.category)}
-            >
+            <Badge variant="outline" className={getCategoryColor(log.category)}>
               {log.category}
             </Badge>
             <code className="text-muted-foreground text-[11px]">
@@ -326,7 +322,6 @@ export function AuditLogGroupCard({ group, onSelect }: GroupProps) {
                         {formatDateTime(group.newestAt)}
                       </>
                     ) : null}
-                    <span className="opacity-50">· click to expand</span>
                   </p>
                 ) : null}
               </button>

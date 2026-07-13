@@ -175,7 +175,6 @@ export default function AuditLogsPage() {
     statusFilter !== 'all' ||
     actionFilter !== 'all';
 
-  // Discord-style: collapse consecutive same actor + same action into stacks.
   const groups = useMemo(() => groupAuditLogs(logs), [logs]);
 
   return (
@@ -204,8 +203,7 @@ export default function AuditLogsPage() {
               Audit Logs
             </h1>
             <p className="text-muted-foreground max-w-xl text-sm">
-              Who changed what, when, and from where. Repeated actions by the
-              same admin stack into one expandable card. Only the latest{' '}
+              Who changed what, when, and from where. Only the latest{' '}
               {stats?.maxEntries ?? meta?.maxEntries ?? 1000} entries are kept.
             </p>
           </div>
