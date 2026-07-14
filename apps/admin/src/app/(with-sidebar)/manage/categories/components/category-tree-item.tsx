@@ -89,6 +89,7 @@ export function CategoryTreeItem({
   const hasChildren = node.children.length > 0;
   const canNestMore = node.depth < maxDepth;
   const isBusy = busyId === node.id;
+  const hasCategoryActions = canCreate || canUpdate || canDelete;
 
   return (
     <div className="select-none">
@@ -164,48 +165,50 @@ export function CategoryTreeItem({
               </Tooltip>
             )}
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-7"
-                  disabled={isBusy}
-                  aria-label="Category actions"
-                >
-                  <MoreHorizontal className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {canCreate && (
-                  <DropdownMenuItem
-                    disabled={!canNestMore}
-                    onClick={() => onAddChild(node)}
+            {hasCategoryActions && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-7"
+                    disabled={isBusy}
+                    aria-label="Category actions"
                   >
-                    <Plus className="size-3.5" />
-                    Add subcategory
-                  </DropdownMenuItem>
-                )}
-                {canUpdate && (
-                  <DropdownMenuItem onClick={() => onEdit(node)}>
-                    <Pencil className="size-3.5" />
-                    Edit
-                  </DropdownMenuItem>
-                )}
-                {(canCreate || canUpdate) && canDelete && (
-                  <DropdownMenuSeparator />
-                )}
-                {canDelete && (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => onDelete(node)}
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    <MoreHorizontal className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {canCreate && (
+                    <DropdownMenuItem
+                      disabled={!canNestMore}
+                      onClick={() => onAddChild(node)}
+                    >
+                      <Plus className="size-3.5" />
+                      Add subcategory
+                    </DropdownMenuItem>
+                  )}
+                  {canUpdate && (
+                    <DropdownMenuItem onClick={() => onEdit(node)}>
+                      <Pencil className="size-3.5" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {(canCreate || canUpdate) && canDelete && (
+                    <DropdownMenuSeparator />
+                  )}
+                  {canDelete && (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => onDelete(node)}
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
 

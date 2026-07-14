@@ -69,7 +69,11 @@ export async function requestJson<T>(
   const base = getCategoriesApiBase();
   const url = path.startsWith('http')
     ? path
-    : `${base}${path.startsWith('/') ? path : `/${path}`}`;
+    : !path || path === '/'
+      ? base
+      : path.startsWith('?')
+        ? `${base}${path}`
+        : `${base}/${path.replace(/^\/+/, '')}`;
 
   let response: Response;
   try {
