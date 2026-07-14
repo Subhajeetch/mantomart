@@ -1,0 +1,72 @@
+CREATE TABLE `product_categories` (
+	`id` text PRIMARY KEY NOT NULL,
+	`product_id` text NOT NULL,
+	`category_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`product_id`) REFERENCES `products`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `product_categories_product_category_uidx` ON `product_categories` (`product_id`,`category_id`);--> statement-breakpoint
+CREATE INDEX `product_categories_category_id_idx` ON `product_categories` (`category_id`);--> statement-breakpoint
+CREATE INDEX `product_categories_product_id_idx` ON `product_categories` (`product_id`);--> statement-breakpoint
+PRAGMA foreign_keys=OFF;--> statement-breakpoint
+CREATE TABLE `__new_products` (
+	`id` text PRIMARY KEY NOT NULL,
+	`slug` text NOT NULL,
+	`name` text NOT NULL,
+	`description` text,
+	`mobile_detail` text,
+	`has_size_chart` integer DEFAULT false NOT NULL,
+	`size_chart_image` text,
+	`size_chart_description` text,
+	`price` integer NOT NULL,
+	`compare_at_price` integer,
+	`is_ae_product` integer DEFAULT false NOT NULL,
+	`ae_product_id` text,
+	`ae_category_id` text,
+	`ae_rating` real,
+	`ae_review_count` integer,
+	`ae_sales_count` text,
+	`ae_status` text,
+	`ae_last_synced` integer,
+	`images` text DEFAULT '[]',
+	`videos` text DEFAULT '[]',
+	`main_video` text,
+	`category_id` text,
+	`published` integer DEFAULT false NOT NULL,
+	`featured` integer DEFAULT false NOT NULL,
+	`position` integer DEFAULT 0 NOT NULL,
+	`meta_title` text,
+	`meta_description` text,
+	`tags` text DEFAULT '[]',
+	`order_count` integer DEFAULT 0 NOT NULL,
+	`total_revenue` integer DEFAULT 0 NOT NULL,
+	`product_added_by` text,
+	`product_notes` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`product_added_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+INSERT INTO `__new_products`("id", "slug", "name", "description", "mobile_detail", "has_size_chart", "size_chart_image", "size_chart_description", "price", "compare_at_price", "is_ae_product", "ae_product_id", "ae_category_id", "ae_rating", "ae_review_count", "ae_sales_count", "ae_status", "ae_last_synced", "images", "videos", "main_video", "category_id", "published", "featured", "position", "meta_title", "meta_description", "tags", "order_count", "total_revenue", "product_added_by", "product_notes", "created_at", "updated_at") SELECT "id", "slug", "name", "description", "mobile_detail", "has_size_chart", "size_chart_image", "size_chart_description", "price", "compare_at_price", "is_ae_product", "ae_product_id", "ae_category_id", "ae_rating", "ae_review_count", "ae_sales_count", "ae_status", "ae_last_synced", "images", "videos", "main_video", "category_id", "published", "featured", "position", "meta_title", "meta_description", "tags", "order_count", "total_revenue", "product_added_by", "product_notes", "created_at", "updated_at" FROM `products`;--> statement-breakpoint
+DROP TABLE `products`;--> statement-breakpoint
+ALTER TABLE `__new_products` RENAME TO `products`;--> statement-breakpoint
+PRAGMA foreign_keys=ON;--> statement-breakpoint
+CREATE UNIQUE INDEX `products_slug_unique` ON `products` (`slug`);--> statement-breakpoint
+CREATE UNIQUE INDEX `products_ae_product_id_unique` ON `products` (`ae_product_id`);--> statement-breakpoint
+-- Backfill updated_at from created_at for existing categories (SQLite cannot add NOT NULL without a value)
+ALTER TABLE `categories` ADD `updated_at` integer;--> statement-breakpoint
+UPDATE `categories` SET `updated_at` = `created_at` WHERE `updated_at` IS NULL;--> statement-breakpoint
+CREATE INDEX `categories_parent_id_idx` ON `categories` (`parent_id`);--> statement-breakpoint
+CREATE INDEX `categories_position_idx` ON `categories` (`position`);--> statement-breakpoint
+-- Migrate legacy single categoryId into the many-to-many join table
+INSERT INTO `product_categories` (`id`, `product_id`, `category_id`, `created_at`)
+SELECT
+  lower(hex(randomblob(8))) || lower(hex(randomblob(8))),
+  `id`,
+  `category_id`,
+  COALESCE(`created_at`, CAST(strftime('%s','now') AS integer) * 1000)
+FROM `products`
+WHERE `category_id` IS NOT NULL;

@@ -4,12 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Ban,
   BarChart3,
-  Crown,
   RefreshCw,
   Search,
-  Shield,
   ShieldAlert,
-  UserCheck,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';

@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   BarChart3,
-  Database,
   RefreshCw,
   ScrollText,
   Search,

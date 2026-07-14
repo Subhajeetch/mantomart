@@ -9,6 +9,7 @@ import {
   User,
   Star,
   ShoppingBag,
+  FolderTree,
   type LucideIcon,
 } from "lucide-react"
 
@@ -49,8 +50,14 @@ const sidebarLinks: {
   {
     title: "Order Management",
     type: "link",
-    url: "#",
+    url: "/manage/orders",
     icon: Package,
+  },
+  {
+    title: "Category Management",
+    type: "link",
+    url: "/manage/categories",
+    icon: FolderTree,
   },
   {
     title: "Products",

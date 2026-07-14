@@ -3,6 +3,7 @@ import type {
   productSkus,
   skuProperties,
   productAttributes,
+  productCategories,
 } from "./schema/products";
 import type { categories } from "./schema/categories";
 import type { auditLogs } from "./schema/audit-logs";
@@ -21,6 +22,9 @@ export type NewSkuProperty = typeof skuProperties.$inferInsert;
 export type ProductAttribute    = typeof productAttributes.$inferSelect;
 export type NewProductAttribute = typeof productAttributes.$inferInsert;
 
+export type ProductCategory    = typeof productCategories.$inferSelect;
+export type NewProductCategory = typeof productCategories.$inferInsert;
+
 export type Category    = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 
@@ -36,6 +40,11 @@ export type SkuWithProperties = ProductSku & {
 
 export type ProductWithRelations = Product & {
   category: Category | null;
+  productCategories: (ProductCategory & { category: Category })[];
   skus: SkuWithProperties[];
   attributes: ProductAttribute[];
+};
+
+export type CategoryWithChildren = Category & {
+  children: CategoryWithChildren[];
 };

@@ -1,18 +1,40 @@
 import { relations } from "drizzle-orm";
-import { products, productSkus, skuProperties, productAttributes } from "../schema/products";
+import {
+  products,
+  productSkus,
+  skuProperties,
+  productAttributes,
+  productCategories,
+} from "../schema/products";
 import { categories } from "../schema/categories";
 
 export const productsRelations = relations(products, ({ one, many }) => ({
-  // One product belongs to one category
+  // Optional primary category (legacy / convenience)
   category: one(categories, {
     fields: [products.categoryId],
     references: [categories.id],
   }),
+  // Many-to-many category assignments
+  productCategories: many(productCategories),
   // One product has many SKUs
   skus: many(productSkus),
   // One product has many attributes (Brand, Material, etc.)
   attributes: many(productAttributes),
 }));
+
+export const productCategoriesRelations = relations(
+  productCategories,
+  ({ one }) => ({
+    product: one(products, {
+      fields: [productCategories.productId],
+      references: [products.id],
+    }),
+    category: one(categories, {
+      fields: [productCategories.categoryId],
+      references: [categories.id],
+    }),
+  })
+);
 
 export const productSkusRelations = relations(productSkus, ({ one, many }) => ({
   // Each SKU belongs to one product
@@ -31,12 +53,15 @@ export const skuPropertiesRelations = relations(skuProperties, ({ one }) => ({
   }),
 }));
 
-export const productAttributesRelations = relations(productAttributes, ({ one }) => ({
-  product: one(products, {
-    fields: [productAttributes.productId],
-    references: [products.id],
-  }),
-}));
+export const productAttributesRelations = relations(
+  productAttributes,
+  ({ one }) => ({
+    product: one(products, {
+      fields: [productAttributes.productId],
+      references: [products.id],
+    }),
+  })
+);
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
   parent: one(categories, {
@@ -45,5 +70,8 @@ export const categoriesRelations = relations(categories, ({ one, many }) => ({
     relationName: "subcategories",
   }),
   children: many(categories, { relationName: "subcategories" }),
+  // Legacy primary-category products
   products: many(products),
+  // Many-to-many join rows
+  productCategories: many(productCategories),
 }));

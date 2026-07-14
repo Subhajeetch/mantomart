@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, Crown, Plus, RefreshCw, Shield, ShieldAlert, Users } from 'lucide-react';
+import { BarChart3, Plus, RefreshCw, ShieldAlert, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {

@@ -64,6 +64,13 @@
       "when": 1783938151871,
       "tag": "0008_nasty_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1784043444634,
+      "tag": "0009_product_categories",
+      "breakpoints": true
     }
   ]
 }

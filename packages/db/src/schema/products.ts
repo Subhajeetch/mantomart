@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { categories } from "./categories";
 import { users } from "./auth";
 
@@ -38,7 +45,11 @@ export const products = sqliteTable("products", {
   mainVideo: text("main_video"),
 
   // ── Organisation ──
-  categoryId: text("category_id").references(() => categories.id),
+  // Optional primary category (legacy / AE import convenience).
+  // Multi-category assignments live in `product_categories`.
+  categoryId: text("category_id").references(() => categories.id, {
+    onDelete: "set null",
+  }),
   published: integer("published", { mode: "boolean" }).notNull().default(false),
   featured: integer("featured", { mode: "boolean" }).notNull().default(false),
   position: integer("position").notNull().default(0),
@@ -60,6 +71,32 @@ export const products = sqliteTable("products", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
+
+// ─── Product ↔ Category (many-to-many) ────────────────────────────────────────
+// A product can belong to multiple categories (e.g. Fashion + Fashion>Women>Jewellery).
+// Deleting a category cascades these rows; sole-category protection is enforced in API.
+
+export const productCategories = sqliteTable(
+  "product_categories",
+  {
+    id: text("id").primaryKey(),
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    categoryId: text("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("product_categories_product_category_uidx").on(
+      table.productId,
+      table.categoryId
+    ),
+    index("product_categories_category_id_idx").on(table.categoryId),
+    index("product_categories_product_id_idx").on(table.productId),
+  ]
+);
 
 // ─── Product SKUs ─────────────────────────────────────────────────────────────
 // Each row = one variant. e.g. Size:L + Color:Beige is one SKU.
