@@ -9,39 +9,70 @@ import {
 import { categories } from "./categories";
 import { users } from "./auth";
 
+// ─── Media types (JSON columns) ───────────────────────────────────────────────
+// Product gallery images carry alt text for SEO and optional variantKeys so the
+// storefront can filter the gallery when a variant (e.g. colour) is selected.
+// SKU rows also store their own images array for direct variant media.
+
+export type ProductImage = {
+  /** Absolute or protocol-relative image URL */
+  url: string;
+  /** SEO / accessibility alt text */
+  alt: string;
+  /**
+   * Optional keys that link this image to one or more variants.
+   * Typical values: ae property value id, "propertyName:value", or aeSkuId.
+   */
+  variantKeys?: string[];
+  /** Display order (ascending). */
+  position?: number;
+};
+
+export type ProductVideo = {
+  url: string;
+  poster?: string | null;
+  alt?: string;
+};
+
 // ─── Products ─────────────────────────────────────────────────────────────────
 
 export const products = sqliteTable("products", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),
 
-  //core info (ae: ae_item_base_info_dto)
+  // core info (ae: ae_item_base_info_dto)
   name: text("name").notNull(),
   description: text("description"),
+  /** HTML body (converted from markdown in the admin import wizard). */
   mobileDetail: text("mobile_detail"),
-  hasSizeChart: integer("has_size_chart", { mode: "boolean" }).notNull().default(false),
+  hasSizeChart: integer("has_size_chart", { mode: "boolean" })
+    .notNull()
+    .default(false),
   sizeChartImage: text("size_chart_image"),
   sizeChartDescription: text("size_chart_description"),
 
-  // ── Our pricing (what we charge the customer) ──
-  // Always stored in cents. We mark up from AE price.
-  price: integer("price").notNull(),
-  compareAtPrice: integer("compare_at_price"),         // strikethrough "was" price
+  // Pricing lives on product_skus (variants). Product-level price was removed
+  // because a single price cannot represent multi-variant products.
 
   // ── AliExpress source info ──
-  isAEProduct: integer("is_ae_product", { mode: "boolean" }).notNull().default(false),
-  aeProductId: text("ae_product_id").unique(),         // ae: product_id
-  aeCategoryId: text("ae_category_id"),                // ae: category_id
-  aeRating: real("ae_rating"),                         // ae: avg_evaluation_rating
-  aeReviewCount: integer("ae_review_count"),           // ae: evaluation_count
-  aeSalesCount: text("ae_sales_count"),                // ae: sales_count (can be "1000+")
-  aeStatus: text("ae_status"),                         // ae: product_status_type "onSelling"
+  isAEProduct: integer("is_ae_product", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  aeProductId: text("ae_product_id").unique(), // ae: product_id
+  aeCategoryId: text("ae_category_id"), // ae: category_id
+  aeRating: real("ae_rating"), // ae: avg_evaluation_rating
+  aeReviewCount: integer("ae_review_count"), // ae: evaluation_count
+  aeSalesCount: text("ae_sales_count"), // ae: sales_count (can be "1000+")
+  aeStatus: text("ae_status"), // ae: product_status_type "onSelling"
   aeLastSynced: integer("ae_last_synced", { mode: "timestamp" }),
 
   // ── Media ──
-  // ae: image_urls is semicolon-separated — we split and store as JSON array
-  images: text("images", { mode: "json" }).$type<string[]>().default([]),
-  videos: text("videos", { mode: "json" }).$type<string[]>().default([]),
+  images: text("images", { mode: "json" })
+    .$type<ProductImage[]>()
+    .default([]),
+  videos: text("videos", { mode: "json" })
+    .$type<ProductVideo[]>()
+    .default([]),
   mainVideo: text("main_video"),
 
   // ── Organisation ──
@@ -66,7 +97,6 @@ export const products = sqliteTable("products", {
   // for admins
   productAddedBy: text("product_added_by").references(() => users.id),
   productNotes: text("product_notes"),
-  
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -108,20 +138,30 @@ export const productSkus = sqliteTable("product_skus", {
     .notNull()
     .references(() => products.id, { onDelete: "cascade" }),
 
-  aeSkuId: text("ae_sku_id"),                          // ae: sku_id
-  aeSkuAttr: text("ae_sku_attr"),                      // ae: sku_attr "5:361385;14:771#036"
+  aeSkuId: text("ae_sku_id"), // ae: sku_id
+  aeSkuAttr: text("ae_sku_attr"), // ae: sku_attr "5:361385;14:771#036"
 
   // Our price for this specific variant (cents)
   price: integer("price").notNull(),
   compareAtPrice: integer("compare_at_price"),
 
   // AE source prices — kept for reference/markup calculation
-  aePrice: integer("ae_price"),                        // ae: sku_price (cents)
-  aeSalePrice: integer("ae_sale_price"),               // ae: offer_sale_price (cents)
+  aePrice: integer("ae_price"), // ae: sku_price (cents)
+  aeSalePrice: integer("ae_sale_price"), // ae: offer_sale_price (cents)
 
-  stock: integer("stock").notNull().default(0),        // ae: sku_available_stock
-  sku: text("sku"),                                    // our internal SKU code
-  priceIncludesTax: integer("price_includes_tax", { mode: "boolean" }).default(false),
+  stock: integer("stock").notNull().default(0), // ae: sku_available_stock
+  sku: text("sku"), // our internal SKU code
+  priceIncludesTax: integer("price_includes_tax", { mode: "boolean" }).default(
+    false
+  ),
+
+  /**
+   * Images belonging to this variant (with alt text).
+   * Used on the storefront when a shopper selects this SKU.
+   */
+  images: text("images", { mode: "json" })
+    .$type<ProductImage[]>()
+    .default([]),
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
@@ -136,10 +176,10 @@ export const skuProperties = sqliteTable("sku_properties", {
     .notNull()
     .references(() => productSkus.id, { onDelete: "cascade" }),
 
-  aePropertyId: text("ae_property_id"),                // ae: sku_property_id  e.g. 5
-  propertyName: text("property_name").notNull(),        // ae: sku_property_name e.g. "Size"
-  aeValueId: text("ae_value_id"),                      // ae: property_value_id e.g. 361385
-  value: text("value").notNull(),                      // ae: sku_property_value e.g. "L"
+  aePropertyId: text("ae_property_id"), // ae: sku_property_id  e.g. 5
+  propertyName: text("property_name").notNull(), // ae: sku_property_name e.g. "Size"
+  aeValueId: text("ae_value_id"), // ae: property_value_id e.g. 361385
+  value: text("value").notNull(), // ae: sku_property_value e.g. "L"
   // ae: property_value_definition_name e.g. "036" (colour code)
   valueDefinitionName: text("value_definition_name"),
   // ae: sku_image — only present on the property that has an image (usually colour)
@@ -156,10 +196,10 @@ export const productAttributes = sqliteTable("product_attributes", {
     .notNull()
     .references(() => products.id, { onDelete: "cascade" }),
 
-  aeAttrNameId: text("ae_attr_name_id"),               // ae: attr_name_id
-  attrName: text("attr_name").notNull(),               // ae: attr_name  e.g. "Material"
-  aeAttrValueId: text("ae_attr_value_id"),             // ae: attr_value_id
-  attrValue: text("attr_value").notNull(),             // ae: attr_value e.g. "COTTON"
-  attrValueUnit: text("attr_value_unit"),              // ae: attr_value_unit e.g. "piece"
+  aeAttrNameId: text("ae_attr_name_id"), // ae: attr_name_id
+  attrName: text("attr_name").notNull(), // ae: attr_name  e.g. "Material"
+  aeAttrValueId: text("ae_attr_value_id"), // ae: attr_value_id
+  attrValue: text("attr_value").notNull(), // ae: attr_value e.g. "COTTON"
+  attrValueUnit: text("attr_value_unit"), // ae: attr_value_unit e.g. "piece"
   position: integer("position").notNull().default(0),
 });

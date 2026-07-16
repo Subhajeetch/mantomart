@@ -4,9 +4,13 @@ import type {
   skuProperties,
   productAttributes,
   productCategories,
+  ProductImage,
+  ProductVideo,
 } from "./schema/products";
 import type { categories } from "./schema/categories";
 import type { auditLogs } from "./schema/audit-logs";
+
+export type { ProductImage, ProductVideo };
 
 // ─── Inferred row types ───────────────────────────────────────────────────────
 

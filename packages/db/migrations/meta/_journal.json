@@ -71,6 +71,13 @@
       "when": 1784043444634,
       "tag": "0009_product_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784500000000,
+      "tag": "0010_variant_media_drop_product_price",
+      "breakpoints": true
     }
   ]
 }

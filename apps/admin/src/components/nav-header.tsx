@@ -22,6 +22,9 @@ import {
   ToggleGroupItem 
 } from "@/components/ui/toggle-group"
 
+
+import config from "@/mine.config"
+
 export function NavHeader() {
   const { isMobile } = useSidebar()
   const { theme, setTheme } = useTheme()
@@ -41,10 +44,10 @@ export function NavHeader() {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg outline-2 text-sidebar-primary-foreground">
-                <img src="https://pub-a7c50b55510e428caec8639a3dd44e97.r2.dev/ragi-short-2.webp" alt="ragimart's logo" className="h-7 w-7" />
+                <img src={config.logoShort} alt={config.brandName + "'s logo"} className="h-7 w-7" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">Ragimart</span>
+                <span className="truncate font-medium">{config.brandName}</span>
                 <span className="truncate text-xs">Admin</span>
               </div>
               <ChevronsUpDown className="ml-auto" />

@@ -7,5 +7,14 @@ import admins from "./paths/main/admins";
 import users from "./paths/main/users";
 import auditLogs from "./paths/main/audit-logs";
 import categories from "./paths/main/categories";
+import addProductMyList from "./paths/main/add-product-mylist";
 
-export { aeProduct, aeAuth, admins, users, auditLogs, categories };
+export {
+  aeProduct,
+  aeAuth,
+  admins,
+  users,
+  auditLogs,
+  categories,
+  addProductMyList,
+};

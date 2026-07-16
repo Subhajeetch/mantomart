@@ -1,0 +1,621 @@
+import type { AliExpressProductDetailResponse } from './product-dialog';
+import {
+  applyMarkupCents,
+  dollarsToCents,
+  slugify,
+  type ImportFormState,
+  type ProductImageForm,
+  type ProductVideoForm,
+  type SavedAliExpressProduct,
+  type SkuDraft,
+} from './storage';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getString(value: unknown, fallback = '') {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return fallback;
+}
+
+function normalizeUrl(value: unknown): string | null {
+  const raw = getString(value).trim();
+  if (!raw) return null;
+  if (raw.startsWith('//')) return `https:${raw}`;
+  if (
+    raw.startsWith('http://') ||
+    raw.startsWith('https://') ||
+    raw.startsWith('/')
+  ) {
+    return raw;
+  }
+  return `https://${raw}`;
+}
+
+function getImageDedupeKey(url: string) {
+  try {
+    const parsed = new URL(url, 'https://ragimart.local');
+    const pathname = parsed.pathname.replace(
+      /\.(jpe?g|png|webp|gif)(?:_.+)$/i,
+      '.$1'
+    );
+    const host = parsed.host.toLowerCase();
+    return host ? `${host}${pathname}` : pathname;
+  } catch {
+    return url.replace(/#.*$/, '').replace(/\?.*$/, '');
+  }
+}
+
+function toRecordArray(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) return value.filter(isRecord);
+  if (isRecord(value)) return [value];
+  return [];
+}
+
+function uniqueUrls(values: unknown[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const url = normalizeUrl(value);
+    if (!url) continue;
+    const key = getImageDedupeKey(url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(url);
+  }
+  return result;
+}
+
+export function dedupeProductImages(
+  images: ProductImageForm[]
+): ProductImageForm[] {
+  const seen = new Set<string>();
+  const result: ProductImageForm[] = [];
+
+  for (const image of images) {
+    const url = normalizeUrl(image.url);
+    if (!url) continue;
+    const key = getImageDedupeKey(url);
+    const existing = result.find((item) => getImageDedupeKey(item.url) === key);
+
+    if (seen.has(key)) {
+      if (existing) {
+        existing.variantKeys = [
+          ...new Set([
+            ...(existing.variantKeys ?? []),
+            ...(image.variantKeys ?? []),
+          ]),
+        ];
+        existing.alt = existing.alt || image.alt;
+        existing.selected =
+          existing.selected !== false || image.selected !== false;
+      }
+      continue;
+    }
+
+    seen.add(key);
+    result.push({
+      ...image,
+      url,
+      position: result.length,
+    });
+  }
+
+  return result;
+}
+
+export function normalizeImportForm(form: ImportFormState): ImportFormState {
+  const rawAttributes = Array.isArray(form.attributes) ? form.attributes : [];
+  const rawImages = Array.isArray(form.productImages) ? form.productImages : [];
+  const rawSkus = Array.isArray(form.skus) ? form.skus : [];
+  const attributes = rawAttributes.reduce<ImportFormState['attributes']>(
+    (result, attr) => {
+      const next = {
+        ...attr,
+        attrName: attr.attrName?.trim() ?? '',
+        attrValue: attr.attrValue?.trim() ?? '',
+        attrValueUnit: attr.attrValueUnit?.trim() || null,
+        position: result.length,
+        selected: attr.selected !== false,
+      };
+      const key = [
+        next.attrName.toLowerCase(),
+        next.attrValue.toLowerCase(),
+        next.attrValueUnit?.toLowerCase() ?? '',
+      ].join('\u0000');
+      const existing = result.find((item) => {
+        const existingKey = [
+          item.attrName.toLowerCase(),
+          item.attrValue.toLowerCase(),
+          item.attrValueUnit?.toLowerCase() ?? '',
+        ].join('\u0000');
+        return existingKey === key;
+      });
+
+      if (existing) {
+        existing.selected = existing.selected !== false || next.selected;
+        existing.aeAttrNameId = existing.aeAttrNameId ?? next.aeAttrNameId;
+        existing.aeAttrValueId = existing.aeAttrValueId ?? next.aeAttrValueId;
+        return result;
+      }
+
+      result.push(next);
+      return result;
+    },
+    []
+  );
+
+  return {
+    ...form,
+    productImages: dedupeProductImages(rawImages),
+    skus: rawSkus.map((sku) => ({
+      ...sku,
+      images: dedupeProductImages(Array.isArray(sku.images) ? sku.images : []),
+    })),
+    attributes,
+  };
+}
+
+function splitImageUrls(value: unknown) {
+  return getString(value)
+    .split(';')
+    .map((url) => url.trim())
+    .filter(Boolean);
+}
+
+/** Same as product-dialog: pull <img src> from HTML description. */
+function getHtmlImageUrls(html: unknown) {
+  const raw = getString(html);
+  if (!raw) return [];
+
+  if (typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(raw, 'text/html');
+    return Array.from(doc.querySelectorAll('img'))
+      .map((img) => img.getAttribute('src'))
+      .filter(Boolean);
+  }
+
+  return Array.from(raw.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)).map(
+    (match) => match[1]
+  );
+}
+
+/** Same as product-dialog: mobile_detail JSON module image urls. */
+function getMobileDetailImages(value: unknown) {
+  const raw = getString(value);
+  if (!raw) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed) || !Array.isArray(parsed.moduleList)) return [];
+
+    return parsed.moduleList
+      .filter(isRecord)
+      .map((module) => (isRecord(module.data) ? module.data.url : null))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function getSkuProperties(sku: Record<string, unknown>) {
+  const propertyWrapper = sku.ae_sku_property_dtos;
+  const rawProperties = isRecord(propertyWrapper)
+    ? propertyWrapper.ae_sku_property_d_t_o
+    : undefined;
+  return toRecordArray(rawProperties);
+}
+
+export function buildInitialForm(
+  listItem: SavedAliExpressProduct,
+  detail: AliExpressProductDetailResponse | null,
+  markupPercent = 100
+): ImportFormState {
+  const response = detail?.aliexpress_ds_product_get_response;
+  const rawResult = response?.result;
+  const result = isRecord(rawResult) ? rawResult : {};
+
+  const baseInfo = isRecord(result.ae_item_base_info_dto)
+    ? result.ae_item_base_info_dto
+    : {};
+  const multimediaInfo = isRecord(result.ae_multimedia_info_dto)
+    ? result.ae_multimedia_info_dto
+    : {};
+  const skuWrapper = isRecord(result.ae_item_sku_info_dtos)
+    ? result.ae_item_sku_info_dtos
+    : {};
+  const propertyWrapper = isRecord(result.ae_item_properties)
+    ? result.ae_item_properties
+    : {};
+  const videoWrapper = isRecord(multimediaInfo.ae_video_dtos)
+    ? multimediaInfo.ae_video_dtos
+    : {};
+
+  const aeProductId =
+    getString(baseInfo.product_id) || listItem.normalized.itemId || listItem.id;
+
+  const rawSkus = toRecordArray(skuWrapper.ae_item_sku_info_d_t_o);
+  const skuImages = rawSkus.flatMap((sku) =>
+    getSkuProperties(sku).map((property) => property.sku_image)
+  );
+
+  const videos: ProductVideoForm[] = [];
+  for (const v of toRecordArray(videoWrapper.ae_video_d_t_o)) {
+    const url = normalizeUrl(v.media_url);
+    if (!url) continue;
+    videos.push({
+      url,
+      poster: normalizeUrl(v.poster_url),
+      alt: '',
+    });
+  }
+
+  const videoPosters = videos.map((v) => v.poster).filter(Boolean);
+
+  // Match product-dialog: gallery + SKU images + video posters + detail images
+  const galleryUrls = uniqueUrls([
+    listItem.normalized.imageUrl,
+    listItem.product?.itemMainPic,
+    ...splitImageUrls(multimediaInfo.image_urls),
+    ...skuImages,
+    ...videoPosters,
+  ]);
+
+  const detailUrls = uniqueUrls([
+    ...getMobileDetailImages(baseInfo.mobile_detail),
+    ...getHtmlImageUrls(baseInfo.detail),
+  ]);
+
+  // Combined unique list: gallery first, then detail images (size charts often here)
+  const allImageUrls = uniqueUrls([...galleryUrls, ...detailUrls]);
+
+  // Alt text starts empty; filled with step-1 title when user reaches variants step
+  const productImages: ProductImageForm[] = allImageUrls.map((url, index) => ({
+    url,
+    alt: '',
+    position: index,
+    selected: true,
+    variantKeys: [],
+  }));
+
+  const skus: SkuDraft[] = rawSkus.map((sku, index) => {
+    const properties = getSkuProperties(sku).map((prop) => ({
+      aePropertyId: getString(prop.sku_property_id) || null,
+      propertyName: getString(prop.sku_property_name, 'Option'),
+      aeValueId: getString(prop.property_value_id) || null,
+      value: getString(prop.sku_property_value, '—'),
+      valueDefinitionName:
+        getString(prop.property_value_definition_name) || null,
+      image: normalizeUrl(prop.sku_image),
+    }));
+
+    const label =
+      properties.map((p) => `${p.propertyName}: ${p.value}`).join(' · ') ||
+      `Variant ${index + 1}`;
+
+    const aeSale = dollarsToCents(getString(sku.offer_sale_price));
+    const aeOriginal = dollarsToCents(getString(sku.sku_price));
+    const ourPrice = applyMarkupCents(aeSale || aeOriginal, markupPercent);
+    const ourCompare = aeOriginal
+      ? applyMarkupCents(aeOriginal, markupPercent)
+      : null;
+
+    const variantKeys = [
+      getString(sku.sku_id),
+      ...properties.map((p) => p.aeValueId).filter(Boolean),
+      ...properties.map((p) => `${p.propertyName}:${p.value}`),
+    ].filter(Boolean) as string[];
+
+    const propImages: ProductImageForm[] = properties
+      .filter((p) => p.image)
+      .map((p, i) => ({
+        url: p.image as string,
+        alt: '',
+        variantKeys,
+        position: i,
+        selected: true,
+      }));
+
+    const stock =
+      Number.parseInt(getString(sku.sku_available_stock, '0'), 10) || 0;
+
+    return {
+      aeSkuId: getString(sku.sku_id) || `sku-${index}`,
+      aeSkuAttr: getString(sku.sku_attr),
+      price: ourPrice,
+      compareAtPrice: ourCompare,
+      aePrice: aeOriginal || null,
+      aeSalePrice: aeSale || null,
+      stock,
+      sku: null,
+      priceIncludesTax:
+        sku.price_include_tax === true || sku.price_include_tax === 'true',
+      // Out-of-stock variants start unselected
+      selected: stock > 0,
+      images: propImages,
+      properties,
+      label,
+    };
+  });
+
+  // If AE returned no SKUs, create a default single variant from search price
+  if (skus.length === 0) {
+    const sale = dollarsToCents(listItem.normalized.targetSalePrice);
+    const original = dollarsToCents(listItem.normalized.targetOriginalPrice);
+    skus.push({
+      aeSkuId: 'default',
+      aeSkuAttr: '',
+      price: applyMarkupCents(sale || original, markupPercent) || 999,
+      compareAtPrice: original
+        ? applyMarkupCents(original, markupPercent)
+        : null,
+      aePrice: original || null,
+      aeSalePrice: sale || null,
+      stock: 0,
+      sku: null,
+      priceIncludesTax: false,
+      selected: false,
+      images: productImages.slice(0, 1).map((img) => ({ ...img })),
+      properties: [],
+      label: 'Default',
+    });
+  }
+
+  // Link product images to variants by matching property images
+  for (const img of productImages) {
+    const matchingSkus = skus.filter((s) =>
+      s.images.some((si) => si.url === img.url)
+    );
+    if (matchingSkus.length > 0) {
+      img.variantKeys = [
+        ...new Set(
+          matchingSkus.flatMap(
+            (s) =>
+              [
+                s.aeSkuId,
+                ...s.properties.map((p) => p.aeValueId).filter(Boolean),
+              ] as string[]
+          )
+        ),
+      ];
+    }
+  }
+
+  const attributes = toRecordArray(propertyWrapper.ae_item_property).map(
+    (attr, index) => ({
+      aeAttrNameId: getString(attr.attr_name_id) || null,
+      attrName: getString(attr.attr_name, 'Attribute'),
+      aeAttrValueId: getString(attr.attr_value_id) || null,
+      attrValue: getString(attr.attr_value),
+      attrValueUnit: getString(attr.attr_value_unit) || null,
+      position: index,
+      selected: true,
+    })
+  );
+
+  // Size chart heuristics: look for size-related images / attrs
+  const sizeChartImage: string | null = null;
+  let sizeChartDescription: string | null = null;
+  const sizeAttr = attributes.find((a) =>
+    /size\s*chart|measurement|sizing/i.test(a.attrName + ' ' + a.attrValue)
+  );
+  if (sizeAttr) {
+    sizeChartDescription = `${sizeAttr.attrName}: ${sizeAttr.attrValue}`;
+  }
+  // Sometimes detail images include size charts — leave empty for admin to pick
+  // Title / description / mobile description intentionally blank for the admin to write.
+
+  return {
+    name: '',
+    description: '',
+    mobileDetailMarkdown: '',
+    productImages,
+    videos,
+    mainVideo: videos[0]?.url ?? null,
+    skus,
+    attributes,
+    categoryIds: [],
+    hasSizeChart: Boolean(sizeChartImage || sizeChartDescription),
+    sizeChartImage,
+    sizeChartDescription,
+    slug: '',
+    metaTitle: '',
+    metaDescription: '',
+    tags: [],
+    productNotes: '',
+    published: true,
+    featured: false,
+    aeProductId,
+    aeCategoryId: getString(baseInfo.category_id) || null,
+    aeRating:
+      Number.parseFloat(getString(baseInfo.avg_evaluation_rating)) ||
+      listItem.normalized.rating ||
+      null,
+    aeReviewCount:
+      Number.parseInt(getString(baseInfo.evaluation_count), 10) || null,
+    aeSalesCount:
+      getString(baseInfo.sales_count) || listItem.normalized.orders || null,
+    aeStatus: getString(baseInfo.product_status_type) || null,
+  };
+}
+
+/** Apply step-1 title as fallback alt text without overwriting manual edits. */
+export function applyTitleToImageAlts(form: ImportFormState): ImportFormState {
+  const alt = form.name.trim().slice(0, 120);
+  if (!alt) return form;
+
+  return {
+    ...form,
+    productImages: form.productImages.map((img) => ({
+      ...img,
+      alt: img.alt.trim() || alt,
+    })),
+    videos: form.videos.map((v) => ({
+      ...v,
+      alt: v.alt?.trim() || alt,
+    })),
+    skus: form.skus.map((sku) => ({
+      ...sku,
+      images: sku.images.map((img) => ({
+        ...img,
+        alt: img.alt.trim() || alt,
+      })),
+    })),
+  };
+}
+
+export const WIZARD_STEPS = [
+  { id: 0, key: 'basics', label: 'Title & Description' },
+  { id: 1, key: 'variants', label: 'Variants & Images' },
+  { id: 2, key: 'attributes', label: 'Attributes' },
+  { id: 3, key: 'categories', label: 'Categories & Size' },
+  { id: 4, key: 'seo', label: 'SEO & Tags' },
+  { id: 5, key: 'publish', label: 'Publish' },
+] as const;
+
+export type WizardStepId = (typeof WIZARD_STEPS)[number]['id'];
+
+export function validateStep(
+  step: number,
+  form: ImportFormState
+): string | null {
+  if (step === 0) {
+    if (!form.name.trim()) return 'Product title is required.';
+    if (form.name.trim().length > 300) return 'Title is too long.';
+  }
+  if (step === 1) {
+    const selected = form.skus.filter((s) => s.selected && s.stock > 0);
+    if (selected.length === 0) return 'Select at least one variant.';
+    for (const sku of selected) {
+      if (!Number.isFinite(sku.price) || sku.price < 0) {
+        return `Invalid price for variant "${sku.label}".`;
+      }
+    }
+    const images = form.productImages.filter((i) => i.selected !== false);
+    if (images.length === 0) return 'Select at least one product image.';
+  }
+  if (step === 2) {
+    const selectedAttributes = form.attributes.filter(
+      (attr) => attr.selected !== false
+    );
+    for (const attr of selectedAttributes) {
+      if (!attr.attrName.trim() || !attr.attrValue.trim()) {
+        return 'Selected attributes need both a name and a value.';
+      }
+    }
+  }
+  if (step === 3) {
+    if (form.categoryIds.length === 0) {
+      return 'Select or create at least one category.';
+    }
+  }
+  if (step === 4) {
+    const derivedSlug = slugify(form.name);
+    if (!derivedSlug) {
+      return 'Product title must produce a valid URL slug.';
+    }
+    if (!form.metaTitle.trim()) return 'Meta title is required.';
+  }
+  return null;
+}
+
+export async function markdownToHtml(md: string): Promise<string> {
+  if (!md.trim()) return '';
+  try {
+    const { marked } = await import('marked');
+    marked.setOptions({ gfm: true, breaks: true });
+    const html = await marked.parse(md);
+    return typeof html === 'string' ? html : String(html);
+  } catch {
+    // Fallback: escape and wrap paragraphs
+    const escaped = md
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return escaped
+      .split(/\n{2,}/)
+      .map((p) => `<p>${p.replace(/\n/g, '<br />')}</p>`)
+      .join('\n');
+  }
+}
+
+export function buildPublishPayload(form: ImportFormState) {
+  const selectedSkus = form.skus.filter((s) => s.selected && s.stock > 0);
+  const selectedImages = dedupeProductImages(form.productImages)
+    .filter((i) => i.selected !== false)
+    .map((img, index) => ({
+      url: img.url,
+      alt: img.alt || form.name.slice(0, 120),
+      variantKeys: img.variantKeys,
+      position: img.position ?? index,
+    }));
+
+  // Slug always derived from the product title.
+  const slug = slugify(form.name.trim());
+
+  return {
+    name: form.name.trim(),
+    slug,
+    description: form.description,
+    mobileDetailMarkdown: form.mobileDetailMarkdown,
+    isAEProduct: true,
+    aeProductId: form.aeProductId,
+    aeCategoryId: form.aeCategoryId,
+    aeRating: form.aeRating,
+    aeReviewCount: form.aeReviewCount,
+    aeSalesCount: form.aeSalesCount,
+    aeStatus: form.aeStatus,
+    images: selectedImages,
+    videos: form.videos,
+    mainVideo: form.mainVideo,
+    categoryIds: form.categoryIds,
+    hasSizeChart: form.hasSizeChart,
+    sizeChartImage: form.sizeChartImage,
+    sizeChartDescription: form.sizeChartDescription,
+    metaTitle: form.metaTitle.trim(),
+    metaDescription: form.metaDescription.trim() || null,
+    tags: form.tags,
+    productNotes: form.productNotes.trim() || null,
+    published: form.published,
+    featured: form.featured,
+    skus: selectedSkus.map((sku) => ({
+      aeSkuId: sku.aeSkuId === 'default' ? null : sku.aeSkuId,
+      aeSkuAttr: sku.aeSkuAttr || null,
+      price: sku.price,
+      compareAtPrice: sku.compareAtPrice,
+      aePrice: sku.aePrice,
+      aeSalePrice: sku.aeSalePrice,
+      stock: sku.stock,
+      sku: sku.sku,
+      priceIncludesTax: sku.priceIncludesTax,
+      images: dedupeProductImages(sku.images)
+        .filter((i) => i.selected !== false)
+        .map((img, index) => ({
+          url: img.url,
+          alt: img.alt || `${form.name} — ${sku.label}`.slice(0, 120),
+          variantKeys: img.variantKeys ?? [sku.aeSkuId],
+          position: img.position ?? index,
+        })),
+      properties: sku.properties.map((p) => ({
+        aePropertyId: p.aePropertyId,
+        propertyName: p.propertyName,
+        aeValueId: p.aeValueId,
+        value: p.value,
+        valueDefinitionName: p.valueDefinitionName,
+        image: p.image,
+      })),
+    })),
+    attributes: normalizeImportForm(form)
+      .attributes.filter((attr) => attr.selected !== false)
+      .map((attr, index) => ({
+        aeAttrNameId: attr.aeAttrNameId,
+        attrName: attr.attrName.trim(),
+        aeAttrValueId: attr.aeAttrValueId,
+        attrValue: attr.attrValue.trim(),
+        attrValueUnit: attr.attrValueUnit?.trim() || null,
+        position: index,
+      })),
+  };
+}

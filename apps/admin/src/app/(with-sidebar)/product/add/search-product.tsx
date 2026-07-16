@@ -34,6 +34,12 @@ import ProductDetailDialog, {
   fetchAliExpressProductDetail,
   type AliExpressProductDetailResponse,
 } from "./product-dialog";
+import {
+  SAVED_PRODUCTS_KEY,
+  readSavedProducts,
+  writeSavedProducts,
+  type SavedAliExpressProduct,
+} from "./storage";
 
 type Step = "search" | "results";
 type Phase = "idle" | "exit" | "enter-init" | "enter";
@@ -60,41 +66,11 @@ type PaginationMeta = {
   totalCount: number;
 };
 
-type SavedAliExpressProduct = {
-  schemaVersion: 3;
-  id: string;
-  source: "aliexpress";
-  status: "pending_review";
-  addedAt: string;
-  addedAtMs: number;
-  searchContext: {
-    query: string;
-    pageIndex: number;
-    url: string | null;
-  };
-  product: Product;
-  normalized: {
-    itemId: string;
-    title: string;
-    imageUrl: string | null;
-    itemUrl: string | null;
-    displayPrice: string;
-    targetSalePrice: string | null;
-    targetOriginalPrice: string | null;
-    discount: string | null;
-    orders: string | null;
-    rating: number | null;
-    positiveRate: number | null;
-  };
-};
-
 type Notice = {
   type: NoticeType;
   title: string;
   message: string;
 };
-
-const SAVED_PRODUCTS_KEY = "admin:aliexpress:selected-products:v1";
 
 const PLACEHOLDER_QUERIES = [
   "Search products...",
@@ -232,31 +208,6 @@ function buildSavedProduct(
     product: { ...product },
     normalized,
   };
-}
-
-function isSavedProduct(value: unknown): value is SavedAliExpressProduct {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    value.source === "aliexpress" &&
-    isRecord(value.product)
-  );
-}
-
-function readSavedProducts(): SavedAliExpressProduct[] {
-  if (typeof window === "undefined") return [];
-
-  const raw = window.localStorage.getItem(SAVED_PRODUCTS_KEY);
-  if (!raw) return [];
-
-  const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) return [];
-
-  return parsed.filter(isSavedProduct);
-}
-
-function writeSavedProducts(products: SavedAliExpressProduct[]) {
-  window.localStorage.setItem(SAVED_PRODUCTS_KEY, JSON.stringify(products));
 }
 
 function getApiErrorMessage(payload: unknown, status: number) {
