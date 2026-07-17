@@ -405,7 +405,7 @@ function ProductCard({
           onOpenDetails(product);
         }
       }}
-      className="group cursor-pointer overflow-hidden rounded-lg border bg-card shadow-sm transition hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group cursor-pointer overflow-hidden rounded-lg border bg-card p-0 shadow-sm transition hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="relative aspect-square overflow-hidden bg-muted">
         {imageUrl ? (
@@ -413,7 +413,6 @@ function ProductCard({
             src={imageUrl}
             alt={title}
             fill
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
             className="object-cover transition duration-300 group-hover:scale-[1.03]"
             unoptimized
           />
@@ -437,9 +436,9 @@ function ProductCard({
         ) : null}
       </div>
 
-      <CardContent className="flex min-h-[188px] flex-col gap-3 p-3">
-        <div className="space-y-2">
-          <p className="line-clamp-2 min-h-[40px] text-sm font-medium leading-5 text-foreground">
+      <CardContent className="flex min-h-35 flex-col gap-1 p-2">
+        <div className="space-y-1">
+          <p className="line-clamp-2 min-h-8 text-sm font-medium leading-5 text-foreground">
             {title}
           </p>
 
@@ -455,7 +454,7 @@ function ProductCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
           {hasRating ? (
             <span className="inline-flex items-center gap-1 text-amber-600">
               <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
@@ -1206,7 +1205,7 @@ const SearchProduct = () => {
 
               {!loading && !error && products.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                     {products.map((product, index) => {
                       const productId = getProductId(product) || String(index);
 

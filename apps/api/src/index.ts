@@ -18,6 +18,7 @@ import {
   auditLogs,
   categories,
   addProductMyList,
+  manageProducts,
 } from "./routes";
 
 
@@ -90,5 +91,6 @@ app.route("/api/users", users);
 app.route("/api/audit-logs", auditLogs);
 app.route("/api/categories", categories);
 app.route("/api/products/mylist", addProductMyList);
+app.route("/api/products/manage", manageProducts);
 
 export default app;

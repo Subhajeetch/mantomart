@@ -164,36 +164,24 @@ const MyList = () => {
   return (
     <div className="space-y-8 pb-8">
       {/* ── Drafts ── */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight">Drafts</h2>
-            <p className="text-xs text-muted-foreground">
-              Continue products you were editing — even if you closed the
-              browser.
-            </p>
-          </div>
-          {drafts.length > 0 ? (
-            <Badge variant="secondary">{drafts.length}</Badge>
-          ) : null}
-        </div>
-
-        {drafts.length === 0 ? (
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-              <FileEdit className="h-8 w-8 text-muted-foreground/60" />
-              <p className="text-sm text-muted-foreground">
-                No drafts yet. Start importing a product and your progress will
-                appear here.
+      {drafts.length > 0 ? (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold tracking-tight">Drafts</h2>
+              <p className="text-xs text-muted-foreground">
+                Continue products you were editing — even if you closed the
+                browser.
               </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            </div>
+            <Badge variant="secondary">{drafts.length}</Badge>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {drafts.map((draft) => (
               <Card
                 key={draft.listItemId}
-                className="group overflow-hidden border-amber-500/30 bg-amber-500/5 shadow-sm transition hover:border-amber-500/50 hover:shadow-md"
+                className="group overflow-hidden border-amber-500/30 bg-amber-500/5 shadow-sm transition hover:border-amber-500/50 hover:shadow-md p-0"
               >
                 <div className="relative aspect-[4/3] overflow-hidden bg-muted">
                   {draft.imageSnapshot ? (
@@ -249,8 +237,8 @@ const MyList = () => {
               </Card>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       {/* ── My List ── */}
       <section className="space-y-3">
@@ -290,7 +278,7 @@ const MyList = () => {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {savedProducts.map((item) => {
               const hasDraft = draftByListId.has(item.id);
               const imageUrl = item.normalized.imageUrl;
@@ -300,7 +288,7 @@ const MyList = () => {
               return (
                 <Card
                   key={item.id}
-                  className="group overflow-hidden shadow-sm transition hover:border-primary/40 hover:shadow-md"
+                  className="group overflow-hidden shadow-sm transition hover:border-primary/40 hover:shadow-md p-0"
                 >
                   <div className="relative aspect-square overflow-hidden bg-muted">
                     {imageUrl ? (

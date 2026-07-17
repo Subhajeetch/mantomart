@@ -8,6 +8,7 @@ import users from "./paths/main/users";
 import auditLogs from "./paths/main/audit-logs";
 import categories from "./paths/main/categories";
 import addProductMyList from "./paths/main/add-product-mylist";
+import manageProducts from "./paths/main/manage-products";
 
 export {
   aeProduct,
@@ -17,4 +18,5 @@ export {
   auditLogs,
   categories,
   addProductMyList,
+  manageProducts,
 };
