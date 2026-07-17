@@ -1247,13 +1247,9 @@ addProductMyList.post(
 
       c.executionCtx.waitUntil(
         logAuditFromContext(c, {
-          action: published
-            ? AUDIT_ACTIONS.PRODUCT_PUBLISH
-            : AUDIT_ACTIONS.PRODUCT_CREATE,
+          action: AUDIT_ACTIONS.PRODUCT_CREATE,
           category: AUDIT_CATEGORIES.PRODUCT,
-          description: published
-            ? `Published product "${name}" from AliExpress import`
-            : `Created product "${name}" from AliExpress import (draft)`,
+          description: `Created product "${name}" from AliExpress import`,
           targetType: AUDIT_TARGET_TYPES.PRODUCT,
           targetId: productId,
           targetLabel: name,

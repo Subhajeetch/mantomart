@@ -54,9 +54,7 @@ export const AUDIT_ACTIONS = {
   PRODUCT_CREATE: 'product.create',
   PRODUCT_UPDATE: 'product.update',
   PRODUCT_DELETE: 'product.delete',
-  PRODUCT_PUBLISH: 'product.publish',
-  PRODUCT_UNPUBLISH: 'product.unpublish',
-
+  
   // Categories
   CATEGORY_CREATE: 'category.create',
   CATEGORY_UPDATE: 'category.update',
