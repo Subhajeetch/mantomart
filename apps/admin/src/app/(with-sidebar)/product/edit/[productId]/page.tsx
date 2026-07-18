@@ -53,6 +53,8 @@ import {
   type SkuProperty,
 } from '../../manage/utils';
 
+import { EditVariantsSection } from './edit-variants';
+
 const STEPS = [
   { key: 'basics', label: 'Basics' },
   { key: 'media', label: 'Media' },
@@ -251,6 +253,13 @@ export default function ProductEditPage() {
         };
       });
       return { ...current, skus };
+    });
+  }
+
+  function updateSkus(updater: (skus: ProductSku[]) => ProductSku[]) {
+    setForm((current) => {
+      if (!current) return current;
+      return { ...current, skus: updater(current.skus) };
     });
   }
 
@@ -763,163 +772,13 @@ export default function ProductEditPage() {
 
             {step === 2 && (
               <Card>
-                <CardContent className="space-y-4 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="font-medium">Variants</h2>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => updateForm({ skus: [...form.skus, emptySku()] })}
-                      className="gap-1.5"
-                    >
-                      <Plus className="size-3.5" />
-                      Variant
-                    </Button>
-                  </div>
-                  <div className="space-y-4">
-                    {form.skus.map((sku, skuIndex) => (
-                      <div key={skuIndex} className="space-y-3 rounded-lg border p-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-medium">Variant {skuIndex + 1}</p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={form.skus.length <= 1}
-                            onClick={() =>
-                              updateForm({
-                                skus: form.skus.filter((_, index) => index !== skuIndex),
-                              })
-                            }
-                            className="gap-1.5"
-                          >
-                            <Trash2 className="size-3.5" />
-                            Remove
-                          </Button>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                          <div className="space-y-1.5">
-                            <Label>SKU code</Label>
-                            <Input
-                              value={sku.sku ?? ''}
-                              onChange={(event) =>
-                                updateSku(skuIndex, { sku: event.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label>Price</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={dollarsFromCents(sku.price)}
-                              onChange={(event) =>
-                                updateSku(skuIndex, {
-                                  price: centsFromDollars(event.target.value),
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label>Compare price</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={dollarsFromCents(sku.compareAtPrice)}
-                              onChange={(event) =>
-                                updateSku(skuIndex, {
-                                  compareAtPrice: event.target.value
-                                    ? centsFromDollars(event.target.value)
-                                    : null,
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label>Stock</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              value={sku.stock}
-                              onChange={(event) =>
-                                updateSku(skuIndex, {
-                                  stock: Number.parseInt(event.target.value, 10) || 0,
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-medium">Options</p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                updateSku(skuIndex, {
-                                  properties: [...sku.properties, emptyProperty()],
-                                })
-                              }
-                              className="gap-1.5"
-                            >
-                              <Plus className="size-3.5" />
-                              Option
-                            </Button>
-                          </div>
-                          {sku.properties.map((property, propertyIndex) => (
-                            <div key={propertyIndex} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
-                              <Input
-                                value={property.propertyName}
-                                onChange={(event) =>
-                                  updateProperty(skuIndex, propertyIndex, {
-                                    propertyName: event.target.value,
-                                  })
-                                }
-                                placeholder="Color"
-                              />
-                              <Input
-                                value={property.value}
-                                onChange={(event) =>
-                                  updateProperty(skuIndex, propertyIndex, {
-                                    value: event.target.value,
-                                  })
-                                }
-                                placeholder="Black"
-                              />
-                              <Input
-                                value={property.image ?? ''}
-                                onChange={(event) =>
-                                  updateProperty(skuIndex, propertyIndex, {
-                                    image: event.target.value,
-                                  })
-                                }
-                                placeholder="Option image URL"
-                              />
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                onClick={() =>
-                                  updateSku(skuIndex, {
-                                    properties: sku.properties.filter(
-                                      (_, index) => index !== propertyIndex
-                                    ),
-                                  })
-                                }
-                                aria-label="Remove option"
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                <CardContent className="p-4">
+                  <EditVariantsSection
+                    skus={form.skus}
+                    onUpdateSkus={(updater) => {
+                      updateForm({ skus: updater(form.skus) });
+                    }}
+                  />
                 </CardContent>
               </Card>
             )}

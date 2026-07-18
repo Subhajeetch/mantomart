@@ -7,7 +7,6 @@
 
 html {
 	font-family: "Roboto", sans-serif, Arial, Helvetica, system-ui;
-	scrollbar-gutter: stable;
 }
 
 ::-webkit-scrollbar {
