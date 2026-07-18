@@ -65,8 +65,8 @@ import {
   validateStep,
   WIZARD_STEPS,
 } from './import-wizard-utils';
+import { ImportWizardVariants } from './import-wizard-variants';
 import {
-  centsToDisplay,
   getDraft,
   removeDraft,
   removeSavedProduct,
@@ -943,14 +943,14 @@ export default function ImportWizard({
                         </div>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                         {form.productImages.map((img, index) => {
                           const selected = img.selected !== false;
                           return (
                             <Card
                               key={`${img.url}-${index}`}
                               className={cn(
-                                'overflow-hidden transition',
+                                'overflow-hidden transition p-0',
                                 selected
                                   ? 'border-primary ring-1 ring-primary/30'
                                   : 'opacity-70'
@@ -1024,244 +1024,37 @@ export default function ImportWizard({
                       </div>
                     </section>
 
-                    <section className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="text-sm font-semibold">
-                            Variants ({selectedSkuCount} selected)
-                          </h3>
-                          <p className="text-xs text-muted-foreground">
-                            Prices are per variant. Out-of-stock variants (stock
-                            0) stay unselected.
-                          </p>
-                        </div>
-                      </div>
+                    <ImportWizardVariants
+                      skus={form.skus}
+                      selectedSkuCount={selectedSkuCount}
+                      onUpdateSkus={(updater) =>
+                        updateForm((prev) => ({
+                          ...prev,
+                          skus: updater(prev.skus),
+                        }))
+                      }
+                    />
 
-                      <div className="space-y-2">
-                        {form.skus.map((sku, skuIndex) => {
-                          const skuSelected = sku.selected && sku.stock > 0;
-                          const isOutOfStock = sku.stock <= 0;
-
-                          return (
-                            <Card
-                              key={sku.aeSkuId + skuIndex}
-                              className={cn(
-                                'transition',
-                                skuSelected ? 'border-primary/50' : 'opacity-60'
-                              )}
+                    {form.videos.length > 0 ? (
+                      <section className="space-y-2">
+                        <h3 className="text-sm font-semibold">
+                          Videos ({form.videos.length})
+                        </h3>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {form.videos.map((video) => (
+                            <video
+                              key={video.url}
+                              controls
+                              preload="metadata"
+                              poster={video.poster ?? undefined}
+                              className="max-h-56 w-full rounded-lg border bg-muted"
                             >
-                              <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-start">
-                                <div className="flex items-start gap-3 sm:w-1/3">
-                                  <button
-                                    type="button"
-                                    disabled={isOutOfStock}
-                                    onClick={() =>
-                                      updateForm((prev) => ({
-                                        ...prev,
-                                        skus: prev.skus.map((s, i) =>
-                                          i === skuIndex
-                                            ? {
-                                                ...s,
-                                                selected:
-                                                  s.stock > 0
-                                                    ? !s.selected
-                                                    : false,
-                                              }
-                                            : s
-                                        ),
-                                      }))
-                                    }
-                                    className={cn(
-                                      'mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border',
-                                      skuSelected
-                                        ? 'border-primary bg-primary text-primary-foreground'
-                                        : 'border-muted-foreground/40',
-                                      isOutOfStock &&
-                                        'cursor-not-allowed bg-muted text-muted-foreground'
-                                    )}
-                                    aria-label={
-                                      isOutOfStock
-                                        ? 'Variant is out of stock'
-                                        : skuSelected
-                                          ? 'Unselect variant'
-                                          : 'Select variant'
-                                    }
-                                  >
-                                    {skuSelected ? (
-                                      <Check className="h-3 w-3" />
-                                    ) : null}
-                                  </button>
-                                  <div className="min-w-0">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <p className="text-sm font-medium leading-snug">
-                                        {sku.label}
-                                      </p>
-                                      {isOutOfStock ? (
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[10px] text-destructive"
-                                        >
-                                          Out of stock
-                                        </Badge>
-                                      ) : null}
-                                    </div>
-                                    <p className="text-xs text-muted-foreground">
-                                      Stock: {sku.stock}
-                                      {sku.aeSalePrice != null
-                                        ? ` · AE $${centsToDisplay(sku.aeSalePrice)}`
-                                        : ''}
-                                    </p>
-                                    {sku.images[0]?.url ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img
-                                        src={sku.images[0].url}
-                                        alt=""
-                                        className="mt-2 h-14 w-14 rounded-md border object-cover"
-                                      />
-                                    ) : null}
-                                  </div>
-                                </div>
-
-                                <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3">
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">
-                                      Our price ($)
-                                    </Label>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      step="0.01"
-                                      value={(sku.price / 100).toFixed(2)}
-                                      onChange={(e) => {
-                                        const dollars = Number.parseFloat(
-                                          e.target.value
-                                        );
-                                        const cents = Number.isFinite(dollars)
-                                          ? Math.round(dollars * 100)
-                                          : 0;
-                                        updateForm((prev) => ({
-                                          ...prev,
-                                          skus: prev.skus.map((s, i) =>
-                                            i === skuIndex
-                                              ? {
-                                                  ...s,
-                                                  price: Math.max(0, cents),
-                                                }
-                                              : s
-                                          ),
-                                        }));
-                                      }}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">
-                                      Compare at ($)
-                                    </Label>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      step="0.01"
-                                      value={
-                                        sku.compareAtPrice != null
-                                          ? (sku.compareAtPrice / 100).toFixed(
-                                              2
-                                            )
-                                          : ''
-                                      }
-                                      onChange={(e) => {
-                                        const raw = e.target.value;
-                                        if (!raw) {
-                                          updateForm((prev) => ({
-                                            ...prev,
-                                            skus: prev.skus.map((s, i) =>
-                                              i === skuIndex
-                                                ? { ...s, compareAtPrice: null }
-                                                : s
-                                            ),
-                                          }));
-                                          return;
-                                        }
-                                        const dollars = Number.parseFloat(raw);
-                                        const cents = Number.isFinite(dollars)
-                                          ? Math.round(dollars * 100)
-                                          : null;
-                                        updateForm((prev) => ({
-                                          ...prev,
-                                          skus: prev.skus.map((s, i) =>
-                                            i === skuIndex
-                                              ? {
-                                                  ...s,
-                                                  compareAtPrice:
-                                                    cents != null
-                                                      ? Math.max(0, cents)
-                                                      : null,
-                                                }
-                                              : s
-                                          ),
-                                        }));
-                                      }}
-                                      className="h-8"
-                                      placeholder="Optional"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs">Stock</Label>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      value={sku.stock}
-                                      onChange={(e) => {
-                                        const stock =
-                                          Number.parseInt(e.target.value, 10) ||
-                                          0;
-                                        updateForm((prev) => ({
-                                          ...prev,
-                                          skus: prev.skus.map((s, i) =>
-                                            i === skuIndex
-                                              ? {
-                                                  ...s,
-                                                  stock: Math.max(0, stock),
-                                                  selected:
-                                                    stock > 0
-                                                      ? s.selected
-                                                      : false,
-                                                }
-                                              : s
-                                          ),
-                                        }));
-                                      }}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
-                      </div>
-
-                      {form.videos.length > 0 ? (
-                        <div className="space-y-2 pt-2">
-                          <h3 className="text-sm font-semibold">
-                            Videos ({form.videos.length})
-                          </h3>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {form.videos.map((video) => (
-                              <video
-                                key={video.url}
-                                controls
-                                preload="metadata"
-                                poster={video.poster ?? undefined}
-                                className="max-h-56 w-full rounded-lg border bg-muted"
-                              >
-                                <source src={video.url} />
-                              </video>
-                            ))}
-                          </div>
+                              <source src={video.url} />
+                            </video>
+                          ))}
                         </div>
-                      ) : null}
-                    </section>
+                      </section>
+                    ) : null}
                   </div>
                 ) : null}
 

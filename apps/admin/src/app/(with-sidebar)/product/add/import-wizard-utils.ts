@@ -466,6 +466,211 @@ export function applyTitleToImageAlts(form: ImportFormState): ImportFormState {
   };
 }
 
+// ─── Variant grouping (bulk-edit helpers for large SKU matrices) ──────────────
+
+/** Prefer grouping by visual options (color/style) over size/fit. */
+const GROUP_PROPERTY_PRIORITY: Array<{ test: RegExp; score: number }> = [
+  { test: /colou?r|colour|цвет|farbe|couleur/i, score: 100 },
+  { test: /style|pattern|print|design|model|type/i, score: 80 },
+  { test: /material|fabric|finish/i, score: 60 },
+  { test: /size|尺寸|größe|taille|waist|length|fit/i, score: 20 },
+];
+
+export type SkuGroupDimension = {
+  propertyName: string;
+  uniqueValueCount: number;
+  /** True when at least one SKU has an image on this property. */
+  hasImages: boolean;
+  /** Higher = better default grouping axis. */
+  score: number;
+};
+
+export type SkuVariantGroup = {
+  /** Stable key: propertyName + unit separator + value */
+  key: string;
+  propertyName: string;
+  value: string;
+  image: string | null;
+  /** Indices into the original skus array. */
+  skuIndices: number[];
+};
+
+export type VariantViewMode = 'list' | 'grouped';
+
+/** Threshold above which grouped view is the default when grouping is possible. */
+export const VARIANT_GROUP_THRESHOLD = 10;
+
+function propertyPriorityScore(propertyName: string): number {
+  for (const entry of GROUP_PROPERTY_PRIORITY) {
+    if (entry.test.test(propertyName)) return entry.score;
+  }
+  return 40;
+}
+
+function getPropertyValue(
+  sku: SkuDraft,
+  propertyName: string
+): string | null {
+  const prop = sku.properties.find(
+    (p) => p.propertyName.toLowerCase() === propertyName.toLowerCase()
+  );
+  if (!prop) return null;
+  return prop.valueDefinitionName?.trim() || prop.value.trim() || null;
+}
+
+function getPropertyImage(
+  sku: SkuDraft,
+  propertyName: string
+): string | null {
+  const prop = sku.properties.find(
+    (p) => p.propertyName.toLowerCase() === propertyName.toLowerCase()
+  );
+  return prop?.image ?? null;
+}
+
+/**
+ * Discover property axes we can group by (Color, Size, …).
+ * Ordered by usefulness for bulk price editing.
+ */
+export function getSkuGroupDimensions(skus: SkuDraft[]): SkuGroupDimension[] {
+  const map = new Map<
+    string,
+    { values: Set<string>; hasImages: boolean; displayName: string }
+  >();
+
+  for (const sku of skus) {
+    for (const prop of sku.properties) {
+      const name = prop.propertyName.trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const value = prop.valueDefinitionName?.trim() || prop.value.trim();
+      if (!value) continue;
+
+      let entry = map.get(key);
+      if (!entry) {
+        entry = { values: new Set(), hasImages: false, displayName: name };
+        map.set(key, entry);
+      }
+      entry.values.add(value);
+      if (prop.image) entry.hasImages = true;
+    }
+  }
+
+  const dimensions: SkuGroupDimension[] = [];
+  for (const entry of map.values()) {
+    if (entry.values.size < 2) continue; // nothing to group
+    const base = propertyPriorityScore(entry.displayName);
+    const imageBonus = entry.hasImages ? 25 : 0;
+    // Prefer axes that produce fewer, larger groups (better bulk edit)
+    const avgGroupSize = skus.length / entry.values.size;
+    const sizeBonus = Math.min(30, Math.round(avgGroupSize));
+    dimensions.push({
+      propertyName: entry.displayName,
+      uniqueValueCount: entry.values.size,
+      hasImages: entry.hasImages,
+      score: base + imageBonus + sizeBonus,
+    });
+  }
+
+  return dimensions.sort((a, b) => b.score - a.score || a.propertyName.localeCompare(b.propertyName));
+}
+
+/**
+ * Pick the best default grouping property, or null if grouping isn't useful.
+ */
+export function pickDefaultGroupBy(skus: SkuDraft[]): string | null {
+  const dims = getSkuGroupDimensions(skus);
+  const best = dims[0];
+  if (!best) return null;
+  // Only auto-group when it actually collapses the list
+  if (best.uniqueValueCount >= skus.length) return null;
+  return best.propertyName;
+}
+
+/**
+ * Group SKUs by a property axis. SKUs missing that property land in "Other".
+ */
+export function groupSkusByProperty(
+  skus: SkuDraft[],
+  propertyName: string
+): SkuVariantGroup[] {
+  const groups = new Map<string, SkuVariantGroup>();
+  const order: string[] = [];
+
+  skus.forEach((sku, index) => {
+    const rawValue = getPropertyValue(sku, propertyName);
+    const value = rawValue ?? 'Other';
+    const key = `${propertyName.toLowerCase()}\u0000${value.toLowerCase()}`;
+
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        propertyName,
+        value,
+        image: getPropertyImage(sku, propertyName) ?? sku.images[0]?.url ?? null,
+        skuIndices: [],
+      };
+      groups.set(key, group);
+      order.push(key);
+    } else if (!group.image) {
+      group.image =
+        getPropertyImage(sku, propertyName) ?? sku.images[0]?.url ?? null;
+    }
+    group.skuIndices.push(index);
+  });
+
+  return order.map((k) => groups.get(k)!);
+}
+
+/**
+ * Secondary option labels for a group (e.g. sizes when grouped by color).
+ */
+export function getSecondaryOptionLabel(
+  sku: SkuDraft,
+  groupPropertyName: string
+): string {
+  const others = sku.properties
+    .filter(
+      (p) =>
+        p.propertyName.toLowerCase() !== groupPropertyName.toLowerCase()
+    )
+    .map((p) => p.valueDefinitionName?.trim() || p.value.trim())
+    .filter(Boolean);
+  if (others.length > 0) return others.join(' · ');
+  return sku.label || 'Variant';
+}
+
+/** Shared price/compare/stock across a set of SKU indices, or null if mixed. */
+export function getSharedSkuField(
+  skus: SkuDraft[],
+  indices: number[],
+  field: 'price' | 'compareAtPrice' | 'stock'
+): number | null | 'mixed' {
+  if (indices.length === 0) return null;
+  const firstIndex = indices[0];
+  if (firstIndex === undefined) return null;
+  const firstSku = skus[firstIndex];
+  if (!firstSku) return null;
+  const first = firstSku[field];
+  for (let i = 1; i < indices.length; i++) {
+    const idx = indices[i];
+    if (idx === undefined) continue;
+    const sku = skus[idx];
+    if (!sku) continue;
+    if (sku[field] !== first) return 'mixed';
+  }
+  return first ?? null;
+}
+
+export function canUseGroupedVariants(skus: SkuDraft[]): boolean {
+  return pickDefaultGroupBy(skus) != null;
+}
+
+export function shouldDefaultToGroupedView(skus: SkuDraft[]): boolean {
+  return skus.length > VARIANT_GROUP_THRESHOLD && canUseGroupedVariants(skus);
+}
+
 export const WIZARD_STEPS = [
   { id: 0, key: 'basics', label: 'Title & Description' },
   { id: 1, key: 'variants', label: 'Variants & Images' },
