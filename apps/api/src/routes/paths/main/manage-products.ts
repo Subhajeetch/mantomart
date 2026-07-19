@@ -7,6 +7,8 @@ import {
   eq,
   inArray,
   like,
+  max,
+  min,
   ne,
   or,
   sql,
@@ -971,8 +973,14 @@ manageProducts.get(
       const [capabilities, totalRows, rows, addedByOptions] = await Promise.all([
         resolveActorCapabilities(db, actor.id, actor.role),
         db.select({ value: count() }).from(products).where(where),
+        // Lightweight list projection — only fields the manage grid needs.
         db
-          .select()
+          .select({
+            id: products.id,
+            name: products.name,
+            images: products.images,
+            published: products.published,
+          })
           .from(products)
           .where(where)
           .orderBy(buildOrderBy(sortBy, sortOrder))
@@ -995,71 +1003,52 @@ manageProducts.get(
       ]);
 
       const productIds = rows.map((row) => row.id);
-      const addedByIds = Array.from(
-        new Set(rows.map((row) => row.productAddedBy).filter(Boolean))
-      ) as string[];
-      const [skuRows, categoryRows, addedByRows] =
+      const priceRows =
         productIds.length > 0
-          ? await Promise.all([
-              db
-                .select()
-                .from(productSkus)
-                .where(inArray(productSkus.productId, productIds)),
-              db
-                .select({
-                  productId: productCategories.productId,
-                  id: categories.id,
-                  name: categories.name,
-                  slug: categories.slug,
-                })
-                .from(productCategories)
-                .innerJoin(categories, eq(productCategories.categoryId, categories.id))
-                .where(inArray(productCategories.productId, productIds)),
-              addedByIds.length
-                ? db
-                    .select({
-                      id: users.id,
-                      name: users.name,
-                      email: users.email,
-                      image: users.image,
-                      role: users.role,
-                    })
-                    .from(users)
-                    .where(inArray(users.id, addedByIds))
-                : Promise.resolve([]),
-            ])
-          : [[], [], []];
+          ? await db
+              .select({
+                productId: productSkus.productId,
+                minPrice: min(productSkus.price),
+                maxPrice: max(productSkus.price),
+              })
+              .from(productSkus)
+              .where(inArray(productSkus.productId, productIds))
+              .groupBy(productSkus.productId)
+          : [];
 
-      const skusByProduct = new Map<string, typeof skuRows>();
-      for (const sku of skuRows) {
-        const list = skusByProduct.get(sku.productId) ?? [];
-        list.push(sku);
-        skusByProduct.set(sku.productId, list);
-      }
-      const categoriesByProduct = new Map<string, typeof categoryRows>();
-      for (const category of categoryRows) {
-        const list = categoriesByProduct.get(category.productId) ?? [];
-        list.push(category);
-        categoriesByProduct.set(category.productId, list);
-      }
-      const addedByById = new Map(addedByRows.map((user) => [user.id, user]));
+      const toPrice = (value: number | string | null | undefined): number | null => {
+        if (value === null || value === undefined) return null;
+        const n = typeof value === 'number' ? value : Number(value);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const priceByProduct = new Map(
+        priceRows.map((row) => [
+          row.productId,
+          {
+            minPrice: toPrice(row.minPrice),
+            maxPrice: toPrice(row.maxPrice),
+          },
+        ])
+      );
 
       const total = Number(totalRows[0]?.value ?? 0);
       return c.json({
         success: true,
         data: rows.map((row) => {
-          const skus = skusByProduct.get(row.id) ?? [];
-          const prices = skus.map((sku) => sku.price);
+          const prices = priceByProduct.get(row.id);
+          const images = Array.isArray(row.images) ? row.images : [];
+          // Only ship the first gallery image for the card thumbnail.
+          const firstImage = images[0];
           return {
-            ...serializeProduct(row),
-            categories: categoriesByProduct.get(row.id) ?? [],
-            addedBy: row.productAddedBy
-              ? addedByById.get(row.productAddedBy) ?? null
-              : null,
-            skuCount: skus.length,
-            totalStock: skus.reduce((sum, sku) => sum + sku.stock, 0),
-            minPrice: prices.length ? Math.min(...prices) : null,
-            maxPrice: prices.length ? Math.max(...prices) : null,
+            id: row.id,
+            name: row.name,
+            published: row.published,
+            images: firstImage
+              ? [{ url: firstImage.url, alt: firstImage.alt ?? '' }]
+              : [],
+            minPrice: prices?.minPrice ?? null,
+            maxPrice: prices?.maxPrice ?? null,
           };
         }),
         meta: {

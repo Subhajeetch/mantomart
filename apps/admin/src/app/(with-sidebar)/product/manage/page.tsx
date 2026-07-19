@@ -5,17 +5,12 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Edit,
-  Eye,
   Filter,
-  Loader2,
-  Package,
   PackageSearch,
   Plus,
   RefreshCw,
   Search,
   ShieldAlert,
-  ShoppingBag,
-  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,16 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -52,8 +38,6 @@ import { cn } from '@/lib/utils';
 
 import {
   flattenCategories,
-  formatDateTime,
-  formatMoney,
   formatPriceRange,
   requestCategories,
   requestJson,
@@ -62,7 +46,7 @@ import {
   type ProductSummary,
 } from './utils';
 
-const PAGE_SIZE = 18;
+const PAGE_SIZE = 24;
 
 function getInitials(name: string | null | undefined) {
   return (name || 'Admin')
@@ -76,239 +60,79 @@ function getInitials(name: string | null | undefined) {
 
 function ProductSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <div className="bg-muted h-40 animate-pulse" />
-      <CardContent className="space-y-3 p-4">
-        <div className="bg-muted h-4 w-3/4 animate-pulse rounded" />
+    <Card className="overflow-hidden p-0">
+      <div className="bg-muted aspect-square animate-pulse" />
+      <CardContent className="space-y-2 p-3">
+        <div className="bg-muted h-4 w-4/5 animate-pulse rounded" />
         <div className="bg-muted h-3 w-1/2 animate-pulse rounded" />
-        <div className="grid grid-cols-3 gap-2">
-          <div className="bg-muted h-10 animate-pulse rounded" />
-          <div className="bg-muted h-10 animate-pulse rounded" />
-          <div className="bg-muted h-10 animate-pulse rounded" />
-        </div>
+        <div className="bg-muted h-5 w-16 animate-pulse rounded" />
       </CardContent>
     </Card>
-  );
-}
-
-function DeleteProductDialog({
-  product,
-  open,
-  loading,
-  onOpenChange,
-  onConfirm,
-}: {
-  product: ProductSummary | null;
-  open: boolean;
-  loading: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-}) {
-  const [typed, setTyped] = useState('');
-
-  useEffect(() => {
-    if (open) setTyped('');
-  }, [open]);
-
-  const confirmed = product ? typed.trim() === product.name : false;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete product</DialogTitle>
-          <DialogDescription>
-            This permanently removes the product, its variants, attributes, and
-            category links. Type the product name to confirm.
-          </DialogDescription>
-        </DialogHeader>
-
-        {product && (
-          <div className="space-y-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="font-medium">{product.name}</p>
-              <p className="text-muted-foreground text-xs">
-                {product.skuCount} SKU{product.skuCount === 1 ? '' : 's'} ·{' '}
-                {product.categories.length} categor
-                {product.categories.length === 1 ? 'y' : 'ies'}
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="delete-product-confirm">Product name</Label>
-              <Input
-                id="delete-product-confirm"
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                placeholder={product.name}
-              />
-            </div>
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={loading}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={!confirmed || loading}
-            className="gap-1.5"
-          >
-            {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-            Delete product
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
 function ProductCard({
   product,
   canUpdate,
-  canDelete,
-  onDelete,
 }: {
   product: ProductSummary;
   canUpdate: boolean;
-  canDelete: boolean;
-  onDelete: (product: ProductSummary) => void;
 }) {
   const image = product.images?.[0]?.url;
+
   return (
-    <Card className="group overflow-hidden transition-colors hover:border-primary/40 p-0">
-      <div className="grid min-h-full grid-rows-[auto_1fr]">
-        <Link href={`/product/view/${product.id}`} className="block">
-          <div className="relative h-48 bg-muted">
-            {image ? (
-              <CustomImage
-                src={image}
-                width={640}
-                height={480}
-                alt={product.images[0]?.alt || product.name}
-                className="h-full w-full transition duration-200 group-hover:scale-[1.02]"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <PackageSearch className="text-muted-foreground size-9" />
-              </div>
-            )}
-            <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
-              <Badge variant={product.published ? 'default' : 'secondary'}>
-                {product.published ? 'Published' : 'Draft'}
-              </Badge>
-              {product.featured && <Badge variant="outline">Featured</Badge>}
-              {product.isAEProduct && <Badge variant="outline">AE</Badge>}
+    <Card className="group relative overflow-hidden p-0 transition-colors hover:border-primary/40">
+      {canUpdate && (
+        <Button
+          asChild
+          variant="secondary"
+          size="icon"
+          className="absolute top-2 right-2 z-10 size-8 shadow-sm"
+        >
+          <Link
+            href={`/product/edit/${product.id}`}
+            aria-label={`Edit ${product.name}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Edit className="size-3.5" />
+          </Link>
+        </Button>
+      )}
+
+      <Link href={`/product/view/${product.id}`} className="block">
+        <div className="relative aspect-square bg-muted">
+          {image ? (
+            <CustomImage
+              src={image}
+              width={400}
+              height={400}
+              alt={product.images[0]?.alt || product.name}
+              className="h-full w-full transition duration-200 group-hover:scale-[1.02]"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <PackageSearch className="text-muted-foreground size-8" />
             </div>
-            <div className="absolute right-3 bottom-3 rounded-full bg-background/95 px-2.5 py-1 text-xs font-medium shadow-sm">
+          )}
+        </div>
+
+        <CardContent className="space-y-2 p-3">
+          <h3 className="truncate text-sm font-medium leading-snug" title={product.name}>
+            {product.name}
+          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-sm font-semibold tabular-nums">
               {formatPriceRange(product)}
-            </div>
-          </div>
-        </Link>
-
-        <CardContent className="flex flex-col gap-4 p-4">
-          <div className="min-w-0 space-y-1">
-            <Link
-              href={`/product/view/${product.id}`}
-              className="line-clamp-2 min-h-10 font-medium leading-snug hover:underline"
+            </p>
+            <Badge
+              variant={product.published ? 'default' : 'secondary'}
+              className="shrink-0 text-[10px]"
             >
-              {product.name}
-            </Link>
-            <p className="text-muted-foreground truncate text-xs">/{product.slug}</p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="rounded-lg bg-muted/45 p-2.5">
-              <p className="text-muted-foreground flex items-center gap-1">
-                <Package className="size-3" />
-                SKUs
-              </p>
-              <p className="mt-1 font-medium tabular-nums">{product.skuCount}</p>
-            </div>
-            <div className="rounded-lg bg-muted/45 p-2.5">
-              <p className="text-muted-foreground flex items-center gap-1">
-                <ShoppingBag className="size-3" />
-                Stock
-              </p>
-              <p className="mt-1 font-medium tabular-nums">{product.totalStock}</p>
-            </div>
-            <div className="rounded-lg bg-muted/45 p-2.5">
-              <p className="text-muted-foreground">Orders</p>
-              <p className="mt-1 font-medium tabular-nums">{product.orderCount}</p>
-            </div>
-          </div>
-
-          <div className="flex min-h-6 flex-wrap gap-1">
-            {product.categories.slice(0, 2).map((category) => (
-              <Badge key={category.id} variant="secondary" className="max-w-full truncate">
-                {category.name}
-              </Badge>
-            ))}
-            {product.categories.length > 2 && (
-              <Badge variant="outline">+{product.categories.length - 2}</Badge>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3 rounded-lg border p-2.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <Avatar size="sm">
-                <AvatarImage src={product.addedBy?.image ?? undefined} />
-                <AvatarFallback>{getInitials(product.addedBy?.name)}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium">
-                  {product.addedBy?.name || 'Unknown admin'}
-                </p>
-                <p className="text-muted-foreground truncate text-[11px]">Added by</p>
-              </div>
-            </div>
-            <div className="text-right text-xs">
-              <p className="font-medium">{formatMoney(product.totalRevenue)}</p>
-              <p className="text-muted-foreground">Revenue</p>
-            </div>
-          </div>
-
-          <div className="text-muted-foreground text-xs">
-            Updated {formatDateTime(product.updatedAt)}
-          </div>
-
-          <div className="mt-auto flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="flex-1 gap-1.5">
-              <Link href={`/product/view/${product.id}`}>
-                <Eye className="size-3.5" />
-                View
-              </Link>
-            </Button>
-            {canUpdate && (
-              <Button asChild variant="outline" size="sm" className="gap-1.5">
-                <Link href={`/product/edit/${product.id}`}>
-                  <Edit className="size-3.5" />
-                  Edit
-                </Link>
-              </Button>
-            )}
-            {canDelete && (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="text-destructive hover:text-destructive"
-                onClick={() => onDelete(product)}
-                aria-label={`Delete ${product.name}`}
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            )}
+              {product.published ? 'Published' : 'Draft'}
+            </Badge>
           </div>
         </CardContent>
-      </div>
+      </Link>
     </Card>
   );
 }
@@ -320,8 +144,6 @@ export default function ManageProductsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ProductSummary | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -335,7 +157,6 @@ export default function ManageProductsPage() {
 
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
   const canUpdate = meta?.canUpdate ?? false;
-  const canDelete = meta?.canDelete ?? false;
   const canCreate = meta?.canCreate ?? false;
 
   useEffect(() => {
@@ -409,28 +230,6 @@ export default function ManageProductsPage() {
     void loadProducts();
   }, [loadProducts]);
 
-  async function handleDeleteConfirm() {
-    if (!deleteTarget) return;
-    const product = deleteTarget;
-    setBusyId(product.id);
-    try {
-      const res = await requestJson<{ success: true; message?: string }>(
-        `/${product.id}`,
-        {
-          method: 'DELETE',
-          body: JSON.stringify({ confirm: true }),
-        }
-      );
-      toast.success(res.message || 'Product deleted.');
-      setDeleteTarget(null);
-      await loadProducts(true);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete product.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   const hasFilters =
     debouncedSearch ||
     status !== 'all' ||
@@ -492,7 +291,7 @@ export default function ManageProductsPage() {
           </div>
         </div>
 
-        {meta && !(canUpdate || canDelete) && (
+        {meta && !meta.canUpdate && !meta.canDelete && (
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
             <ShieldAlert className="mt-0.5 size-4 shrink-0" />
             <p>Your access is read-only for product management actions.</p>
@@ -608,8 +407,8 @@ export default function ManageProductsPage() {
         </Card>
 
         {loading ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, index) => (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {Array.from({ length: 12 }).map((_, index) => (
               <ProductSkeleton key={index} />
             ))}
           </div>
@@ -644,14 +443,12 @@ export default function ManageProductsPage() {
           </Card>
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
               {products.map((product) => (
                 <ProductCard
                   key={product.id}
                   product={product}
                   canUpdate={canUpdate}
-                  canDelete={canDelete}
-                  onDelete={setDeleteTarget}
                 />
               ))}
             </div>
@@ -685,16 +482,6 @@ export default function ManageProductsPage() {
           </>
         )}
       </main>
-
-      <DeleteProductDialog
-        product={deleteTarget}
-        open={!!deleteTarget}
-        loading={busyId === deleteTarget?.id}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-        onConfirm={() => void handleDeleteConfirm()}
-      />
     </>
   );
 }

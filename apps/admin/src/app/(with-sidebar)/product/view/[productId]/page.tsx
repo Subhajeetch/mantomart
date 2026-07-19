@@ -15,7 +15,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   ArrowUpDown,
+  Calendar,
   CheckCircle2,
+  DollarSign,
   Edit,
   ExternalLink,
   ImageIcon,
@@ -25,9 +27,11 @@ import {
   Search,
   ShieldAlert,
   ShoppingBag,
+  ShoppingCart,
   Star,
   Tags,
   Trash2,
+  User,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -37,6 +41,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from '@/components/ui/breadcrumb';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -70,6 +75,16 @@ import {
   type ProductDetailMeta,
   type ProductSku,
 } from '../../manage/utils';
+
+function getInitials(name: string | null | undefined) {
+  return (name || 'Admin')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
 
 function InfoTile({
   label,
@@ -679,7 +694,7 @@ export default function ProductViewPage() {
                   )}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
                   <InfoTile label="Price" value={priceRange} icon={Package} />
                   <InfoTile label="Stock" value={totalStock} icon={ShoppingBag} />
                   <button
@@ -696,9 +711,49 @@ export default function ProductViewPage() {
                     </p>
                   </button>
                   <InfoTile
+                    label="Orders"
+                    value={product.orderCount ?? 0}
+                    icon={ShoppingCart}
+                  />
+                  <InfoTile
+                    label="Revenue"
+                    value={formatMoney(product.totalRevenue ?? 0)}
+                    icon={DollarSign}
+                  />
+                  <InfoTile
                     label="Rating"
                     value={product.aeRating ? `${product.aeRating}/5` : 'Not set'}
                     icon={Star}
+                  />
+                  <InfoTile
+                    label="AE Reviews"
+                    value={product.aeReviewCount ?? 'Not set'}
+                    icon={Star}
+                  />
+                  <InfoTile
+                    label="AE Sales"
+                    value={product.aeSalesCount || 'Not set'}
+                    icon={ShoppingBag}
+                  />
+                  <InfoTile
+                    label="Created"
+                    value={formatDateTime(product.createdAt)}
+                    icon={Calendar}
+                  />
+                  <InfoTile
+                    label="Updated"
+                    value={formatDateTime(product.updatedAt)}
+                    icon={Calendar}
+                  />
+                  <InfoTile
+                    label="Added by"
+                    value={product.addedBy?.name || product.productAddedBy || 'Unknown'}
+                    icon={User}
+                  />
+                  <InfoTile
+                    label="Position"
+                    value={product.position ?? 0}
+                    icon={Package}
                   />
                 </div>
 
@@ -709,11 +764,15 @@ export default function ProductViewPage() {
                       Organization
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {product.categories.map((category) => (
-                        <Badge key={category.id} variant="secondary">
-                          {category.name}
-                        </Badge>
-                      ))}
+                      {product.categories.length > 0 ? (
+                        product.categories.map((category) => (
+                          <Badge key={category.id} variant="secondary">
+                            {category.name}
+                          </Badge>
+                        ))
+                      ) : (
+                        <p className="text-muted-foreground text-sm">No categories</p>
+                      )}
                     </div>
                     {product.tags.length > 0 && (
                       <div className="flex flex-wrap gap-2">
@@ -733,7 +792,48 @@ export default function ProductViewPage() {
               <Card>
                 <CardContent className="space-y-4 p-4">
                   <h2 className="font-medium">Admin & SEO</h2>
-                  <div className="space-y-3 text-sm">
+                  <div className="space-y-4 text-sm">
+                    <div className="flex items-center gap-3 rounded-lg border p-3">
+                      <Avatar size="sm">
+                        <AvatarImage src={product.addedBy?.image ?? undefined} />
+                        <AvatarFallback>
+                          {getInitials(product.addedBy?.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-muted-foreground text-xs">Added by</p>
+                        <p className="truncate font-medium">
+                          {product.addedBy?.name || product.productAddedBy || 'Unknown'}
+                        </p>
+                        {product.addedBy?.email && (
+                          <p className="text-muted-foreground truncate text-xs">
+                            {product.addedBy.email}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="text-muted-foreground text-xs">Created</p>
+                        <p>{formatDateTime(product.createdAt)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Updated</p>
+                        <p>{formatDateTime(product.updatedAt)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Orders</p>
+                        <p className="font-medium tabular-nums">
+                          {product.orderCount ?? 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Total revenue</p>
+                        <p className="font-medium tabular-nums">
+                          {formatMoney(product.totalRevenue ?? 0)}
+                        </p>
+                      </div>
+                    </div>
                     <div>
                       <p className="text-muted-foreground text-xs">Meta title</p>
                       <p>{product.metaTitle || 'Not set'}</p>
@@ -742,14 +842,12 @@ export default function ProductViewPage() {
                       <p className="text-muted-foreground text-xs">Meta description</p>
                       <p>{product.metaDescription || 'Not set'}</p>
                     </div>
-                    <div>
-                      <p className="text-muted-foreground text-xs">Added by</p>
-                      <p>{product.addedBy?.name || product.productAddedBy || 'Unknown'}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground text-xs">Updated</p>
-                      <p>{formatDateTime(product.updatedAt)}</p>
-                    </div>
+                    {product.productNotes && (
+                      <div>
+                        <p className="text-muted-foreground text-xs">Internal notes</p>
+                        <p className="whitespace-pre-wrap">{product.productNotes}</p>
+                      </div>
+                    )}
                     {product.aeProductId && (
                       <div>
                         <p className="text-muted-foreground text-xs">AliExpress ID</p>
@@ -757,6 +855,18 @@ export default function ProductViewPage() {
                           {product.aeProductId}
                           <ExternalLink className="size-3" />
                         </p>
+                      </div>
+                    )}
+                    {product.aeLastSynced && (
+                      <div>
+                        <p className="text-muted-foreground text-xs">AE last synced</p>
+                        <p>{formatDateTime(product.aeLastSynced)}</p>
+                      </div>
+                    )}
+                    {product.aeStatus && (
+                      <div>
+                        <p className="text-muted-foreground text-xs">AE status</p>
+                        <p>{product.aeStatus}</p>
                       </div>
                     )}
                   </div>

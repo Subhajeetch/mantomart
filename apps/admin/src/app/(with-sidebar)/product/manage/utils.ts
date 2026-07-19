@@ -68,7 +68,18 @@ export type ProductAttribute = {
   position: number;
 };
 
+/** Lightweight list item for the manage products grid. */
 export type ProductSummary = {
+  id: string;
+  name: string;
+  images: ProductImage[];
+  published: boolean;
+  minPrice: number | null;
+  maxPrice: number | null;
+};
+
+/** Full product payload for view / edit flows. */
+export type ProductDetail = {
   id: string;
   slug: string;
   name: string;
@@ -86,15 +97,6 @@ export type ProductSummary = {
   totalRevenue: number;
   createdAt: string | number | Date;
   updatedAt: string | number | Date;
-  categories: ProductCategory[];
-  skuCount: number;
-  totalStock: number;
-  minPrice: number | null;
-  maxPrice: number | null;
-  addedBy: AdminPreview | null;
-};
-
-export type ProductDetail = Omit<ProductSummary, 'categories'> & {
   mobileDetail: string | null;
   hasSizeChart: boolean;
   sizeChartImage: string | null;
@@ -138,8 +140,10 @@ export type ProductListMeta = {
 
 export type ProductDetailMeta = Omit<
   ProductListMeta,
-  'total' | 'page' | 'pageSize' | 'totalPages'
->;
+  'total' | 'page' | 'pageSize' | 'totalPages' | 'addedByOptions'
+> & {
+  addedByOptions?: AdminPreview[];
+};
 
 export type CategoryNode = {
   id: string;
@@ -311,8 +315,8 @@ export function formatPriceRange(product: {
   minPrice: number | null;
   maxPrice: number | null;
 }) {
-  if (product.minPrice === null) return 'No price';
-  if (product.maxPrice !== null && product.maxPrice !== product.minPrice) {
+  if (product.minPrice === null || product.minPrice === undefined) return 'No price';
+  if (product.maxPrice !== null && product.maxPrice !== undefined && product.maxPrice !== product.minPrice) {
     return `${formatMoney(product.minPrice)} - ${formatMoney(product.maxPrice)}`;
   }
   return formatMoney(product.minPrice);
