@@ -20,6 +20,7 @@ import {
   ShoppingCart,
   Star,
   Tag,
+  TrendingUp,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -66,6 +67,7 @@ import {
   WIZARD_STEPS,
 } from './import-wizard-utils';
 import { ImportWizardVariants } from './import-wizard-variants';
+import KeywordResearchSheet from './keyword-research-sheet';
 import {
   getDraft,
   removeDraft,
@@ -328,6 +330,9 @@ export default function ImportWizard({
     string | null
   >(null);
 
+  // Google Keyword Planner research
+  const [keywordResearchOpen, setKeywordResearchOpen] = useState(false);
+
   const abortRef = useRef<AbortController | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listItemId = listItem?.id ?? resumeDraft?.listItemId ?? null;
@@ -495,6 +500,7 @@ export default function ImportWizard({
       setAttributeSearch('');
       setSizeChartPickerOpen(false);
       setSizeChartPickerSelection(null);
+      setKeywordResearchOpen(false);
       // Extra body-scroll unlock when dialog unmounts / closes
       if (typeof document !== 'undefined') {
         document.body.style.removeProperty('overflow');
@@ -690,69 +696,103 @@ export default function ImportWizard({
     setSizeChartPickerOpen(false);
   };
 
+  const handleUseKeyword = useCallback((keyword: string) => {
+    const cleaned = keyword.trim().replace(/\s+/g, ' ');
+    if (!cleaned) return;
+
+    updateForm((prev) => {
+      const alreadyTagged = prev.tags.some(
+        (t) => t.toLowerCase() === cleaned.toLowerCase()
+      );
+      if (alreadyTagged || prev.tags.length >= 40) {
+        return prev;
+      }
+      return { ...prev, tags: [...prev.tags, cleaned] };
+    });
+  }, [updateForm]);
+
+  const keywordSeed =
+    form?.name.trim() ||
+    listItem?.normalized.title?.trim() ||
+    '';
+
   return (
     <>
       <FullscreenDialog open={open} onOpenChange={handleClose}>
         <FullscreenDialogContent showCloseButton={!publishing}>
           <FullscreenDialogHeader>
             <div className="flex flex-col gap-3 pr-10">
-              <div className="space-y-1.5">
-                <FullscreenDialogTitle className="line-clamp-2">
-                  {form?.name.trim() ? (
-                    <>
-                      Import product
-                      <span className="font-normal text-muted-foreground">
-                        {' '}
-                        — {form.name}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      Import product
-                      {listItem?.normalized.title ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <FullscreenDialogTitle className="line-clamp-2">
+                    {form?.name.trim() ? (
+                      <>
+                        Import product
                         <span className="font-normal text-muted-foreground">
                           {' '}
-                          — {listItem.normalized.title}
+                          — {form.name}
                         </span>
-                      ) : null}
-                    </>
-                  )}
-                </FullscreenDialogTitle>
-                <FullscreenDialogDescription className="sr-only">
-                  Edit details in steps, then publish to your catalog. Progress
-                  is saved as a draft automatically.
-                </FullscreenDialogDescription>
-                {/* AliExpress source stats */}
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:text-sm">
-                  {aePrice ? (
-                    <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                      <DollarSign className="h-3.5 w-3.5 text-primary" />
-                      {aePrice}
-                    </span>
-                  ) : null}
-                  {aeRating != null && aeRating > 0 ? (
-                    <span className="inline-flex items-center gap-1 text-amber-600">
-                      <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
-                      {aeRating.toFixed(1)}
-                      {form?.aeReviewCount != null ? (
-                        <span className="text-muted-foreground">
-                          ({form.aeReviewCount.toLocaleString()})
-                        </span>
-                      ) : null}
-                    </span>
-                  ) : null}
-                  {aeSales ? (
-                    <span className="inline-flex items-center gap-1">
-                      <ShoppingCart className="h-3.5 w-3.5" />
-                      {aeSales} sold
-                    </span>
-                  ) : null}
-                  {listItem?.normalized.discount ? (
-                    <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
-                      {listItem.normalized.discount}
-                    </span>
-                  ) : null}
+                      </>
+                    ) : (
+                      <>
+                        Import product
+                        {listItem?.normalized.title ? (
+                          <span className="font-normal text-muted-foreground">
+                            {' '}
+                            — {listItem.normalized.title}
+                          </span>
+                        ) : null}
+                      </>
+                    )}
+                  </FullscreenDialogTitle>
+                  <FullscreenDialogDescription className="sr-only">
+                    Edit details in steps, then publish to your catalog. Progress
+                    is saved as a draft automatically.
+                  </FullscreenDialogDescription>
+                  {/* AliExpress source stats */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:text-sm">
+                    {aePrice ? (
+                      <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                        <DollarSign className="h-3.5 w-3.5 text-primary" />
+                        {aePrice}
+                      </span>
+                    ) : null}
+                    {aeRating != null && aeRating > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-amber-600">
+                        <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
+                        {aeRating.toFixed(1)}
+                        {form?.aeReviewCount != null ? (
+                          <span className="text-muted-foreground">
+                            ({form.aeReviewCount.toLocaleString()})
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                    {aeSales ? (
+                      <span className="inline-flex items-center gap-1">
+                        <ShoppingCart className="h-3.5 w-3.5" />
+                        {aeSales} sold
+                      </span>
+                    ) : null}
+                    {listItem?.normalized.discount ? (
+                      <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                        {listItem.normalized.discount}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 self-start"
+                  onClick={() => setKeywordResearchOpen(true)}
+                  disabled={publishing}
+                >
+                  <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
+                  Keyword research
+                </Button>
               </div>
               <StepIndicator current={step} onJump={goToStep} />
             </div>
@@ -1934,6 +1974,13 @@ export default function ImportWizard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <KeywordResearchSheet
+        open={keywordResearchOpen}
+        onOpenChange={setKeywordResearchOpen}
+        initialKeyword={keywordSeed}
+        onUseKeyword={handleUseKeyword}
+      />
     </>
   );
 }

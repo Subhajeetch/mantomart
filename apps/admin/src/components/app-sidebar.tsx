@@ -103,7 +103,7 @@ const sidebarLinks: {
     icon: ScrollText,
   },
   {
-    title: "AliExpress Connection",
+    title: "Integrations",
     type: "link",
     url: "/aliexpress-connect",
     icon: ShoppingBag,

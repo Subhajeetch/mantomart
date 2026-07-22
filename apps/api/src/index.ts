@@ -13,6 +13,8 @@ import {
 import {
   aeProduct,
   aeAuth,
+  googleAuth,
+  googleKeywords,
   admins,
   users,
   auditLogs,
@@ -86,6 +88,8 @@ app.get("/api/health", () => {
 //routes
 app.route("/api/ae/", aeProduct);
 app.route("/api/ae/", aeAuth);
+app.route("/api/google/", googleAuth);
+app.route("/api/google/keywords", googleKeywords);
 app.route("/api/admins", admins);
 app.route("/api/users", users);
 app.route("/api/audit-logs", auditLogs);

@@ -34,6 +34,7 @@ export const AUDIT_CATEGORIES = {
   ORDER: 'order',
   REVIEW: 'review',
   AE: 'ae',
+  GOOGLE: 'google',
   AUTH: 'auth',
   SYSTEM: 'system',
   AUDIT: 'audit',
@@ -52,6 +53,7 @@ export const AUDIT_TARGET_TYPES = {
   ORDER: 'order',
   REVIEW: 'review',
   AE_CONNECTION: 'ae_connection',
+  GOOGLE_CONNECTION: 'google_connection',
   SYSTEM: 'system',
 } as const;
 

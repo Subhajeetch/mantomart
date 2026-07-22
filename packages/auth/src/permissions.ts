@@ -30,6 +30,10 @@ export const PERMISSIONS = {
   AE_CONNECTION_REFRESH: 'ae_connection:refresh',
   AE_CONNECTION_MANAGE: 'ae_connection:manage',
 
+  GOOGLE_CONNECTION_REFRESH: 'google_connection:refresh',
+  GOOGLE_CONNECTION_MANAGE: 'google_connection:manage',
+  GOOGLE_KEYWORD_RESEARCH: 'google_keyword:research',
+
   AUDIT_LOG_READ: 'audit_log:read',
   AUDIT_LOG_MANAGE: 'audit_log:manage',
 } as const;
@@ -74,6 +78,11 @@ export const AUDIT_ACTIONS = {
   AE_DISCONNECT: 'ae.disconnect',
   AE_TOKEN_REFRESH: 'ae.token_refresh',
 
+  // Google Ads
+  GOOGLE_CONNECT: 'google.connect',
+  GOOGLE_DISCONNECT: 'google.disconnect',
+  GOOGLE_TOKEN_REFRESH: 'google.token_refresh',
+
   // System
   SYSTEM: 'system.event',
 } as const;
@@ -111,6 +120,8 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.USER_DELETE,
     PERMISSIONS.ADMIN_ACCESS,
     PERMISSIONS.AE_CONNECTION_REFRESH,
+    PERMISSIONS.GOOGLE_CONNECTION_REFRESH,
+    PERMISSIONS.GOOGLE_KEYWORD_RESEARCH,
     PERMISSIONS.AUDIT_LOG_READ,
   ],
   owner: Object.values(PERMISSIONS) as Permission[],
