@@ -25,7 +25,7 @@ export default interface Env {
   /**
    * OAuth redirect URI registered in Google Cloud Console.
    * Should point at the admin integrations page, e.g.
-   * https://admin.ragimart.com/aliexpress-connect
+   * https://admin.ragimart.com/connections
    */
   GOOGLE_ADS_REDIRECT_URI: string;
 }

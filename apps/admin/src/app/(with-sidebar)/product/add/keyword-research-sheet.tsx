@@ -49,8 +49,6 @@ type KeywordIdea = {
   avgMonthlySearches: number | null;
   competition: string | null;
   competitionIndex: number | null;
-  lowTopOfPageBid: number | null;
-  highTopOfPageBid: number | null;
   monthlySearchVolumes?: Array<{
     year: number | null;
     month: string | null;
@@ -171,15 +169,6 @@ function formatVolume(value: number | null | undefined) {
   }).format(value);
 }
 
-function formatMoney(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return '—';
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function competitionBadgeVariant(
   competition: string | null
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -204,15 +193,12 @@ export type KeywordResearchSheetProps = {
   onOpenChange: (open: boolean) => void;
   /** Prefill seed from product title when opening. */
   initialKeyword?: string;
-  /** Called when user clicks “Use keyword” — e.g. copy into title/tags. */
-  onUseKeyword?: (keyword: string) => void;
 };
 
 export default function KeywordResearchSheet({
   open,
   onOpenChange,
   initialKeyword = '',
-  onUseKeyword,
 }: KeywordResearchSheetProps) {
   const [query, setQuery] = useState(initialKeyword);
   const [geo, setGeo] = useState<string>('2840');
@@ -299,7 +285,7 @@ export default function KeywordResearchSheet({
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Keyword research failed.';
-      const code = err instanceof ApiError ? err.code ?? null : null;
+      const code = err instanceof ApiError ? (err.code ?? null) : null;
       setError(message);
       setErrorCode(code);
       setResults([]);
@@ -345,7 +331,7 @@ export default function KeywordResearchSheet({
             <TrendingUp className="h-4 w-4 text-primary" />
             Keyword research
           </SheetTitle>
-          <SheetDescription>
+          <SheetDescription className="sr-only">
             Search volumes and related ideas via Google Keyword Planner. Use
             results to refine product titles and tags.
           </SheetDescription>
@@ -369,7 +355,7 @@ export default function KeywordResearchSheet({
                     'Connect Google Ads (with Keyword Planner access) to research keywords.'}
                 </p>
                 <Button asChild size="sm" variant="outline">
-                  <Link href="/aliexpress-connect">
+                  <Link href="/connections">
                     <ExternalLink className="mr-2 h-3.5 w-3.5" />
                     Open integrations
                   </Link>
@@ -488,9 +474,6 @@ export default function KeywordResearchSheet({
                       <TableHead className="hidden text-right sm:table-cell">
                         Competition
                       </TableHead>
-                      <TableHead className="hidden text-right md:table-cell">
-                        Bid (low–high)
-                      </TableHead>
                       <TableHead className="w-20" />
                     </TableRow>
                   </TableHeader>
@@ -522,10 +505,6 @@ export default function KeywordResearchSheet({
                               : ''}
                           </Badge>
                         </TableCell>
-                        <TableCell className="hidden text-right text-xs tabular-nums text-muted-foreground md:table-cell">
-                          {formatMoney(row.lowTopOfPageBid)} –{' '}
-                          {formatMoney(row.highTopOfPageBid)}
-                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
                             <Button
@@ -537,20 +516,6 @@ export default function KeywordResearchSheet({
                             >
                               <Copy className="h-3.5 w-3.5" />
                             </Button>
-                            {onUseKeyword ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => {
-                                  onUseKeyword(row.keyword);
-                                  toast.success('Keyword applied.');
-                                }}
-                              >
-                                Use
-                              </Button>
-                            ) : null}
                           </div>
                         </TableCell>
                       </TableRow>

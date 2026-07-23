@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -9,21 +9,21 @@ import {
   Loader2,
   RefreshCw,
   Unplug,
-} from "lucide-react";
-import { toast } from "sonner";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
-} from "@/components/ui/breadcrumb";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import Image from "next/image";
+} from '@/components/ui/breadcrumb';
+import { SidebarTrigger } from '@/components/ui/sidebar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import Image from 'next/image';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -71,24 +71,27 @@ type ConnectionState = {
   expiresAt: number | null;
 };
 
-type ProviderAction = "connect" | "disconnect" | "refresh" | null;
+type ProviderAction = 'connect' | 'disconnect' | 'refresh' | null;
 
-async function requestJson<T>(url: string, options: RequestInit = {}): Promise<T> {
+async function requestJson<T>(
+  url: string,
+  options: RequestInit = {}
+): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(url, {
-      method: options.method ?? "GET",
+      method: options.method ?? 'GET',
       headers: {
-        Accept: "application/json",
+        Accept: 'application/json',
         ...options.headers,
       },
-      cache: "no-store",
-      credentials: "include",
+      cache: 'no-store',
+      credentials: 'include',
       ...options,
     });
   } catch {
-    throw new Error("Unable to reach the server. Please try again.");
+    throw new Error('Unable to reach the server. Please try again.');
   }
 
   let data: unknown = null;
@@ -99,7 +102,7 @@ async function requestJson<T>(url: string, options: RequestInit = {}): Promise<T
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}.`);
     }
-    throw new Error("Server returned an invalid response.");
+    throw new Error('Server returned an invalid response.');
   }
 
   if (!response.ok) {
@@ -114,7 +117,7 @@ async function requestJson<T>(url: string, options: RequestInit = {}): Promise<T
   const possibleError = data as ApiErrorBody;
   if (possibleError.success === false) {
     throw new Error(
-      possibleError.error || possibleError.message || "Request failed."
+      possibleError.error || possibleError.message || 'Request failed.'
     );
   }
 
@@ -149,11 +152,11 @@ function getExpiresAt(data: unknown): number | null {
 
 function cleanOAuthParams() {
   const url = new URL(window.location.href);
-  url.searchParams.delete("code");
-  url.searchParams.delete("state");
-  url.searchParams.delete("error");
-  url.searchParams.delete("error_description");
-  url.searchParams.delete("scope");
+  url.searchParams.delete('code');
+  url.searchParams.delete('state');
+  url.searchParams.delete('error');
+  url.searchParams.delete('error_description');
+  url.searchParams.delete('scope');
   window.history.replaceState(
     {},
     document.title,
@@ -162,39 +165,39 @@ function cleanOAuthParams() {
 }
 
 function formatDate(timestamp: number | null) {
-  if (!timestamp) return "Unavailable";
+  if (!timestamp) return 'Unavailable';
   return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
+    dateStyle: 'medium',
+    timeStyle: 'short',
   }).format(new Date(timestamp));
 }
 
 function formatRemaining(timestamp: number | null) {
-  if (!timestamp) return "Expiry time unavailable";
+  if (!timestamp) return 'Expiry time unavailable';
 
   const diffMs = timestamp - Date.now();
-  if (diffMs <= 0) return "Expired";
+  if (diffMs <= 0) return 'Expired';
 
   const minutes = Math.ceil(diffMs / 60_000);
   if (minutes < 60) {
-    return `${minutes} minute${minutes === 1 ? "" : "s"} remaining`;
+    return `${minutes} minute${minutes === 1 ? '' : 's'} remaining`;
   }
 
   const hours = Math.ceil(minutes / 60);
   if (hours < 48) {
-    return `${hours} hour${hours === 1 ? "" : "s"} remaining`;
+    return `${hours} hour${hours === 1 ? '' : 's'} remaining`;
   }
 
   const days = Math.ceil(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} remaining`;
+  return `${days} day${days === 1 ? '' : 's'} remaining`;
 }
 
 // ─── AliExpress ───────────────────────────────────────────────────────────────
 
-const AE_API_BASE = "/api/ae";
+const AE_API_BASE = '/api/ae';
 
 const ALIEXPRESS_AUTH_URL =
-  "https://api-sg.aliexpress.com/oauth/authorize?response_type=code&client_id=519374&redirect_uri=https://clean-bubble.vercel.app/callback";
+  'https://api-sg.aliexpress.com/oauth/authorize?response_type=code&client_id=519374&redirect_uri=https://clean-bubble.vercel.app/callback';
 
 function AliExpressCard() {
   const handledCodeRef = useRef(false);
@@ -222,11 +225,13 @@ function AliExpressCard() {
       const expiresAt = getExpiresAt(data);
       setConnection((current) => ({
         connected: data.connected,
-        expiresAt: data.connected ? expiresAt ?? current.expiresAt : null,
+        expiresAt: data.connected ? (expiresAt ?? current.expiresAt) : null,
       }));
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to check AliExpress status.";
+        err instanceof Error
+          ? err.message
+          : 'Failed to check AliExpress status.';
       setError(message);
     } finally {
       setLoading(false);
@@ -235,7 +240,7 @@ function AliExpressCard() {
 
   const connectWithCode = useCallback(
     async (code: string) => {
-      setAction("connect");
+      setAction('connect');
       setError(null);
       try {
         const data = await requestJson<ConnectResponse>(
@@ -246,11 +251,11 @@ function AliExpressCard() {
           expiresAt: getExpiresAt(data),
         });
         cleanOAuthParams();
-        toast.success(data.message || "AliExpress connected successfully.");
+        toast.success(data.message || 'AliExpress connected successfully.');
         await loadStatus();
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : "Failed to connect AliExpress.";
+          err instanceof Error ? err.message : 'Failed to connect AliExpress.';
         setError(message);
         toast.error(message);
       } finally {
@@ -262,7 +267,7 @@ function AliExpressCard() {
   );
 
   const refreshToken = async () => {
-    setAction("refresh");
+    setAction('refresh');
     setError(null);
     try {
       const data = await requestJson<RefreshResponse>(`${AE_API_BASE}/refresh`);
@@ -271,13 +276,13 @@ function AliExpressCard() {
         connected: true,
         expiresAt: expiresAt ?? current.expiresAt,
       }));
-      toast.success(data.message || "AliExpress token refreshed.");
+      toast.success(data.message || 'AliExpress token refreshed.');
       await loadStatus();
     } catch (err) {
       const message =
         err instanceof Error
           ? err.message
-          : "Failed to refresh AliExpress token.";
+          : 'Failed to refresh AliExpress token.';
       setError(message);
       toast.error(message);
     } finally {
@@ -286,17 +291,15 @@ function AliExpressCard() {
   };
 
   const disconnect = async () => {
-    setAction("disconnect");
+    setAction('disconnect');
     setError(null);
     try {
       await requestJson(`${AE_API_BASE}/disconnect`);
       setConnection({ connected: false, expiresAt: null });
-      toast.success("AliExpress disconnected.");
+      toast.success('AliExpress disconnected.');
     } catch (err) {
       const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to disconnect AliExpress.";
+        err instanceof Error ? err.message : 'Failed to disconnect AliExpress.';
       setError(message);
       toast.error(message);
     } finally {
@@ -310,33 +313,46 @@ function AliExpressCard() {
   }, []);
 
   useEffect(() => {
+    if (!connection.connected || !connection.expiresAt) return;
+    const refreshDelay = Math.max(
+      0,
+      connection.expiresAt - Date.now() - 4 * 60_000
+    );
+    const timer = window.setTimeout(() => {
+      void loadStatus();
+    }, refreshDelay);
+
+    return () => window.clearTimeout(timer);
+  }, [connection.connected, connection.expiresAt, loadStatus]);
+
+  useEffect(() => {
     if (handledCodeRef.current) return;
     handledCodeRef.current = true;
 
     const params = new URLSearchParams(window.location.search);
-    const oauthError = params.get("error");
-    const oauthErrorDescription = params.get("error_description");
-    const code = params.get("code");
-    const state = params.get("state");
+    const oauthError = params.get('error');
+    const oauthErrorDescription = params.get('error_description');
+    const code = params.get('code');
+    const state = params.get('state');
 
     // Google OAuth uses state=google_ads — skip AE handler.
-    if (state === "google_ads") {
+    if (state === 'google_ads') {
       void loadStatus();
       return;
     }
 
-    if (oauthError && state !== "google_ads") {
+    if (oauthError && state !== 'google_ads') {
       // Only treat as AE error when not a Google callback
-      if (!state || state !== "google_ads") {
+      if (!state || state !== 'google_ads') {
         // If there's an error without google state, could be AE or unknown
       }
     }
 
     // AE callbacks typically have code without google_ads state
-    if (oauthError && (!state || state !== "google_ads")) {
+    if (oauthError && (!state || state !== 'google_ads')) {
       // Might be Google error without state — handled by Google card too.
       // Only surface AE errors when clearly not Google.
-      if (state && state !== "google_ads") {
+      if (state && state !== 'google_ads') {
         const message = oauthErrorDescription || oauthError;
         setError(message);
         toast.error(message);
@@ -347,7 +363,7 @@ function AliExpressCard() {
       return;
     }
 
-    if (code?.trim() && state !== "google_ads") {
+    if (code?.trim() && state !== 'google_ads') {
       void connectWithCode(code.trim());
       return;
     }
@@ -361,7 +377,7 @@ function AliExpressCard() {
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="sr-only">AliExpress Connection</CardTitle>
           <Image
-            src={"/icons/aliexpress_logo_long.png"}
+            src={'/icons/aliexpress_logo_long.png'}
             width={120}
             height={50}
             alt="Aliexpress Logo"
@@ -369,11 +385,11 @@ function AliExpressCard() {
 
           {connection.connected ? (
             <Badge
-              variant={isExpired ? "destructive" : "default"}
+              variant={isExpired ? 'destructive' : 'default'}
               className="gap-1"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {isExpired ? "Expired" : "Connected"}
+              {isExpired ? 'Expired' : 'Connected'}
             </Badge>
           ) : (
             <Badge variant="secondary">Not connected</Badge>
@@ -412,7 +428,7 @@ function AliExpressCard() {
 
             <div className="flex flex-wrap gap-2">
               <Button onClick={refreshToken} disabled={isBusy}>
-                {action === "refresh" ? (
+                {action === 'refresh' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
@@ -425,7 +441,7 @@ function AliExpressCard() {
                 onClick={disconnect}
                 disabled={isBusy}
               >
-                {action === "disconnect" ? (
+                {action === 'disconnect' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Unplug className="mr-2 h-4 w-4" />
@@ -449,7 +465,7 @@ function AliExpressCard() {
 
 // ─── Google Ads ───────────────────────────────────────────────────────────────
 
-const GOOGLE_API_BASE = "/api/google";
+const GOOGLE_API_BASE = '/api/google';
 
 function GoogleAdsCard() {
   const handledCodeRef = useRef(false);
@@ -480,13 +496,13 @@ function GoogleAdsCard() {
       const expiresAt = getExpiresAt(data);
       setConnection((current) => ({
         connected: data.connected,
-        expiresAt: data.connected ? expiresAt ?? current.expiresAt : null,
+        expiresAt: data.connected ? (expiresAt ?? current.expiresAt) : null,
       }));
     } catch (err) {
       const message =
         err instanceof Error
           ? err.message
-          : "Failed to check Google Ads status.";
+          : 'Failed to check Google Ads status.';
       setError(message);
     } finally {
       setLoading(false);
@@ -495,7 +511,7 @@ function GoogleAdsCard() {
 
   const connectWithCode = useCallback(
     async (code: string) => {
-      setAction("connect");
+      setAction('connect');
       setError(null);
       try {
         const data = await requestJson<ConnectResponse>(
@@ -506,11 +522,11 @@ function GoogleAdsCard() {
           expiresAt: getExpiresAt(data),
         });
         cleanOAuthParams();
-        toast.success(data.message || "Google Ads connected successfully.");
+        toast.success(data.message || 'Google Ads connected successfully.');
         await loadStatus();
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : "Failed to connect Google Ads.";
+          err instanceof Error ? err.message : 'Failed to connect Google Ads.';
         setError(message);
         toast.error(message);
         cleanOAuthParams();
@@ -530,14 +546,14 @@ function GoogleAdsCard() {
         `${GOOGLE_API_BASE}/auth-url`
       );
       if (!data.url) {
-        throw new Error("Server did not return a Google auth URL.");
+        throw new Error('Server did not return a Google auth URL.');
       }
       window.location.href = data.url;
     } catch (err) {
       const message =
         err instanceof Error
           ? err.message
-          : "Failed to start Google Ads connection.";
+          : 'Failed to start Google Ads connection.';
       setError(message);
       toast.error(message);
       setConnectingRedirect(false);
@@ -545,7 +561,7 @@ function GoogleAdsCard() {
   };
 
   const refreshToken = async () => {
-    setAction("refresh");
+    setAction('refresh');
     setError(null);
     try {
       const data = await requestJson<RefreshResponse>(
@@ -556,13 +572,13 @@ function GoogleAdsCard() {
         connected: true,
         expiresAt: expiresAt ?? current.expiresAt,
       }));
-      toast.success(data.message || "Google Ads token refreshed.");
+      toast.success(data.message || 'Google Ads token refreshed.');
       await loadStatus();
     } catch (err) {
       const message =
         err instanceof Error
           ? err.message
-          : "Failed to refresh Google Ads token.";
+          : 'Failed to refresh Google Ads token.';
       setError(message);
       toast.error(message);
     } finally {
@@ -571,17 +587,15 @@ function GoogleAdsCard() {
   };
 
   const disconnect = async () => {
-    setAction("disconnect");
+    setAction('disconnect');
     setError(null);
     try {
       await requestJson(`${GOOGLE_API_BASE}/disconnect`);
       setConnection({ connected: false, expiresAt: null });
-      toast.success("Google Ads disconnected.");
+      toast.success('Google Ads disconnected.');
     } catch (err) {
       const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to disconnect Google Ads.";
+        err instanceof Error ? err.message : 'Failed to disconnect Google Ads.';
       setError(message);
       toast.error(message);
     } finally {
@@ -595,17 +609,30 @@ function GoogleAdsCard() {
   }, []);
 
   useEffect(() => {
+    if (!connection.connected || !connection.expiresAt) return;
+    const refreshDelay = Math.max(
+      0,
+      connection.expiresAt - Date.now() - 4 * 60_000
+    );
+    const timer = window.setTimeout(() => {
+      void loadStatus();
+    }, refreshDelay);
+
+    return () => window.clearTimeout(timer);
+  }, [connection.connected, connection.expiresAt, loadStatus]);
+
+  useEffect(() => {
     if (handledCodeRef.current) return;
     handledCodeRef.current = true;
 
     const params = new URLSearchParams(window.location.search);
-    const oauthError = params.get("error");
-    const oauthErrorDescription = params.get("error_description");
-    const code = params.get("code");
-    const state = params.get("state");
+    const oauthError = params.get('error');
+    const oauthErrorDescription = params.get('error_description');
+    const code = params.get('code');
+    const state = params.get('state');
 
     // Only this card handles Google OAuth callbacks.
-    if (state !== "google_ads") {
+    if (state !== 'google_ads') {
       void loadStatus();
       return;
     }
@@ -634,11 +661,7 @@ function GoogleAdsCard() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg border bg-background">
-              <svg
-                viewBox="0 0 24 24"
-                className="h-5 w-5"
-                aria-hidden
-              >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
                 <path
                   fill="#4285F4"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -667,11 +690,11 @@ function GoogleAdsCard() {
 
           {connection.connected ? (
             <Badge
-              variant={isExpired ? "destructive" : "default"}
+              variant={isExpired ? 'destructive' : 'default'}
               className="gap-1"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {isExpired ? "Expired" : "Connected"}
+              {isExpired ? 'Expired' : 'Connected'}
             </Badge>
           ) : (
             <Badge variant="secondary">Not connected</Badge>
@@ -680,13 +703,6 @@ function GoogleAdsCard() {
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <p className="text-sm text-muted-foreground">
-          Connect a Google Ads account (MCC supported) with Keyword Planner
-          access. Tokens are stored in Cloudflare KV and refreshed
-          automatically so you stay signed in for days without logging in
-          again.
-        </p>
-
         {error ? (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -710,10 +726,6 @@ function GoogleAdsCard() {
               <div className="text-sm text-muted-foreground">
                 <p>{formatDate(connection.expiresAt)}</p>
                 <p>{formatRemaining(connection.expiresAt)}</p>
-                <p className="mt-1 text-xs">
-                  Refresh tokens stay valid longer — reconnect only if Google
-                  revokes access.
-                </p>
               </div>
             </div>
 
@@ -721,7 +733,7 @@ function GoogleAdsCard() {
 
             <div className="flex flex-wrap gap-2">
               <Button onClick={refreshToken} disabled={isBusy}>
-                {action === "refresh" ? (
+                {action === 'refresh' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
@@ -734,7 +746,7 @@ function GoogleAdsCard() {
                 onClick={disconnect}
                 disabled={isBusy}
               >
-                {action === "disconnect" ? (
+                {action === 'disconnect' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Unplug className="mr-2 h-4 w-4" />
@@ -745,7 +757,7 @@ function GoogleAdsCard() {
           </>
         ) : (
           <Button onClick={startConnect} disabled={isBusy}>
-            {connectingRedirect || action === "connect" ? (
+            {connectingRedirect || action === 'connect' ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <ExternalLink className="mr-2 h-4 w-4" />
@@ -773,7 +785,7 @@ const IntegrationsPage = () => {
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbPage>Integrations</BreadcrumbPage>
+                <BreadcrumbPage>Connections</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>

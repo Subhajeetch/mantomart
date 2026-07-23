@@ -60,6 +60,13 @@ export type KeywordResearchInput = {
   includeAdultKeywords?: boolean;
 };
 
+export type GoogleAdsCustomerAccessDiagnostics = {
+  configuredCustomerId: string;
+  configuredLoginCustomerId: string | null;
+  accessibleCustomerIds: string[];
+  resourceNames: string[];
+};
+
 export class GoogleAdsApiError extends Error {
   publicMessage: string;
   status: number;
@@ -189,34 +196,32 @@ async function parseGoogleAdsJson(
   res: Response,
   context: string
 ): Promise<Record<string, unknown>> {
+  const rawText = await res.text();
   let data: unknown;
+
   try {
-    console.log(res)
-    data = await res.json();
+    data = rawText ? JSON.parse(rawText) : {};
   } catch (parseError) {
-    // If JSON parsing fails, try to get the raw response text for debugging
-    let rawText: string | null = null;
-    try {
-      rawText = await res.clone().text();
-      console.error(`${context}: Non-JSON response. Status: ${res.status}. Body:`, rawText);
-    } catch {
-      // Ignore text parsing errors
-    }
-    throw new GoogleAdsApiError(
-      `${context}: invalid JSON response (status ${res.status}). The API may be unavailable or returned an error page.`,
-      {
-        status: res.status || 502,
-        code: 'GOOGLE_ADS_INVALID_RESPONSE',
-        raw: rawText || parseError,
-      }
+    console.error(
+      `${context}: Non-JSON response. Status: ${res.status}. Body:`,
+      rawText.slice(0, 1000)
     );
+
+    const message =
+      res.status === 404
+        ? `${context}: Google Ads endpoint was not found. Check the configured Google Ads API version.`
+        : `${context}: invalid JSON response (status ${res.status}). The API may be unavailable or returned an error page.`;
+
+    throw new GoogleAdsApiError(message, {
+      status: res.status || 502,
+      code: 'GOOGLE_ADS_INVALID_RESPONSE',
+      raw: rawText || parseError,
+    });
   }
 
   if (!res.ok) {
     const errObj =
-      data && typeof data === 'object'
-        ? (data as Record<string, unknown>)
-        : {};
+      data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
     const errorBlock =
       errObj.error && typeof errObj.error === 'object'
         ? (errObj.error as Record<string, unknown>)
@@ -235,9 +240,7 @@ async function parseGoogleAdsJson(
     if (status >= 500) code = 'GOOGLE_ADS_UNAVAILABLE';
 
     // Prefer first Google Ads failure detail when present
-    const details = Array.isArray(errorBlock.details)
-      ? errorBlock.details
-      : [];
+    const details = Array.isArray(errorBlock.details) ? errorBlock.details : [];
     let detailMessage = message;
     for (const detail of details) {
       if (!detail || typeof detail !== 'object') continue;
@@ -261,9 +264,10 @@ async function parseGoogleAdsJson(
     });
   }
 
-  return (data && typeof data === 'object'
-    ? data
-    : {}) as Record<string, unknown>;
+  return (data && typeof data === 'object' ? data : {}) as Record<
+    string,
+    unknown
+  >;
 }
 
 /**
@@ -290,18 +294,18 @@ export async function generateKeywordIdeas(
     );
   }
 
-  const languageId = String(input.languageId || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID)
-    .replace(/\D/g, '') || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID;
+  const languageId =
+    String(input.languageId || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID).replace(
+      /\D/g,
+      ''
+    ) || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID;
 
   const geoTargetIds = sanitizeGeoIds(
     input.geoTargetIds,
     config.GOOGLE_ADS_DEFAULT_GEO_TARGET_IDS
   );
 
-  const pageSize = Math.min(
-    Math.max(Number(input.pageSize) || 25, 1),
-    100
-  );
+  const pageSize = Math.min(Math.max(Number(input.pageSize) || 25, 1), 100);
 
   const body: Record<string, unknown> = {
     language: `languageConstants/${languageId}`,
@@ -348,7 +352,7 @@ export async function generateKeywordIdeas(
 
   console.log('[GoogleAds] Calling:', url);
   console.log('[GoogleAds] Headers:', {
-    'Authorization': `Bearer ${accessToken.slice(0, 10)}...`,
+    Authorization: `Bearer ${accessToken.slice(0, 10)}...`,
     'developer-token': `${cfg.developerToken.slice(0, 10)}...`,
     'login-customer-id': cfg.loginCustomerId || '(not set)',
   });
@@ -413,8 +417,11 @@ export async function generateKeywordHistoricalMetrics(
     });
   }
 
-  const languageId = String(input.languageId || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID)
-    .replace(/\D/g, '') || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID;
+  const languageId =
+    String(input.languageId || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID).replace(
+      /\D/g,
+      ''
+    ) || config.GOOGLE_ADS_DEFAULT_LANGUAGE_ID;
 
   const geoTargetIds = sanitizeGeoIds(
     input.geoTargetIds,
@@ -517,5 +524,47 @@ export async function generateKeywordHistoricalMetrics(
     seed: { keywords: seedKeywords, url: null },
     geoTargetIds,
     languageId,
+  };
+}
+
+/**
+ * Lists Google Ads accounts directly accessible by the connected OAuth user.
+ * Google requires this call to omit login-customer-id.
+ */
+export async function listAccessibleGoogleAdsCustomers(
+  env: GoogleAdsEnv
+): Promise<GoogleAdsCustomerAccessDiagnostics> {
+  const cfg = assertGoogleAdsConfig(env);
+  const accessToken = await getGoogleAccessToken(env);
+
+  const res = await fetch(
+    `${GOOGLE_ADS_API_BASE}/customers:listAccessibleCustomers`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'developer-token': cfg.developerToken,
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  const data = await parseGoogleAdsJson(
+    res,
+    'Google Ads customer access lookup'
+  );
+  const resourceNames = Array.isArray(data.resourceNames)
+    ? data.resourceNames.filter(
+        (name): name is string => typeof name === 'string'
+      )
+    : [];
+
+  return {
+    configuredCustomerId: cfg.customerId,
+    configuredLoginCustomerId: cfg.loginCustomerId,
+    accessibleCustomerIds: resourceNames
+      .map((name) => name.match(/^customers\/(\d+)$/)?.[1])
+      .filter((id): id is string => Boolean(id)),
+    resourceNames,
   };
 }

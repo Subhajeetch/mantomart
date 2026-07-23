@@ -696,25 +696,8 @@ export default function ImportWizard({
     setSizeChartPickerOpen(false);
   };
 
-  const handleUseKeyword = useCallback((keyword: string) => {
-    const cleaned = keyword.trim().replace(/\s+/g, ' ');
-    if (!cleaned) return;
-
-    updateForm((prev) => {
-      const alreadyTagged = prev.tags.some(
-        (t) => t.toLowerCase() === cleaned.toLowerCase()
-      );
-      if (alreadyTagged || prev.tags.length >= 40) {
-        return prev;
-      }
-      return { ...prev, tags: [...prev.tags, cleaned] };
-    });
-  }, [updateForm]);
-
   const keywordSeed =
-    form?.name.trim() ||
-    listItem?.normalized.title?.trim() ||
-    '';
+    form?.name.trim() || listItem?.normalized.title?.trim() || '';
 
   return (
     <>
@@ -746,8 +729,8 @@ export default function ImportWizard({
                     )}
                   </FullscreenDialogTitle>
                   <FullscreenDialogDescription className="sr-only">
-                    Edit details in steps, then publish to your catalog. Progress
-                    is saved as a draft automatically.
+                    Edit details in steps, then publish to your catalog.
+                    Progress is saved as a draft automatically.
                   </FullscreenDialogDescription>
                   {/* AliExpress source stats */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:text-sm">
@@ -1979,7 +1962,6 @@ export default function ImportWizard({
         open={keywordResearchOpen}
         onOpenChange={setKeywordResearchOpen}
         initialKeyword={keywordSeed}
-        onUseKeyword={handleUseKeyword}
       />
     </>
   );

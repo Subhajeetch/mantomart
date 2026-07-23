@@ -283,7 +283,11 @@ aeAuth.get(
   ),
   async (c) => {
     try {
-      const status = await getAliExpressConnectionStatus(c.env);
+      let status = await getAliExpressConnectionStatus(c.env);
+      if (status.connected && status.should_refresh) {
+        await refreshAliExpressTokens(c.env);
+        status = await getAliExpressConnectionStatus(c.env);
+      }
       return c.json({ success: true, ...status });
     } catch (error) {
       console.error('Error checking AliExpress connection status:', error);

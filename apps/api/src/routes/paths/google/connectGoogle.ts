@@ -9,6 +9,10 @@ import {
   GoogleAdsTokenError,
   refreshGoogleAdsTokens,
 } from '@/utils/manageGoogleAuthTokens';
+import {
+  GoogleAdsApiError,
+  listAccessibleGoogleAdsCustomers,
+} from '@/utils/callGoogleAds';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
   requireAdminMiddleware,
@@ -39,7 +43,7 @@ type ApiErrorResponse = {
 function errorResponse(
   message: string,
   code: string,
-  status: 400 | 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503,
+  status: 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503,
   details?: unknown
 ) {
   const body: ApiErrorResponse = {
@@ -111,7 +115,30 @@ function parseGoogleError(error: unknown) {
       );
     }
 
-    return errorResponse(error.publicMessage, 'GOOGLE_ADS_TOKEN_ERROR', 502, error.raw);
+    return errorResponse(
+      error.publicMessage,
+      'GOOGLE_ADS_TOKEN_ERROR',
+      502,
+      error.raw
+    );
+  }
+
+  if (error instanceof GoogleAdsApiError) {
+    const status =
+      error.status === 400 ||
+      error.status === 401 ||
+      error.status === 403 ||
+      error.status === 404 ||
+      error.status === 409 ||
+      error.status === 422 ||
+      error.status === 429 ||
+      error.status === 500 ||
+      error.status === 502 ||
+      error.status === 503
+        ? error.status
+        : 502;
+
+    return errorResponse(error.publicMessage, error.code, status, error.raw);
   }
 
   if (!(error instanceof Error)) {
@@ -298,10 +325,37 @@ googleAuth.get(
   ),
   async (c) => {
     try {
-      const status = await getGoogleAdsConnectionStatus(c.env);
+      let status = await getGoogleAdsConnectionStatus(c.env);
+      if (
+        status.connected &&
+        status.should_refresh &&
+        status.has_refresh_token
+      ) {
+        await refreshGoogleAdsTokens(c.env);
+        status = await getGoogleAdsConnectionStatus(c.env);
+      }
       return c.json({ success: true, ...status });
     } catch (error) {
       console.error('Error checking Google Ads connection status:', error);
+
+      const response = parseGoogleError(error);
+      return c.json(response.body, response.status);
+    }
+  }
+);
+
+googleAuth.get(
+  '/accessible-customers',
+  requireAnyPermission(
+    PERMISSIONS.GOOGLE_CONNECTION_MANAGE,
+    PERMISSIONS.GOOGLE_KEYWORD_RESEARCH
+  ),
+  async (c) => {
+    try {
+      const data = await listAccessibleGoogleAdsCustomers(c.env);
+      return c.json({ success: true, data });
+    } catch (error) {
+      console.error('Error listing accessible Google Ads customers:', error);
 
       const response = parseGoogleError(error);
       return c.json(response.body, response.status);
