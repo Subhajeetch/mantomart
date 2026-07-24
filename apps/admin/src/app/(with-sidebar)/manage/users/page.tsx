@@ -118,8 +118,6 @@ export default function ManageUsersPage() {
           meta: ListMeta;
         }>(`/all${qs ? `?${qs}` : ''}`);
 
-        console.log('Loaded users:', res.data, res.meta);
-
         setUsers(res.data);
         setMeta(res.meta);
       } catch (err) {
@@ -281,7 +279,8 @@ export default function ManageUsersPage() {
               Manage Users
             </h1>
             <p className="text-muted-foreground max-w-xl text-sm">
-              View accounts, ban or unban users, and soft-delete accounts.
+              Browse accounts, open a user for full details, edit profile fields,
+              ban or unban, and soft-delete accounts.
             </p>
           </div>
 

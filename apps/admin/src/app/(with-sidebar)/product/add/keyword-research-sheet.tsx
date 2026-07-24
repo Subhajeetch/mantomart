@@ -370,7 +370,7 @@ export default function KeywordResearchSheet({
               <div className="flex gap-2">
                 <Input
                   id="kw-query"
-                  value={query}
+                  value=""
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="e.g. wireless earbuds"
                   maxLength={80}

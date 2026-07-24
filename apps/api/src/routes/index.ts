@@ -6,13 +6,13 @@ import aeAuth from "./paths/aliexpress/connectAE";
 import googleAuth from "./paths/google/connectGoogle";
 import googleKeywords from "./paths/google/keywords";
 
-// from main
-import admins from "./paths/main/admins";
-import users from "./paths/main/users";
-import auditLogs from "./paths/main/audit-logs";
-import categories from "./paths/main/categories";
-import addProductMyList from "./paths/main/add-product-mylist";
-import manageProducts from "./paths/main/manage-products";
+// from admin
+import admins from "./paths/admin/admins";
+import users from "./paths/admin/users";
+import auditLogs from "./paths/admin/audit-logs";
+import categories from "./paths/admin/categories";
+import addProductMyList from "./paths/admin/add-product-mylist";
+import manageProducts from "./paths/admin/manage-products";
 
 export {
   aeProduct,

@@ -23,9 +23,16 @@ import {
 
 type UserRole = 'customer' | 'admin' | 'owner';
 type UserStatus = 'active' | 'banned' | 'deleted';
+type UserGender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
 
 const ALL_ROLES: UserRole[] = ['customer', 'admin', 'owner'];
 const ALL_STATUSES: UserStatus[] = ['active', 'banned', 'deleted'];
+const ALL_GENDERS: UserGender[] = [
+  'male',
+  'female',
+  'other',
+  'prefer_not_to_say',
+];
 const SORTABLE_COLUMNS = [
   'name',
   'email',
@@ -37,10 +44,41 @@ const SORTABLE_COLUMNS = [
 ] as const;
 type SortColumn = (typeof SORTABLE_COLUMNS)[number];
 
+/** Fields that admins may update via PATCH /:id (never role / stats / ban / delete). */
+const EDITABLE_FIELDS = [
+  'name',
+  'email',
+  'emailVerified',
+  'image',
+  'firstName',
+  'lastName',
+  'dateOfBirth',
+  'gender',
+  'phone',
+  'phoneVerified',
+  'emailNotifications',
+  'smsNotifications',
+  'currency',
+  'locale',
+  'timezone',
+  'adminNotes',
+] as const;
+type EditableField = (typeof EDITABLE_FIELDS)[number];
+
 const MAX_ID_LENGTH = 128;
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_BAN_REASON_LENGTH = 500;
+const MAX_EMAIL_LENGTH = 254;
+const MAX_NAME_LENGTH = 120;
+const MAX_FIRST_LAST_NAME_LENGTH = 80;
+const MAX_PHONE_LENGTH = 32;
+const MAX_IMAGE_LENGTH = 2048;
+const MAX_CURRENCY_LENGTH = 8;
+const MAX_LOCALE_LENGTH = 32;
+const MAX_TIMEZONE_LENGTH = 64;
+const MAX_ADMIN_NOTES_LENGTH = 2000;
+const MIN_BIRTH_YEAR = 1900;
 
 function isOwner(role: string | null | undefined): boolean {
   return role === 'owner';
@@ -49,6 +87,36 @@ function isOwner(role: string | null | undefined): boolean {
 function isValidUserId(id: string): boolean {
   if (id.length === 0 || id.length > MAX_ID_LENGTH) return false;
   return /^[A-Za-z0-9_-]+$/.test(id);
+}
+
+function isValidEmail(email: string): boolean {
+  if (email.length === 0 || email.length > MAX_EMAIL_LENGTH) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isValidTimezone(value: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function toIso(value: Date | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
 }
 
 function sanitizeRole(value: unknown): UserRole | null {
@@ -76,6 +144,7 @@ function sanitizeSortBy(value: unknown): SortColumn {
     : 'createdAt';
 }
 
+/** Compact payload for list cards. */
 function serializeUser(user: typeof users.$inferSelect) {
   return {
     id: user.id,
@@ -90,15 +159,465 @@ function serializeUser(user: typeof users.$inferSelect) {
     isBanned: user.isBanned,
     isDeleted: user.isDeleted,
     bannedReason: user.bannedReason,
-    bannedAt: user.bannedAt,
+    bannedAt: toIso(user.bannedAt),
     bannedBy: user.bannedBy,
-    deletedAt: user.deletedAt,
-    lastLoginAt: user.lastLoginAt,
+    deletedAt: toIso(user.deletedAt),
+    lastLoginAt: toIso(user.lastLoginAt),
     lastLoginIp: user.lastLoginIp,
-    lastActiveAt: user.lastActiveAt,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
+    lastActiveAt: toIso(user.lastActiveAt),
+    createdAt: toIso(user.createdAt) ?? new Date(0).toISOString(),
+    updatedAt: toIso(user.updatedAt) ?? new Date(0).toISOString(),
   };
+}
+
+/** Full payload for view / edit pages. */
+function serializeUserDetail(user: typeof users.$inferSelect) {
+  return {
+    ...serializeUser(user),
+    dateOfBirth: toIso(user.dateOfBirth),
+    gender: (user.gender as UserGender | null) ?? null,
+    phoneVerified: user.phoneVerified,
+    defaultAddressId: user.defaultAddressId,
+    emailNotifications: user.emailNotifications,
+    smsNotifications: user.smsNotifications,
+    currency: user.currency,
+    locale: user.locale,
+    timezone: user.timezone,
+    loyaltyPoints: user.loyaltyPoints,
+    ragiCoins: user.ragiCoins,
+    referralCode: user.referralCode,
+    referredBy: user.referredBy,
+    totalSpent: user.totalSpent,
+    totalOrders: user.totalOrders,
+    averageOrderValue: user.averageOrderValue,
+    isVipUser: user.isVipUser,
+    isVerifiedSeller: user.isVerifiedSeller,
+    adminNotes: user.adminNotes,
+  };
+}
+
+/**
+ * Non-owners may only mutate customer accounts (same policy as ban/delete).
+ * Owners may act on anyone except they still cannot use this endpoint for role changes.
+ */
+function canActorMutateTarget(
+  actorRole: string,
+  target: { id: string; role: string },
+  actorId: string
+): { ok: true } | { ok: false; code: string; message: string } {
+  if (isOwner(target.role) && target.id !== actorId) {
+    // Allow owners to edit other owners' profile fields; non-owners never may.
+    if (!isOwner(actorRole)) {
+      return {
+        ok: false,
+        code: 'CANNOT_MODIFY_OWNER',
+        message: 'Cannot modify an owner account.',
+      };
+    }
+  }
+
+  if (!isOwner(actorRole) && target.role === 'admin' && target.id !== actorId) {
+    return {
+      ok: false,
+      code: 'CANNOT_MODIFY_ADMIN',
+      message: 'Only owners can modify other admin accounts.',
+    };
+  }
+
+  return { ok: true };
+}
+
+type ParsedUpdate =
+  | { ok: true; updates: Partial<Record<EditableField, unknown>>; changes: Record<string, { from: unknown; to: unknown }> }
+  | { ok: false; code: string; message: string };
+
+function parseUserUpdate(
+  body: Record<string, unknown>,
+  current: typeof users.$inferSelect
+): ParsedUpdate {
+  // Reject unknown keys early so clients cannot probe for writable metadata.
+  const unknownKeys = Object.keys(body).filter(
+    (key) => !(EDITABLE_FIELDS as readonly string[]).includes(key)
+  );
+  if (unknownKeys.length > 0) {
+    return {
+      ok: false,
+      code: 'UNKNOWN_FIELDS',
+      message: `Unknown or non-editable fields: ${unknownKeys.slice(0, 8).join(', ')}.`,
+    };
+  }
+
+  const updates: Partial<Record<EditableField, unknown>> = {};
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+
+  const setChange = (field: EditableField, from: unknown, to: unknown) => {
+    if (from === to) return;
+    // Normalize Date equality for timestamps
+    if (from instanceof Date && to instanceof Date) {
+      if (from.getTime() === to.getTime()) return;
+    }
+    if (
+      (from instanceof Date || to instanceof Date) &&
+      toIso(from as Date | null) === toIso(to as Date | null)
+    ) {
+      return;
+    }
+    updates[field] = to;
+    changes[field] = {
+      from: from instanceof Date ? toIso(from) : from,
+      to: to instanceof Date ? toIso(to) : to,
+    };
+  };
+
+  if ('name' in body) {
+    if (typeof body.name !== 'string') {
+      return { ok: false, code: 'INVALID_NAME', message: 'Name must be a string.' };
+    }
+    const name = body.name.trim().replace(/\s+/g, ' ');
+    if (name.length < 1 || name.length > MAX_NAME_LENGTH) {
+      return {
+        ok: false,
+        code: 'INVALID_NAME',
+        message: `Name must be between 1 and ${MAX_NAME_LENGTH} characters.`,
+      };
+    }
+    setChange('name', current.name, name);
+  }
+
+  if ('email' in body) {
+    if (typeof body.email !== 'string') {
+      return { ok: false, code: 'INVALID_EMAIL', message: 'Email must be a string.' };
+    }
+    const email = body.email.trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      return {
+        ok: false,
+        code: 'INVALID_EMAIL',
+        message: 'Please provide a valid email address.',
+      };
+    }
+    setChange('email', current.email, email);
+  }
+
+  if ('emailVerified' in body) {
+    if (typeof body.emailVerified !== 'boolean') {
+      return {
+        ok: false,
+        code: 'INVALID_EMAIL_VERIFIED',
+        message: 'emailVerified must be a boolean.',
+      };
+    }
+    setChange('emailVerified', current.emailVerified, body.emailVerified);
+  }
+
+  if ('image' in body) {
+    if (body.image !== null && typeof body.image !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_IMAGE',
+        message: 'Image must be a URL string or null.',
+      };
+    }
+    const image =
+      body.image === null || (typeof body.image === 'string' && body.image.trim() === '')
+        ? null
+        : (body.image as string).trim();
+    if (image !== null) {
+      if (image.length > MAX_IMAGE_LENGTH) {
+        return {
+          ok: false,
+          code: 'INVALID_IMAGE',
+          message: `Image URL must be at most ${MAX_IMAGE_LENGTH} characters.`,
+        };
+      }
+      if (!isValidHttpUrl(image)) {
+        return {
+          ok: false,
+          code: 'INVALID_IMAGE',
+          message: 'Image must be a valid http(s) URL.',
+        };
+      }
+    }
+    setChange('image', current.image, image);
+  }
+
+  if ('firstName' in body) {
+    if (body.firstName !== null && typeof body.firstName !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_FIRST_NAME',
+        message: 'firstName must be a string or null.',
+      };
+    }
+    const firstName =
+      body.firstName === null ||
+      (typeof body.firstName === 'string' && body.firstName.trim() === '')
+        ? null
+        : (body.firstName as string).trim().replace(/\s+/g, ' ');
+    if (firstName !== null && firstName.length > MAX_FIRST_LAST_NAME_LENGTH) {
+      return {
+        ok: false,
+        code: 'INVALID_FIRST_NAME',
+        message: `firstName must be at most ${MAX_FIRST_LAST_NAME_LENGTH} characters.`,
+      };
+    }
+    setChange('firstName', current.firstName, firstName);
+  }
+
+  if ('lastName' in body) {
+    if (body.lastName !== null && typeof body.lastName !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_LAST_NAME',
+        message: 'lastName must be a string or null.',
+      };
+    }
+    const lastName =
+      body.lastName === null ||
+      (typeof body.lastName === 'string' && body.lastName.trim() === '')
+        ? null
+        : (body.lastName as string).trim().replace(/\s+/g, ' ');
+    if (lastName !== null && lastName.length > MAX_FIRST_LAST_NAME_LENGTH) {
+      return {
+        ok: false,
+        code: 'INVALID_LAST_NAME',
+        message: `lastName must be at most ${MAX_FIRST_LAST_NAME_LENGTH} characters.`,
+      };
+    }
+    setChange('lastName', current.lastName, lastName);
+  }
+
+  if ('dateOfBirth' in body) {
+    if (body.dateOfBirth !== null && typeof body.dateOfBirth !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_DATE_OF_BIRTH',
+        message: 'dateOfBirth must be an ISO date string or null.',
+      };
+    }
+    let dateOfBirth: Date | null = null;
+    if (typeof body.dateOfBirth === 'string' && body.dateOfBirth.trim() !== '') {
+      const parsed = new Date(body.dateOfBirth.trim());
+      if (Number.isNaN(parsed.getTime())) {
+        return {
+          ok: false,
+          code: 'INVALID_DATE_OF_BIRTH',
+          message: 'dateOfBirth is not a valid date.',
+        };
+      }
+      const now = new Date();
+      if (parsed.getTime() > now.getTime()) {
+        return {
+          ok: false,
+          code: 'INVALID_DATE_OF_BIRTH',
+          message: 'dateOfBirth cannot be in the future.',
+        };
+      }
+      if (parsed.getUTCFullYear() < MIN_BIRTH_YEAR) {
+        return {
+          ok: false,
+          code: 'INVALID_DATE_OF_BIRTH',
+          message: `dateOfBirth year must be ${MIN_BIRTH_YEAR} or later.`,
+        };
+      }
+      dateOfBirth = parsed;
+    }
+    setChange('dateOfBirth', current.dateOfBirth, dateOfBirth);
+  }
+
+  if ('gender' in body) {
+    if (body.gender !== null && typeof body.gender !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_GENDER',
+        message: 'gender must be a string or null.',
+      };
+    }
+    const gender =
+      body.gender === null ||
+      (typeof body.gender === 'string' && body.gender.trim() === '')
+        ? null
+        : (body.gender as string).trim().toLowerCase();
+    if (gender !== null && !(ALL_GENDERS as readonly string[]).includes(gender)) {
+      return {
+        ok: false,
+        code: 'INVALID_GENDER',
+        message: `gender must be one of: ${ALL_GENDERS.join(', ')}.`,
+      };
+    }
+    setChange('gender', current.gender, gender);
+  }
+
+  if ('phone' in body) {
+    if (body.phone !== null && typeof body.phone !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_PHONE',
+        message: 'phone must be a string or null.',
+      };
+    }
+    const phone =
+      body.phone === null ||
+      (typeof body.phone === 'string' && body.phone.trim() === '')
+        ? null
+        : (body.phone as string).trim().replace(/\s+/g, ' ');
+    if (phone !== null) {
+      if (phone.length > MAX_PHONE_LENGTH) {
+        return {
+          ok: false,
+          code: 'INVALID_PHONE',
+          message: `phone must be at most ${MAX_PHONE_LENGTH} characters.`,
+        };
+      }
+      // Allow international-ish numbers; reject control chars / letters.
+      if (!/^[+]?[\d().\-\s]{5,}$/.test(phone)) {
+        return {
+          ok: false,
+          code: 'INVALID_PHONE',
+          message: 'phone does not look like a valid phone number.',
+        };
+      }
+    }
+    setChange('phone', current.phone, phone);
+  }
+
+  if ('phoneVerified' in body) {
+    if (typeof body.phoneVerified !== 'boolean') {
+      return {
+        ok: false,
+        code: 'INVALID_PHONE_VERIFIED',
+        message: 'phoneVerified must be a boolean.',
+      };
+    }
+    setChange('phoneVerified', current.phoneVerified, body.phoneVerified);
+  }
+
+  if ('emailNotifications' in body) {
+    if (typeof body.emailNotifications !== 'boolean') {
+      return {
+        ok: false,
+        code: 'INVALID_EMAIL_NOTIFICATIONS',
+        message: 'emailNotifications must be a boolean.',
+      };
+    }
+    setChange(
+      'emailNotifications',
+      current.emailNotifications,
+      body.emailNotifications
+    );
+  }
+
+  if ('smsNotifications' in body) {
+    if (typeof body.smsNotifications !== 'boolean') {
+      return {
+        ok: false,
+        code: 'INVALID_SMS_NOTIFICATIONS',
+        message: 'smsNotifications must be a boolean.',
+      };
+    }
+    setChange('smsNotifications', current.smsNotifications, body.smsNotifications);
+  }
+
+  if ('currency' in body) {
+    if (typeof body.currency !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_CURRENCY',
+        message: 'currency must be a string.',
+      };
+    }
+    const currency = body.currency.trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency) || currency.length > MAX_CURRENCY_LENGTH) {
+      return {
+        ok: false,
+        code: 'INVALID_CURRENCY',
+        message: 'currency must be a 3-letter ISO code (e.g. USD).',
+      };
+    }
+    setChange('currency', current.currency, currency);
+  }
+
+  if ('locale' in body) {
+    if (typeof body.locale !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_LOCALE',
+        message: 'locale must be a string.',
+      };
+    }
+    const locale = body.locale.trim();
+    if (
+      locale.length < 2 ||
+      locale.length > MAX_LOCALE_LENGTH ||
+      !/^[A-Za-z]{2,3}([_-][A-Za-z0-9]+)*$/.test(locale)
+    ) {
+      return {
+        ok: false,
+        code: 'INVALID_LOCALE',
+        message: 'locale must look like a BCP 47 tag (e.g. en-US).',
+      };
+    }
+    setChange('locale', current.locale, locale);
+  }
+
+  if ('timezone' in body) {
+    if (typeof body.timezone !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_TIMEZONE',
+        message: 'timezone must be a string.',
+      };
+    }
+    const timezone = body.timezone.trim();
+    if (timezone.length === 0 || timezone.length > MAX_TIMEZONE_LENGTH) {
+      return {
+        ok: false,
+        code: 'INVALID_TIMEZONE',
+        message: `timezone must be between 1 and ${MAX_TIMEZONE_LENGTH} characters.`,
+      };
+    }
+    if (!isValidTimezone(timezone)) {
+      return {
+        ok: false,
+        code: 'INVALID_TIMEZONE',
+        message: 'timezone must be a valid IANA timezone (e.g. America/New_York).',
+      };
+    }
+    setChange('timezone', current.timezone, timezone);
+  }
+
+  if ('adminNotes' in body) {
+    if (body.adminNotes !== null && typeof body.adminNotes !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_ADMIN_NOTES',
+        message: 'adminNotes must be a string or null.',
+      };
+    }
+    const adminNotes =
+      body.adminNotes === null ||
+      (typeof body.adminNotes === 'string' && body.adminNotes.trim() === '')
+        ? null
+        : (body.adminNotes as string).trim();
+    if (adminNotes !== null && adminNotes.length > MAX_ADMIN_NOTES_LENGTH) {
+      return {
+        ok: false,
+        code: 'INVALID_ADMIN_NOTES',
+        message: `adminNotes must be at most ${MAX_ADMIN_NOTES_LENGTH} characters.`,
+      };
+    }
+    setChange('adminNotes', current.adminNotes, adminNotes);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return {
+      ok: false,
+      code: 'NO_CHANGES',
+      message: 'No valid changes were provided.',
+    };
+  }
+
+  return { ok: true, updates, changes };
 }
 
 async function resolveActorCapabilities(
@@ -339,7 +858,7 @@ usersRouter.get('/stats', async (c) => {
   }
 });
 
-// ─── GET /:id — single user ───────────────────────────────────────────────────
+// ─── GET /:id — single user (full detail) ─────────────────────────────────────
 usersRouter.get('/:id', async (c) => {
   const actor = getActor(c);
   const db = getDb(c);
@@ -366,13 +885,26 @@ usersRouter.get('/:id', async (c) => {
       actor.role
     );
 
+    const isSelf = user.id === actor.id;
+    const mutateCheck = canActorMutateTarget(actor.role, user, actor.id);
+    // Profile edits require manage (or ban/delete as support staff) + target policy.
+    const canEdit =
+      !user.isDeleted &&
+      mutateCheck.ok &&
+      (capabilities.canManage ||
+        capabilities.canBan ||
+        capabilities.canDelete);
+
     return c.json({
       success: true,
-      data: serializeUser(user),
+      data: serializeUserDetail(user),
       meta: {
         canBan: capabilities.canBan,
         canManage: capabilities.canManage,
-        isSelf: user.id === actor.id,
+        canDelete: capabilities.canDelete,
+        canEdit,
+        isSelf,
+        editableFields: EDITABLE_FIELDS,
       },
     });
   } catch (error) {
@@ -380,6 +912,171 @@ usersRouter.get('/:id', async (c) => {
     return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load user.');
   }
 });
+
+// ─── PATCH /:id — update profile fields (not role / stats / ban state) ────────
+// Role promotion lives on /api/admins. Ban/delete have dedicated endpoints.
+usersRouter.patch(
+  '/:id',
+  requireAnyPermission(
+    PERMISSIONS.USER_MANAGE,
+    PERMISSIONS.USER_BAN,
+    PERMISSIONS.USER_DELETE
+  ),
+  async (c) => {
+    const actor = getActor(c);
+    const db = getDb(c);
+
+    const targetId = c.req.param('id')?.trim() ?? '';
+    if (!isValidUserId(targetId)) {
+      return errorJson(c, 400, 'INVALID_ID', 'Invalid user id.');
+    }
+
+    const parsedBody = await readJsonObject(c);
+    if (!parsedBody.ok) return parsedBody.response;
+
+    try {
+      const [target] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, targetId))
+        .limit(1);
+
+      if (!target) {
+        return errorJson(c, 404, 'USER_NOT_FOUND', 'User not found.');
+      }
+
+      if (target.isDeleted) {
+        return errorJson(
+          c,
+          409,
+          'USER_DELETED',
+          'Cannot edit a deleted user. Restore the account first.'
+        );
+      }
+
+      const mutateCheck = canActorMutateTarget(actor.role, target, actor.id);
+      if (!mutateCheck.ok) {
+        return errorJson(c, 403, mutateCheck.code, mutateCheck.message);
+      }
+
+      const parsed = parseUserUpdate(parsedBody.body, target);
+      if (!parsed.ok) {
+        const status =
+          parsed.code === 'NO_CHANGES' || parsed.code === 'UNKNOWN_FIELDS'
+            ? 400
+            : 400;
+        return errorJson(c, status, parsed.code, parsed.message);
+      }
+
+      // Email uniqueness (case-insensitive) when changing email.
+      if (
+        typeof parsed.updates.email === 'string' &&
+        parsed.updates.email !== target.email
+      ) {
+        const newEmail = parsed.updates.email as string;
+        const [conflict] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, newEmail))
+          .limit(1);
+
+        if (conflict && conflict.id !== target.id) {
+          return errorJson(
+            c,
+            409,
+            'EMAIL_IN_USE',
+            'Another account already uses this email address.'
+          );
+        }
+      }
+
+      // If phone is cleared, also clear phoneVerified when not explicitly set.
+      if (
+        'phone' in parsed.updates &&
+        parsed.updates.phone === null &&
+        !('phoneVerified' in parsed.updates)
+      ) {
+        if (target.phoneVerified) {
+          parsed.updates.phoneVerified = false;
+          parsed.changes.phoneVerified = {
+            from: target.phoneVerified,
+            to: false,
+          };
+        }
+      }
+
+      const now = new Date();
+      const updated = await db
+        .update(users)
+        .set({
+          ...(parsed.updates as Record<string, unknown>),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(users.id, targetId),
+            eq(users.isDeleted, false),
+            eq(users.email, target.email)
+          )
+        )
+        .returning();
+
+      if (updated.length === 0) {
+        return errorJson(
+          c,
+          409,
+          'CONFLICT',
+          'Could not update user. They may have changed — refresh and try again.'
+        );
+      }
+
+      const updatedUser = updated[0];
+      const changedKeys = Object.keys(parsed.changes);
+      c.executionCtx.waitUntil(
+        logAuditFromContext(c, {
+          action: AUDIT_ACTIONS.USER_UPDATE,
+          category: AUDIT_CATEGORIES.USER,
+          description: `Updated user ${updatedUser.name} (${updatedUser.email}): ${changedKeys.join(', ')}`,
+          targetType: AUDIT_TARGET_TYPES.USER,
+          targetId: updatedUser.id,
+          targetLabel: updatedUser.email,
+          severity:
+            'email' in parsed.changes ||
+            'emailVerified' in parsed.changes ||
+            'phoneVerified' in parsed.changes
+              ? 'warning'
+              : 'info',
+          changes: parsed.changes,
+          metadata: {
+            fields: changedKeys,
+          },
+        }).then(() => undefined)
+      );
+
+      return c.json({
+        success: true,
+        message: `Updated ${changedKeys.length} field${changedKeys.length === 1 ? '' : 's'} for ${updatedUser.name}.`,
+        data: serializeUserDetail(updatedUser),
+        meta: {
+          changedFields: changedKeys,
+        },
+      });
+    } catch (error) {
+      console.error('Error updating user:', error);
+      const message =
+        error instanceof Error ? error.message.toLowerCase() : '';
+      if (message.includes('unique') || message.includes('constraint')) {
+        return errorJson(
+          c,
+          409,
+          'EMAIL_IN_USE',
+          'Another account already uses this email address.'
+        );
+      }
+      return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to update user.');
+    }
+  }
+);
 
 // ─── PATCH /:id/ban — ban or unban (USER_BAN) ─────────────────────────────────
 usersRouter.patch(

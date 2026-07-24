@@ -4,6 +4,12 @@ export type UserRole = 'customer' | 'admin' | 'owner';
 
 export type UserStatus = 'active' | 'banned' | 'deleted';
 
+export type UserGender =
+  | 'male'
+  | 'female'
+  | 'other'
+  | 'prefer_not_to_say';
+
 export type User = {
   id: string;
   name: string;
@@ -27,6 +33,38 @@ export type User = {
   updatedAt: string;
 };
 
+/** Full user detail from GET /:id */
+export type UserDetail = User & {
+  dateOfBirth: string | null;
+  gender: UserGender | null;
+  phoneVerified: boolean;
+  defaultAddressId: string | null;
+  emailNotifications: boolean;
+  smsNotifications: boolean;
+  currency: string;
+  locale: string;
+  timezone: string;
+  loyaltyPoints: number;
+  ragiCoins: number;
+  referralCode: string | null;
+  referredBy: string | null;
+  totalSpent: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  isVipUser: boolean;
+  isVerifiedSeller: boolean;
+  adminNotes: string | null;
+};
+
+export type UserDetailMeta = {
+  canBan: boolean;
+  canManage: boolean;
+  canDelete: boolean;
+  canEdit: boolean;
+  isSelf: boolean;
+  editableFields: readonly string[];
+};
+
 /** Alias used by dialogs / cards */
 export type AdminUser = User;
 
@@ -48,6 +86,26 @@ export type UserStats = {
   banned: number;
   deleted: number;
   byRole: Record<string, number>;
+};
+
+/** Payload keys accepted by PATCH /:id */
+export type UserUpdatePayload = {
+  name?: string;
+  email?: string;
+  emailVerified?: boolean;
+  image?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  dateOfBirth?: string | null;
+  gender?: UserGender | null;
+  phone?: string | null;
+  phoneVerified?: boolean;
+  emailNotifications?: boolean;
+  smsNotifications?: boolean;
+  currency?: string;
+  locale?: string;
+  timezone?: string;
+  adminNotes?: string | null;
 };
 
 export type ApiErrorBody = {
@@ -164,6 +222,15 @@ export function formatDateTime(value: string | Date | null | undefined) {
   }).format(date);
 }
 
+export function formatDate(value: string | Date | null | undefined) {
+  if (!value) return 'Not set';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+  }).format(date);
+}
+
 export function formatRelative(value: string | Date | null | undefined) {
   if (!value) return 'Never';
   const date = value instanceof Date ? value : new Date(value);
@@ -183,6 +250,26 @@ export function formatRelative(value: string | Date | null | undefined) {
   return formatDateTime(date);
 }
 
+export function formatMoney(value: number | null | undefined, currency = 'USD') {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '—';
+  }
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency || 'USD',
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${value.toFixed(2)} ${currency || 'USD'}`;
+  }
+}
+
+export function formatBool(value: boolean | null | undefined) {
+  if (value === null || value === undefined) return '—';
+  return value ? 'Yes' : 'No';
+}
+
 export function getInitials(name: string) {
   return name
     .split(' ')
@@ -193,10 +280,39 @@ export function getInitials(name: string) {
     .slice(0, 2);
 }
 
+export function toDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+export function genderLabel(gender: UserGender | null | undefined): string {
+  if (!gender) return 'Not set';
+  switch (gender) {
+    case 'prefer_not_to_say':
+      return 'Prefer not to say';
+    case 'male':
+      return 'Male';
+    case 'female':
+      return 'Female';
+    case 'other':
+      return 'Other';
+    default:
+      return gender;
+  }
+}
+
 // ─── Role & Status helpers ────────────────────────────────────────────────────
 
 export const ALL_ROLES: UserRole[] = ['customer', 'admin', 'owner'];
 export const ALL_STATUSES: UserStatus[] = ['active', 'banned', 'deleted'];
+export const ALL_GENDERS: UserGender[] = [
+  'male',
+  'female',
+  'other',
+  'prefer_not_to_say',
+];
 
 export function getRoleLabel(role: UserRole): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
@@ -230,4 +346,45 @@ export function getStatusBadgeVariant(
     case 'active':
       return 'default';
   }
+}
+
+export function getUserStatus(user: Pick<User, 'isBanned' | 'isDeleted'>): UserStatus {
+  if (user.isDeleted) return 'deleted';
+  if (user.isBanned) return 'banned';
+  return 'active';
+}
+
+/** Human-readable labels for change diffs in confirmation dialogs. */
+export const FIELD_LABELS: Record<keyof UserUpdatePayload, string> = {
+  name: 'Display name',
+  email: 'Email',
+  emailVerified: 'Email verified',
+  image: 'Avatar URL',
+  firstName: 'First name',
+  lastName: 'Last name',
+  dateOfBirth: 'Date of birth',
+  gender: 'Gender',
+  phone: 'Phone',
+  phoneVerified: 'Phone verified',
+  emailNotifications: 'Email notifications',
+  smsNotifications: 'SMS notifications',
+  currency: 'Currency',
+  locale: 'Locale',
+  timezone: 'Timezone',
+  adminNotes: 'Admin notes',
+};
+
+export function formatFieldValue(
+  field: keyof UserUpdatePayload,
+  value: unknown
+): string {
+  if (value === null || value === undefined || value === '') return 'Not set';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (field === 'dateOfBirth' && typeof value === 'string') {
+    return formatDate(value);
+  }
+  if (field === 'gender' && typeof value === 'string') {
+    return genderLabel(value as UserGender);
+  }
+  return String(value);
 }

@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Ban,
   Crown,
+  Edit,
   MoreHorizontal,
   RotateCcw,
   Shield,
@@ -19,7 +21,6 @@ import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardFooter,
   CardHeader,
 } from '@/components/ui/card';
 import {
@@ -123,9 +124,6 @@ export function UserCardSkeleton() {
         <Skeleton className="h-3 w-3/4" />
         <Skeleton className="h-3 w-2/3" />
       </CardContent>
-      <CardFooter className="gap-2">
-        <Skeleton className="h-8 w-24" />
-      </CardFooter>
     </Card>
   );
 }
@@ -150,153 +148,183 @@ export function UserCard({
 
   const canShowBan = isCustomerTarget && (canManage || canBan);
   const canShowDelete = isCustomerTarget && (canManage || canDelete);
-  const hasAnyAction = canShowBan || canShowDelete || canShowUndelete;
+  // Edit is shown for any admin with mutation perms; API enforces target policy.
+  const showEdit = !user.isDeleted && (canManage || canBan || canDelete);
+
+  const hasMenuActions =
+    showEdit || canShowBan || canShowDelete || canShowUndelete;
 
   return (
     <Card
-      className={`relative overflow-hidden transition-shadow hover:shadow-md ${
+      className={`group relative overflow-hidden transition-shadow hover:border-primary/40 hover:shadow-md ${
         busy ? 'opacity-60' : ''
       }`}
     >
       {user.role === 'owner' && (
-        <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500" />
+        <div className="absolute inset-x-0 top-0 z-10 h-0.5 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500" />
       )}
 
-      <CardHeader className="border-b pb-4">
-        <div className="flex items-start gap-3">
-          <Avatar className="size-12 shadow-sm ring-2 ring-background">
-            <AvatarImage src={user.image ?? undefined} alt={user.name} />
-            <AvatarFallback className="bg-muted text-sm font-semibold">
-              {getInitials(user.name)}
-            </AvatarFallback>
-          </Avatar>
+      {showEdit && (
+        <Button
+          asChild
+          variant="secondary"
+          size="icon"
+          className="absolute top-3 right-3 z-20 size-8 shadow-sm"
+        >
+          <Link
+            href={`/manage/users/edit/${user.id}`}
+            aria-label={`Edit ${user.name}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Edit className="size-3.5" />
+          </Link>
+        </Button>
+      )}
 
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="flex items-start justify-between gap-2">
+      <Link
+        href={`/manage/users/view/${user.id}`}
+        className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        aria-label={`View ${user.name}`}
+      >
+        <CardHeader className="border-b pb-4">
+          <div className="flex items-start gap-3 pr-10">
+            <Avatar className="size-12 shadow-sm ring-2 ring-background">
+              <AvatarImage src={user.image ?? undefined} alt={user.name} />
+              <AvatarFallback className="bg-muted text-sm font-semibold">
+                {getInitials(user.name)}
+              </AvatarFallback>
+            </Avatar>
+
+            <div className="min-w-0 flex-1 space-y-1.5">
               <div className="min-w-0">
-                <p className="truncate font-medium leading-tight">{user.name}</p>
+                <p className="truncate font-medium leading-tight group-hover:text-primary">
+                  {user.name}
+                </p>
                 <p className="text-muted-foreground truncate text-sm">
                   {user.email}
                 </p>
               </div>
 
-              {hasAnyAction && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0"
-                      disabled={busy}
-                    >
-                      <MoreHorizontal className="size-4" />
-                      <span className="sr-only">User actions</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="min-w-[180px]">
-                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-
-                    {canShowBan && (
-                      <DropdownMenuItem
-                        onClick={() => onRequestBan(user)}
-                        className={
-                          user.isBanned ? 'text-green-600' : 'text-destructive'
-                        }
-                      >
-                        {user.isBanned ? (
-                          <>
-                            <Unlock className="mr-2 size-4" />
-                            Unban user
-                          </>
-                        ) : (
-                          <>
-                            <Ban className="mr-2 size-4" />
-                            Ban user
-                          </>
-                        )}
-                      </DropdownMenuItem>
-                    )}
-
-                    {canShowDelete && (
-                      <>
-                        {(canShowBan || canShowUndelete) && <DropdownMenuSeparator />}
-                        <DropdownMenuItem
-                          onClick={() => onRequestDelete(user)}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="mr-2 size-4" />
-                          Delete user
-                        </DropdownMenuItem>
-                      </>
-                    )}
-
-                    {canShowUndelete && (
-                      <>
-                        {(canShowBan || canShowDelete) && <DropdownMenuSeparator />}
-                        <DropdownMenuItem
-                          onClick={() => onRequestUndelete(user)}
-                          className="text-green-600"
-                        >
-                          <RotateCcw className="mr-2 size-4" />
-                          Undelete user
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              <RoleBadge role={user.role} />
-              <StatusBadge
-                isBanned={user.isBanned}
-                isDeleted={user.isDeleted}
-              />
-              {isSelf && (
-                <Badge variant="outline" className="gap-1 text-xs">
-                  <ShieldAlert className="size-3" />
-                  You
-                </Badge>
-              )}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <RoleBadge role={user.role} />
+                <StatusBadge
+                  isBanned={user.isBanned}
+                  isDeleted={user.isDeleted}
+                />
+                {isSelf && (
+                  <Badge variant="outline" className="gap-1 text-xs">
+                    <ShieldAlert className="size-3" />
+                    You
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </CardHeader>
+        </CardHeader>
 
-      <CardContent className="space-y-2 pt-4 text-sm">
-        <div className="text-muted-foreground flex justify-between gap-2">
-          <span>Joined</span>
-          <span className="text-foreground tabular-nums">
-            {formatDateTime(user.createdAt)}
-          </span>
-        </div>
-        <div className="text-muted-foreground flex justify-between gap-2">
-          <span>Last active</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-foreground cursor-default tabular-nums">
-                {formatRelative(user.lastActiveAt)}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {formatDateTime(user.lastActiveAt)}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        <div className="text-muted-foreground flex justify-between gap-2">
-          <span>Last login</span>
-          <span className="text-foreground tabular-nums">
-            {formatRelative(user.lastLoginAt)}
-          </span>
-        </div>
-        {user.isBanned && user.bannedReason && (
-          <div className="bg-destructive/5 text-destructive mt-2 rounded-md px-2 py-1.5 text-xs">
-            Ban reason: {user.bannedReason}
+        <CardContent className="space-y-2 pt-4 text-sm">
+          <div className="text-muted-foreground flex justify-between gap-2">
+            <span>Joined</span>
+            <span className="text-foreground tabular-nums">
+              {formatDateTime(user.createdAt)}
+            </span>
           </div>
-        )}
-      </CardContent>
+          <div className="text-muted-foreground flex justify-between gap-2">
+            <span>Last active</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-foreground cursor-default tabular-nums">
+                  {formatRelative(user.lastActiveAt)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {formatDateTime(user.lastActiveAt)}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="text-muted-foreground flex justify-between gap-2">
+            <span>Last login</span>
+            <span className="text-foreground tabular-nums">
+              {formatRelative(user.lastLoginAt)}
+            </span>
+          </div>
+          {user.isBanned && user.bannedReason && (
+            <div className="bg-destructive/5 text-destructive mt-2 rounded-md px-2 py-1.5 text-xs">
+              Ban reason: {user.bannedReason}
+            </div>
+          )}
+        </CardContent>
+      </Link>
+
+      {hasMenuActions && (canShowBan || canShowDelete || canShowUndelete) && (
+        <div className={`absolute top-3 z-20 ${showEdit ? 'right-12' : 'right-3'}`}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 bg-background/80 shadow-sm backdrop-blur-sm"
+                disabled={busy}
+                onClick={(e) => e.preventDefault()}
+              >
+                <MoreHorizontal className="size-4" />
+                <span className="sr-only">User actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[180px]">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+
+              {canShowBan && (
+                <DropdownMenuItem
+                  onClick={() => onRequestBan(user)}
+                  className={
+                    user.isBanned ? 'text-green-600' : 'text-destructive'
+                  }
+                >
+                  {user.isBanned ? (
+                    <>
+                      <Unlock className="mr-2 size-4" />
+                      Unban user
+                    </>
+                  ) : (
+                    <>
+                      <Ban className="mr-2 size-4" />
+                      Ban user
+                    </>
+                  )}
+                </DropdownMenuItem>
+              )}
+
+              {canShowDelete && (
+                <>
+                  {(canShowBan || canShowUndelete) && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    onClick={() => onRequestDelete(user)}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="mr-2 size-4" />
+                    Delete user
+                  </DropdownMenuItem>
+                </>
+              )}
+
+              {canShowUndelete && (
+                <>
+                  {(canShowBan || canShowDelete) && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    onClick={() => onRequestUndelete(user)}
+                    className="text-green-600"
+                  >
+                    <RotateCcw className="mr-2 size-4" />
+                    Undelete user
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
     </Card>
   );
 }
