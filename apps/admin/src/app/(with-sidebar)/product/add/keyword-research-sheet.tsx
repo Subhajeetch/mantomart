@@ -192,15 +192,13 @@ export type KeywordResearchSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Prefill seed from product title when opening. */
-  initialKeyword?: string;
 };
 
 export default function KeywordResearchSheet({
   open,
   onOpenChange,
-  initialKeyword = '',
 }: KeywordResearchSheetProps) {
-  const [query, setQuery] = useState(initialKeyword);
+  const [query, setQuery] = useState("");
   const [geo, setGeo] = useState<string>('2840');
   const [lang, setLang] = useState<string>('1000');
   const [results, setResults] = useState<KeywordIdea[]>([]);
@@ -229,11 +227,11 @@ export default function KeywordResearchSheet({
 
   useEffect(() => {
     if (!open) return;
-    setQuery((prev) => (prev.trim() ? prev : initialKeyword));
+    setQuery("");
     setError(null);
     setErrorCode(null);
     void loadStatus();
-  }, [open, initialKeyword, loadStatus]);
+  }, [open, loadStatus]);
 
   const sortedResults = useMemo(() => {
     const list = [...results];
@@ -370,7 +368,7 @@ export default function KeywordResearchSheet({
               <div className="flex gap-2">
                 <Input
                   id="kw-query"
-                  value=""
+                  value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="e.g. wireless earbuds"
                   maxLength={80}
@@ -479,7 +477,7 @@ export default function KeywordResearchSheet({
                   </TableHeader>
                   <TableBody>
                     {sortedResults.map((row) => (
-                      <TableRow key={row.keyword}>
+                      <TableRow key={row.keyword} onClick={() => void copyKeyword(row.keyword)}>
                         <TableCell className="max-w-[160px] font-medium">
                           <span className="line-clamp-2">{row.keyword}</span>
                           <div className="mt-1 sm:hidden">
@@ -504,19 +502,6 @@ export default function KeywordResearchSheet({
                               ? ` · ${row.competitionIndex}`
                               : ''}
                           </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              type="button"
-                              size="icon-sm"
-                              variant="ghost"
-                              title="Copy keyword"
-                              onClick={() => void copyKeyword(row.keyword)}
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

@@ -3,6 +3,7 @@
 import '@uiw/react-md-editor/markdown-editor.css';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import {
   AlertCircle,
   Check,
@@ -68,6 +69,7 @@ import {
 } from './import-wizard-utils';
 import { ImportWizardVariants } from './import-wizard-variants';
 import KeywordResearchSheet from './keyword-research-sheet';
+import ProductPreviewSheet from './product-preview-sheet';
 import {
   getDraft,
   removeDraft,
@@ -333,6 +335,9 @@ export default function ImportWizard({
   // Google Keyword Planner research
   const [keywordResearchOpen, setKeywordResearchOpen] = useState(false);
 
+  // AliExpress product preview sheet
+  const [productPreviewOpen, setProductPreviewOpen] = useState(false);
+
   const abortRef = useRef<AbortController | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listItemId = listItem?.id ?? resumeDraft?.listItemId ?? null;
@@ -501,6 +506,7 @@ export default function ImportWizard({
       setSizeChartPickerOpen(false);
       setSizeChartPickerSelection(null);
       setKeywordResearchOpen(false);
+      setProductPreviewOpen(false);
       // Extra body-scroll unlock when dialog unmounts / closes
       if (typeof document !== 'undefined') {
         document.body.style.removeProperty('overflow');
@@ -696,9 +702,6 @@ export default function ImportWizard({
     setSizeChartPickerOpen(false);
   };
 
-  const keywordSeed =
-    form?.name.trim() || listItem?.normalized.title?.trim() || '';
-
   return (
     <>
       <FullscreenDialog open={open} onOpenChange={handleClose}>
@@ -769,12 +772,24 @@ export default function ImportWizard({
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="shrink-0 self-start flex items-center gap-2"
+                  onClick={() => setProductPreviewOpen(true)}
+                  disabled={publishing}
+                >
+                  <Image src="/icons/aliexpress_logo.webp" alt="Search Icon" width={14} height={14} />
+                  Product
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
                   className="shrink-0 self-start"
                   onClick={() => setKeywordResearchOpen(true)}
                   disabled={publishing}
                 >
                   <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
-                  Keyword research
+                  Keyword
                 </Button>
               </div>
               <StepIndicator current={step} onJump={goToStep} />
@@ -858,7 +873,7 @@ export default function ImportWizard({
 
                     <div className="space-y-2">
                       <Label htmlFor="product-description">
-                        Description (desktop / HTML ok)
+                        Description
                       </Label>
                       <Textarea
                         id="product-description"
@@ -876,7 +891,7 @@ export default function ImportWizard({
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Mobile description (Markdown → HTML)</Label>
+                      <Label>Mobile description</Label>
                       <p className="text-xs text-muted-foreground">
                         Starts blank — write in Markdown. On publish this is
                         stored as HTML for the storefront.
@@ -1961,7 +1976,12 @@ export default function ImportWizard({
       <KeywordResearchSheet
         open={keywordResearchOpen}
         onOpenChange={setKeywordResearchOpen}
-        initialKeyword={keywordSeed}
+      />
+
+      <ProductPreviewSheet
+        open={productPreviewOpen}
+        onOpenChange={setProductPreviewOpen}
+        listItem={listItem}
       />
     </>
   );
