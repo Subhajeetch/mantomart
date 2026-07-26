@@ -21,6 +21,7 @@ import {
   categories,
   addProductMyList,
   manageProducts,
+  aiEndpoints,
 } from "./routes";
 
 
@@ -96,5 +97,6 @@ app.route("/api/audit-logs", auditLogs);
 app.route("/api/categories", categories);
 app.route("/api/products/mylist", addProductMyList);
 app.route("/api/products/manage", manageProducts);
+app.route("/api/ai", aiEndpoints);
 
 export default app;

@@ -34,6 +34,9 @@ export const PERMISSIONS = {
   GOOGLE_CONNECTION_MANAGE: 'google_connection:manage',
   GOOGLE_KEYWORD_RESEARCH: 'google_keyword:research',
 
+  /** Generate SEO product copy via Google AI Studio (Gemini). */
+  AI_SEO_GENERATE: 'ai_seo:generate',
+
   AUDIT_LOG_READ: 'audit_log:read',
   AUDIT_LOG_MANAGE: 'audit_log:manage',
 } as const;
@@ -83,6 +86,9 @@ export const AUDIT_ACTIONS = {
   GOOGLE_DISCONNECT: 'google.disconnect',
   GOOGLE_TOKEN_REFRESH: 'google.token_refresh',
 
+  // AI
+  AI_SEO_GENERATE: 'ai_seo.generate',
+
   // System
   SYSTEM: 'system.event',
 } as const;
@@ -122,6 +128,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.AE_CONNECTION_REFRESH,
     PERMISSIONS.GOOGLE_CONNECTION_REFRESH,
     PERMISSIONS.GOOGLE_KEYWORD_RESEARCH,
+    PERMISSIONS.AI_SEO_GENERATE,
     PERMISSIONS.AUDIT_LOG_READ,
   ],
   owner: Object.values(PERMISSIONS) as Permission[],

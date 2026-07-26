@@ -13,6 +13,7 @@ import auditLogs from "./paths/admin/audit-logs";
 import categories from "./paths/admin/categories";
 import addProductMyList from "./paths/admin/add-product-mylist";
 import manageProducts from "./paths/admin/manage-products";
+import aiEndpoints from "./paths/admin/ai-endpoints";
 
 export {
   aeProduct,
@@ -25,4 +26,5 @@ export {
   categories,
   addProductMyList,
   manageProducts,
+  aiEndpoints,
 };

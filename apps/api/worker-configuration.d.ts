@@ -19,6 +19,7 @@ declare namespace Cloudflare {
 		GOOGLE_ADS_CUSTOMER_ID: string;
 		GOOGLE_ADS_LOGIN_CUSTOMER_ID: string;
 		GOOGLE_ADS_REDIRECT_URI: string;
+		GOOGLE_AI_STUDIO_API_KEY: string;
 		NODE_ENV: string;
 		API_URL: string;
 		ORIGINS: string;
@@ -30,7 +31,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "AE_APP_KEY" | "AE_APP_SECRET" | "GOOGLE_ADS_CLIENT_ID" | "GOOGLE_ADS_CLIENT_SECRET" | "GOOGLE_ADS_DEVELOPER_TOKEN" | "GOOGLE_ADS_CUSTOMER_ID" | "GOOGLE_ADS_LOGIN_CUSTOMER_ID" | "GOOGLE_ADS_REDIRECT_URI" | "NODE_ENV" | "API_URL" | "ORIGINS" | "DOMAIN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "AE_APP_KEY" | "AE_APP_SECRET" | "GOOGLE_ADS_CLIENT_ID" | "GOOGLE_ADS_CLIENT_SECRET" | "GOOGLE_ADS_DEVELOPER_TOKEN" | "GOOGLE_ADS_CUSTOMER_ID" | "GOOGLE_ADS_LOGIN_CUSTOMER_ID" | "GOOGLE_ADS_REDIRECT_URI" | "GOOGLE_AI_STUDIO_API_KEY" | "NODE_ENV" | "API_URL" | "ORIGINS" | "DOMAIN">> {}
 }
 
 // Begin runtime types

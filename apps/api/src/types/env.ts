@@ -28,4 +28,10 @@ export default interface Env {
    * https://admin.ragimart.com/connections
    */
   GOOGLE_ADS_REDIRECT_URI: string;
+
+  /**
+   * Google AI Studio API key (Gemini) for product SEO generation.
+   * Create at https://aistudio.google.com/apikey
+   */
+  GOOGLE_AI_STUDIO_API_KEY: string;
 }
