@@ -683,7 +683,7 @@ function GoogleAdsCard() {
             <div>
               <CardTitle className="text-base">Google Ads</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Keyword Planner for product research
+                Keyword research plugin
               </p>
             </div>
           </div>

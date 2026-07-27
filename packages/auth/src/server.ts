@@ -98,7 +98,6 @@ export function createAuth(
   activity?: AuthActivityHooks,
 ) {
   const isProd = env.NODE_ENV === "production";
-  const appUrl = isProd ? (env.APP_URL ?? "https://ragimart.com") : "http://localhost:8000";
 
   return betterAuth({
     database: drizzleAdapter(db, {
@@ -116,8 +115,8 @@ export function createAuth(
 
     trustedOrigins: [
       ...(env.ORIGINS ? env.ORIGINS.split(",") : []),
-      "https://ragimart.com",
-      "https://admin.ragimart.com",
+      "https://mantomart.com",
+      "https://admin.mantomart.com",
       "http://localhost:8000",
       "http://localhost:8001",
     ],
