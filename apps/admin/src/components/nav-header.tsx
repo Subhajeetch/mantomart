@@ -21,6 +21,10 @@ import {
   ToggleGroup, 
   ToggleGroupItem 
 } from "@/components/ui/toggle-group"
+import { Session } from "@repo/types/session-client";
+import { useSession } from "@/lib/auth-client";
+
+import Image from "next/image"
 
 
 import config from "@/mine.config"
@@ -29,6 +33,18 @@ export function NavHeader() {
   const { isMobile } = useSidebar()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
+
+  const { data } = useSession();
+  const session = data as Session | null;
+
+  
+
+  function finalRole() {
+    if (!session) {
+      return "?";
+    }
+   return session.user.role
+  }
 
   React.useEffect(() => {
     setMounted(true)
@@ -43,12 +59,12 @@ export function NavHeader() {
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg outline-2 text-sidebar-primary-foreground">
-                <img src={config.logoShort} alt={config.brandName + "'s logo"} className="h-7 w-7" />
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg outline-2 text-sidebar-primary-foreground overflow-hidden">
+                <Image src={config.logoShort} alt={config.brandName + "'s logo"} width={30} height={30} className="h-9 w-9 object-contain" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{config.brandName}</span>
-                <span className="truncate text-xs">Admin</span>
+                <span className="truncate font-bold">{config.brandName}</span>
+                <span className="truncate text-xs uppercase">{finalRole() || "?"}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>

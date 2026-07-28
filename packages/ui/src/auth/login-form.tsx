@@ -32,9 +32,10 @@ type Props = {
 };
 
 
-const shortLogoUrl  = "https://pub-a7c50b55510e428caec8639a3dd44e97.r2.dev/ragi-short-2.webp";
-const fullLogoUrl   = "https://pub-a7c50b55510e428caec8639a3dd44e97.r2.dev/ragi-full-2.webp";
-const heroImageUrl  = "https://pub-a7c50b55510e428caec8639a3dd44e97.r2.dev/login-hero-image.webp";
+const shortLogoUrl  = "/logos/mantomart-logo-short.png";
+const fullLogoUrl   = "/logos/mantomart-logo.png";
+const heroImageUrl  = "/images/login-hero-image.webp";
+const brandName = "Mantomart"
 
 export default function LoginForm({ authClient, appUrl, onSuccess }: Props) {
   const APP_URL = appUrl ?? "http://localhost:8000";
@@ -162,7 +163,7 @@ export default function LoginForm({ authClient, appUrl, onSuccess }: Props) {
               <div className="brand-icon">
                 <img src={shortLogoUrl} alt="Logo" className="short-logo" />
               </div>
-              <span className="brand-name">ragimart</span>
+              <span className="brand-name">{brandName}</span>
             </div>
 
             {/*forgot password*/}

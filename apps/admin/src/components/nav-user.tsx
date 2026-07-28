@@ -4,7 +4,6 @@ import {
   BadgeCheck,
   Bell,
   ChevronsUpDown,
-  CreditCard,
   LogOut,
   Sparkles,
   Settings
@@ -34,6 +33,7 @@ import {
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 
+
 export function NavUser({
   user,
 }: {
@@ -44,7 +44,8 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
-    const router = useRouter();
+  const router = useRouter();
+     
   
   // Generate initials from name
   const initials = user.name
