@@ -22,6 +22,8 @@ import {
   addProductMyList,
   manageProducts,
   aiEndpoints,
+  editHeader,
+  storeHeader,
 } from "./routes";
 
 
@@ -98,5 +100,7 @@ app.route("/api/categories", categories);
 app.route("/api/products/mylist", addProductMyList);
 app.route("/api/products/manage", manageProducts);
 app.route("/api/ai", aiEndpoints);
+app.route("/api/admin/header", editHeader);
+app.route("/api/store/header", storeHeader);
 
 export default app;

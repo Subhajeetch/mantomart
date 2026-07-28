@@ -39,6 +39,12 @@ export const PERMISSIONS = {
 
   AUDIT_LOG_READ: 'audit_log:read',
   AUDIT_LOG_MANAGE: 'audit_log:manage',
+
+  /**
+   * Edit storefront header collections / nav menu.
+   * Intentionally NOT on the default admin role — grant via override or owner.
+   */
+  HEADER_UPDATE: 'header:update',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -88,6 +94,11 @@ export const AUDIT_ACTIONS = {
 
   // AI
   AI_SEO_GENERATE: 'ai_seo.generate',
+
+  // Store header / nav
+  HEADER_CREATE: 'header.create',
+  HEADER_UPDATE: 'header.update',
+  HEADER_DELETE: 'header.delete',
 
   // System
   SYSTEM: 'system.event',

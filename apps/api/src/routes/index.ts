@@ -14,6 +14,10 @@ import categories from "./paths/admin/categories";
 import addProductMyList from "./paths/admin/add-product-mylist";
 import manageProducts from "./paths/admin/manage-products";
 import aiEndpoints from "./paths/admin/ai-endpoints";
+import editHeader from "./paths/admin/edit-header";
+
+// from store (public)
+import storeHeader from "./paths/store/header";
 
 export {
   aeProduct,
@@ -27,4 +31,6 @@ export {
   addProductMyList,
   manageProducts,
   aiEndpoints,
+  editHeader,
+  storeHeader,
 };

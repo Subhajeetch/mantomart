@@ -9,6 +9,7 @@ import {
   User,
   Star,
   Cable ,
+  Store,
   FolderTree,
   type LucideIcon,
 } from "lucide-react"
@@ -87,6 +88,21 @@ const sidebarLinks: {
       {
         title: "Manage Admins",
         url: "/manage/admins",
+      }
+    ]
+  },
+  {
+    title: "Manage Store",
+    type: "dropdown",
+    icon: Store,
+    items: [
+      {
+        title: "Manage Header",
+        url: "/store/edit/header",
+      },
+      {
+        title: "Manage Homepage",
+        url: "/store/edit/homepage",
       }
     ]
   },
