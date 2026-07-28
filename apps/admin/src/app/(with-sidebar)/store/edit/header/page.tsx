@@ -36,8 +36,6 @@ type HeaderAdminItem = {
   name: string;
   slug: string;
   href: string | null;
-  description: string | null;
-  image: string | null;
   position: number;
   isVisible: boolean;
   featured: boolean;
@@ -47,11 +45,10 @@ type HeaderAdminItem = {
 
 type HeaderAdminCollection = {
   id: string;
+  categoryId: string | null;
   name: string;
   slug: string;
   href: string | null;
-  description: string | null;
-  image: string | null;
   position: number;
   isVisible: boolean;
   createdAt: string | Date | number | null;
@@ -89,31 +86,29 @@ class ApiError extends Error {
 }
 
 type CollectionForm = {
-  name: string;
-  slug: string;
-  href: string;
-  description: string;
-  image: string;
+  categoryId: string; // selected existing category id
   position: number;
   isVisible: boolean;
 };
 
-type ItemForm = CollectionForm & {
+
+type ItemForm = {
+  categoryId: string; // will reference an existing child category
+  position: number;
+  isVisible: boolean;
   featured: boolean;
 };
 
 const blankCollection: CollectionForm = {
-  name: "",
-  slug: "",
-  href: "",
-  description: "",
-  image: "",
+  categoryId: "",
   position: 0,
   isVisible: true,
 };
 
 const blankItem: ItemForm = {
-  ...blankCollection,
+  categoryId: "",
+  position: 0,
+  isVisible: true,
   featured: false,
 };
 
@@ -172,11 +167,7 @@ function fieldValue(value: string | null) {
 
 function collectionPayload(collection: HeaderAdminCollection) {
   return {
-    name: collection.name,
-    slug: collection.slug,
-    href: collection.href || null,
-    description: collection.description || null,
-    image: collection.image || null,
+    categoryId: collection.categoryId ?? undefined,
     position: Number(collection.position) || 0,
     isVisible: collection.isVisible,
   };
@@ -187,8 +178,6 @@ function itemPayload(item: HeaderAdminItem) {
     name: item.name,
     slug: item.slug,
     href: item.href || null,
-    description: item.description || null,
-    image: item.image || null,
     position: Number(item.position) || 0,
     isVisible: item.isVisible,
     featured: item.featured,
@@ -196,16 +185,15 @@ function itemPayload(item: HeaderAdminItem) {
 }
 
 function formPayload(form: CollectionForm | ItemForm) {
-  return {
-    name: form.name,
-    slug: form.slug || undefined,
-    href: form.href || null,
-    description: form.description || null,
-    image: form.image || null,
-    position: Number(form.position) || 0,
-    isVisible: form.isVisible,
-    ...("featured" in form ? { featured: form.featured } : {}),
+  // Support the simplified forms: map to fields accepted by API
+  const base: Record<string, unknown> = {
+    categoryId: (form as any).categoryId ?? undefined,
+    position: Number((form as any).position) || 0,
+    isVisible: (form as any).isVisible ?? true,
+    image: (form as any).image ?? null,
   };
+  if ((form as any).featured !== undefined) base.featured = (form as any).featured;
+  return base;
 }
 
 function slugify(input: string) {
@@ -263,6 +251,16 @@ export default function EditHeaderPage() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [newCollection, setNewCollection] = useState<CollectionForm>(blankCollection);
   const [newItems, setNewItems] = useState<Record<string, ItemForm>>({});
+  const [availableCategories, setAvailableCategories] = useState<{
+    id: string;
+    name: string;
+    slug: string;
+    image: string | null;
+    position: number;
+    childCount: number;
+  }[]>([]);
+  const [categoryTree, setCategoryTree] = useState<any[] | null>(null); // raw category tree from API for looking up children
+
 
   const canUpdate = meta?.canUpdate ?? false;
   const visibleCount = useMemo(
@@ -279,10 +277,24 @@ export default function EditHeaderPage() {
       const response = await requestJson<{
         success: true;
         data: HeaderAdminCollection[];
+        availableCategories?: { id: string; name: string; slug: string; image: string | null; position: number; childCount: number }[];
         meta: HeaderMeta;
       }>("/");
       setCollections(response.data);
       setMeta(response.meta);
+      setAvailableCategories(response.availableCategories ?? []);
+
+      // load full category tree for child lookups (used for item selection)
+      try {
+        const treeRes = await fetch('/api/admin/categories/tree', { credentials: 'include' });
+        if (treeRes.ok) {
+          const parsed = await treeRes.json();
+          setCategoryTree(parsed?.data ?? null);
+        }
+      } catch (err) {
+        // non-fatal: category tree optional
+        setCategoryTree(null);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load header.";
       setError(message);
@@ -330,14 +342,32 @@ export default function EditHeaderPage() {
   async function createCollection() {
     setBusyKey("collection:new");
     try {
+      if (!newCollection.categoryId) {
+        toast.error('Select a category to add to the header.');
+        setBusyKey(null);
+        return;
+      }
+
+      const payload = {
+        categoryId: newCollection.categoryId,
+        position: newCollection.position,
+        isVisible: newCollection.isVisible,
+      };
+
       const response = await requestJson<{ success: true; message?: string }>(
         "/collections",
         {
           method: "POST",
-          body: JSON.stringify(formPayload(newCollection)),
+          body: JSON.stringify(payload),
         }
       );
       toast.success(response.message || "Collection created.");
+      // Attempt to refresh public store header (rebuild KV cache) so storefront reflects changes immediately.
+      try {
+        await fetch('/api/store/header', { credentials: 'include', cache: 'no-store' });
+      } catch (e) {
+        // ignore
+      }
       setNewCollection(blankCollection);
       await loadHeader(true);
     } catch (err) {
@@ -388,11 +418,41 @@ export default function EditHeaderPage() {
     const form = newItems[collectionId] ?? blankItem;
     setBusyKey(`item:new:${collectionId}`);
     try {
+      // If a categoryId was chosen, map it to a payload from the category tree
+      let payload: any = null;
+      if (form.categoryId && categoryTree) {
+        function findNode(list: any[], id: string): any | null {
+          for (const node of list) {
+            if (node.id === id) return node;
+            if (node.children) {
+              const found = findNode(node.children, id);
+              if (found) return found;
+            }
+          }
+          return null;
+        }
+        const node = findNode(categoryTree, form.categoryId);
+        if (!node) {
+          throw new Error('Selected category not found.');
+        }
+        payload = {
+          name: node.name,
+          slug: node.slug,
+          href: `/category/${node.slug}`,
+          image: node.image ?? null,
+          position: form.position ?? 0,
+          isVisible: form.isVisible,
+          featured: form.featured ?? false,
+        };
+      } else {
+        throw new Error('Select an existing category to add as an item.');
+      }
+
       const response = await requestJson<{ success: true; message?: string }>(
         `/collections/${collectionId}/items`,
         {
           method: "POST",
-          body: JSON.stringify(formPayload(form)),
+          body: JSON.stringify(payload),
         }
       );
       toast.success(response.message || "Item created.");
@@ -656,34 +716,23 @@ export default function EditHeaderPage() {
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-6">
-                  <Field id="new-collection-name" label="Name" className="md:col-span-2">
-                    <Input
-                      id="new-collection-name"
-                      value={newCollection.name}
+                  <Field id="new-collection-category" label="Category" className="md:col-span-3">
+                    <select
+                      id="new-collection-category"
+                      className="w-full rounded-md border px-2 py-1"
+                      value={newCollection.categoryId}
                       disabled={!canUpdate}
-                      onChange={(event) => {
-                        const name = event.target.value;
-                        setNewCollection((prev) => ({
-                          ...prev,
-                          name,
-                          slug: prev.slug || slugify(name),
-                        }));
-                      }}
-                    />
+                      onChange={(e) => setNewCollection((prev) => ({ ...prev, categoryId: e.target.value }))}
+                    >
+                      <option value="">Select a root category…</option>
+                      {availableCategories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name} {cat.childCount ? `(${cat.childCount} children)` : ''}
+                        </option>
+                      ))}
+                    </select>
                   </Field>
-                  <Field id="new-collection-slug" label="Slug" className="md:col-span-2">
-                    <Input
-                      id="new-collection-slug"
-                      value={newCollection.slug}
-                      disabled={!canUpdate}
-                      onChange={(event) =>
-                        setNewCollection((prev) => ({
-                          ...prev,
-                          slug: slugify(event.target.value),
-                        }))
-                      }
-                    />
-                  </Field>
+
                   <Field id="new-collection-position" label="Position">
                     <Input
                       id="new-collection-position"
@@ -714,46 +763,7 @@ export default function EditHeaderPage() {
                     />
                     Visible
                   </label>
-                  <Field id="new-collection-href" label="Href" className="md:col-span-3">
-                    <Input
-                      id="new-collection-href"
-                      placeholder="/c/fashion"
-                      value={newCollection.href}
-                      disabled={!canUpdate}
-                      onChange={(event) =>
-                        setNewCollection((prev) => ({
-                          ...prev,
-                          href: event.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field id="new-collection-image" label="Image" className="md:col-span-3">
-                    <Input
-                      id="new-collection-image"
-                      value={newCollection.image}
-                      disabled={!canUpdate}
-                      onChange={(event) =>
-                        setNewCollection((prev) => ({
-                          ...prev,
-                          image: event.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field id="new-collection-description" label="Description" className="md:col-span-6">
-                    <Textarea
-                      id="new-collection-description"
-                      value={newCollection.description}
-                      disabled={!canUpdate}
-                      onChange={(event) =>
-                        setNewCollection((prev) => ({
-                          ...prev,
-                          description: event.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
+
                 </div>
               </CardContent>
             </Card>
@@ -770,7 +780,25 @@ export default function EditHeaderPage() {
             ) : (
               <div className="grid gap-4">
                 {collections.map((collection, index) => (
-                  <Card key={collection.id}>
+                  <Card
+                    key={collection.id}
+                    draggable={canUpdate}
+                    onDragStart={(e) => {
+                      e.dataTransfer?.setData('text/plain', String(index));
+                      e.dataTransfer?.setData('application/drag-kind', 'header-collection');
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const from = Number(e.dataTransfer?.getData('text/plain') ?? -1);
+                      const kind = e.dataTransfer?.getData('application/drag-kind');
+                      if (kind !== 'header-collection') return;
+                      const to = index;
+                      if (from >= 0 && from !== to) {
+                        void reorderCollections(from, to);
+                      }
+                    }}
+                  >
                     <CardContent className="grid gap-5 p-4">
                       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                         <div className="space-y-2">
@@ -840,30 +868,46 @@ export default function EditHeaderPage() {
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-6">
-                        <Field id={`${collection.id}-name`} label="Name" className="md:col-span-2">
-                          <Input
-                            id={`${collection.id}-name`}
-                            value={collection.name}
-                            disabled={!canUpdate}
-                            onChange={(event) =>
-                              updateCollectionLocal(collection.id, {
-                                name: event.target.value,
-                              })
-                            }
-                          />
-                        </Field>
-                        <Field id={`${collection.id}-slug`} label="Slug" className="md:col-span-2">
-                          <Input
-                            id={`${collection.id}-slug`}
-                            value={collection.slug}
-                            disabled={!canUpdate}
-                            onChange={(event) =>
-                              updateCollectionLocal(collection.id, {
-                                slug: slugify(event.target.value),
-                              })
-                            }
-                          />
-                        </Field>
+                        <div className="md:col-span-6 grid gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">Top-level category:</span>
+                            <span className="text-sm text-muted-foreground">{collection.name} · /category/{collection.slug}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs text-muted-foreground">Change category</label>
+                            <select
+                              className="rounded-md border px-2 py-1"
+                              value={collection.categoryId ?? ''}
+                              disabled={!canUpdate}
+                              onChange={async (e) => {
+                                const newCatId = e.target.value;
+                                if (!newCatId) return;
+                                setBusyKey(`collection:${collection.id}`);
+                                try {
+                                  await requestJson(`/collections/${collection.id}`, {
+                                    method: 'PATCH',
+                                    body: JSON.stringify({ categoryId: newCatId }),
+                                  });
+                                  toast.success('Category swapped.');
+                                  await loadHeader(true);
+                                } catch (err) {
+                                  toast.error(err instanceof Error ? err.message : 'Failed to swap category.');
+                                } finally {
+                                  setBusyKey(null);
+                                }
+                              }}
+                            >
+                              <option value="">(keep current)</option>
+                              {availableCategories.map((cat) => (
+                                <option key={cat.id} value={cat.id}>
+                                  {cat.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
                         <Field id={`${collection.id}-position`} label="Position">
                           <Input
                             id={`${collection.id}-position`}
@@ -892,42 +936,6 @@ export default function EditHeaderPage() {
                           />
                           Visible
                         </label>
-                        <Field id={`${collection.id}-href`} label="Href" className="md:col-span-3">
-                          <Input
-                            id={`${collection.id}-href`}
-                            value={fieldValue(collection.href)}
-                            disabled={!canUpdate}
-                            onChange={(event) =>
-                              updateCollectionLocal(collection.id, {
-                                href: event.target.value,
-                              })
-                            }
-                          />
-                        </Field>
-                        <Field id={`${collection.id}-image`} label="Image" className="md:col-span-3">
-                          <Input
-                            id={`${collection.id}-image`}
-                            value={fieldValue(collection.image)}
-                            disabled={!canUpdate}
-                            onChange={(event) =>
-                              updateCollectionLocal(collection.id, {
-                                image: event.target.value,
-                              })
-                            }
-                          />
-                        </Field>
-                        <Field id={`${collection.id}-description`} label="Description" className="md:col-span-6">
-                          <Textarea
-                            id={`${collection.id}-description`}
-                            value={fieldValue(collection.description)}
-                            disabled={!canUpdate}
-                            onChange={(event) =>
-                              updateCollectionLocal(collection.id, {
-                                description: event.target.value,
-                              })
-                            }
-                          />
-                        </Field>
                       </div>
 
                       <Separator />
@@ -941,6 +949,22 @@ export default function EditHeaderPage() {
                           <div
                             key={item.id}
                             className="grid gap-3 border bg-muted/20 p-3"
+                            draggable={canUpdate}
+                            onDragStart={(e) => {
+                              e.dataTransfer?.setData('text/plain', String(itemIndex));
+                              e.dataTransfer?.setData('application/drag-kind', 'header-item');
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const from = Number(e.dataTransfer?.getData('text/plain') ?? -1);
+                              const kind = e.dataTransfer?.getData('application/drag-kind');
+                              if (kind !== 'header-item') return;
+                              const to = itemIndex;
+                              if (from >= 0 && from !== to) {
+                                void reorderItems(collection.id, from, to);
+                              }
+                            }}
                           >
                             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                               <div className="flex flex-wrap items-center gap-2">
@@ -1027,18 +1051,6 @@ export default function EditHeaderPage() {
                                   }
                                 />
                               </Field>
-                              <Field id={`${item.id}-slug`} label="Slug" className="md:col-span-2">
-                                <Input
-                                  id={`${item.id}-slug`}
-                                  value={item.slug}
-                                  disabled={!canUpdate}
-                                  onChange={(event) =>
-                                    updateItemLocal(collection.id, item.id, {
-                                      slug: slugify(event.target.value),
-                                    })
-                                  }
-                                />
-                              </Field>
                               <Field id={`${item.id}-position`} label="Position">
                                 <Input
                                   id={`${item.id}-position`}
@@ -1083,42 +1095,6 @@ export default function EditHeaderPage() {
                                   Featured
                                 </label>
                               </div>
-                              <Field id={`${item.id}-href`} label="Href" className="md:col-span-3">
-                                <Input
-                                  id={`${item.id}-href`}
-                                  value={fieldValue(item.href)}
-                                  disabled={!canUpdate}
-                                  onChange={(event) =>
-                                    updateItemLocal(collection.id, item.id, {
-                                      href: event.target.value,
-                                    })
-                                  }
-                                />
-                              </Field>
-                              <Field id={`${item.id}-image`} label="Image" className="md:col-span-3">
-                                <Input
-                                  id={`${item.id}-image`}
-                                  value={fieldValue(item.image)}
-                                  disabled={!canUpdate}
-                                  onChange={(event) =>
-                                    updateItemLocal(collection.id, item.id, {
-                                      image: event.target.value,
-                                    })
-                                  }
-                                />
-                              </Field>
-                              <Field id={`${item.id}-description`} label="Description" className="md:col-span-6">
-                                <Textarea
-                                  id={`${item.id}-description`}
-                                  value={fieldValue(item.description)}
-                                  disabled={!canUpdate}
-                                  onChange={(event) =>
-                                    updateItemLocal(collection.id, item.id, {
-                                      description: event.target.value,
-                                    })
-                                  }
-                                />
-                              </Field>
                             </div>
                           </div>
                         ))}
@@ -1133,7 +1109,8 @@ export default function EditHeaderPage() {
                                 !canUpdate ||
                                 busyKey === `item:new:${collection.id}` ||
                                 collection.items.length >=
-                                  (meta?.maxItemsPerCollection ?? 40)
+                                  (meta?.maxItemsPerCollection ?? 40) ||
+                                !!collection.categoryId // when category linked, manage children in categories admin
                               }
                               onClick={() => void createItem(collection.id)}
                             >
@@ -1142,17 +1119,25 @@ export default function EditHeaderPage() {
                             </Button>
                           </div>
 
-                          <NewItemForm
-                            collectionId={collection.id}
-                            disabled={!canUpdate}
-                            value={newItems[collection.id] ?? blankItem}
-                            onChange={(value) =>
-                              setNewItems((prev) => ({
-                                ...prev,
-                                [collection.id]: value,
-                              }))
-                            }
-                          />
+                          {collection.categoryId ? (
+                            <div className="text-sm text-muted-foreground">
+                              This header collection mirrors the category "{collection.name}". Manage its child categories in the Categories admin to control the storefront menu columns.
+                            </div>
+                          ) : (
+                            <NewItemForm
+                              collectionId={collection.id}
+                              rootCategoryId={collection.categoryId}
+                              categoryTree={categoryTree}
+                              disabled={!canUpdate}
+                              value={newItems[collection.id] ?? blankItem}
+                              onChange={(value) =>
+                                setNewItems((prev) => ({
+                                  ...prev,
+                                  [collection.id]: value,
+                                }))
+                              }
+                            />
+                          )}
                         </div>
                       </div>
                     </CardContent>
@@ -1169,38 +1154,56 @@ export default function EditHeaderPage() {
 
 function NewItemForm({
   collectionId,
+  rootCategoryId,
+  categoryTree,
   disabled,
   value,
   onChange,
 }: {
   collectionId: string;
+  rootCategoryId?: string | null;
+  categoryTree?: any[] | null;
   disabled: boolean;
   value: ItemForm;
   onChange: (value: ItemForm) => void;
 }) {
+  // derive available child categories from categoryTree if provided
+  let childOptions: { id: string; name: string; slug: string }[] = [];
+  if (rootCategoryId && Array.isArray(categoryTree)) {
+    // find node matching rootCategoryId
+    function findNode(list: any[], id: string): any | null {
+      for (const node of list) {
+        if (node.id === id) return node;
+        if (node.children) {
+          const found = findNode(node.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    const root = findNode(categoryTree, rootCategoryId);
+    if (root && Array.isArray(root.children)) {
+      childOptions = root.children.map((c: any) => ({ id: c.id, name: c.name, slug: c.slug }));
+    }
+  }
+
   return (
     <div className="grid gap-3 md:grid-cols-6">
-      <Field id={`${collectionId}-new-item-name`} label="Name" className="md:col-span-2">
-        <Input
-          id={`${collectionId}-new-item-name`}
-          value={value.name}
+      <Field id={`${collectionId}-new-item-category`} label="Category" className="md:col-span-3">
+        <select
+          id={`${collectionId}-new-item-category`}
+          value={value.categoryId}
           disabled={disabled}
-          onChange={(event) => {
-            const name = event.target.value;
-            onChange({ ...value, name, slug: value.slug || slugify(name) });
-          }}
-        />
+          onChange={(e) => onChange({ ...value, categoryId: e.target.value })}
+          className="w-full rounded-md border px-2 py-1"
+        >
+          <option value="">Select child category…</option>
+          {childOptions.map((opt) => (
+            <option key={opt.id} value={opt.id}>{opt.name}</option>
+          ))}
+        </select>
       </Field>
-      <Field id={`${collectionId}-new-item-slug`} label="Slug" className="md:col-span-2">
-        <Input
-          id={`${collectionId}-new-item-slug`}
-          value={value.slug}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({ ...value, slug: slugify(event.target.value) })
-          }
-        />
-      </Field>
+
       <Field id={`${collectionId}-new-item-position`} label="Position">
         <Input
           id={`${collectionId}-new-item-position`}
@@ -1239,32 +1242,7 @@ function NewItemForm({
           Featured
         </label>
       </div>
-      <Field id={`${collectionId}-new-item-href`} label="Href" className="md:col-span-3">
-        <Input
-          id={`${collectionId}-new-item-href`}
-          value={value.href}
-          disabled={disabled}
-          onChange={(event) => onChange({ ...value, href: event.target.value })}
-        />
-      </Field>
-      <Field id={`${collectionId}-new-item-image`} label="Image" className="md:col-span-3">
-        <Input
-          id={`${collectionId}-new-item-image`}
-          value={value.image}
-          disabled={disabled}
-          onChange={(event) => onChange({ ...value, image: event.target.value })}
-        />
-      </Field>
-      <Field id={`${collectionId}-new-item-description`} label="Description" className="md:col-span-6">
-        <Textarea
-          id={`${collectionId}-new-item-description`}
-          value={value.description}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({ ...value, description: event.target.value })
-          }
-        />
-      </Field>
+
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import { Hono } from "hono";
-import { and, asc, count, eq, ne } from "drizzle-orm";
+import { and, asc, count, eq, isNull, ne } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { PERMISSIONS } from "@repo/auth/permissions";
 import {
+  categories,
   headerCollectionItems,
   headerCollections,
+  type Category,
   type Database,
   type HeaderCollection,
   type HeaderCollectionItem,
@@ -37,12 +39,6 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const MAX_ID_LENGTH = 128;
-const MAX_NAME_LENGTH = 80;
-const MAX_SLUG_LENGTH = 100;
-const MAX_DESCRIPTION_LENGTH = 500;
-const MAX_HREF_LENGTH = 512;
-const MAX_IMAGE_LENGTH = 2048;
-const MAX_ITEMS_PER_COLLECTION = 40;
 const MAX_TOTAL_COLLECTIONS = 20;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -52,44 +48,14 @@ function isValidId(id: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(id);
 }
 
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-")
-    .slice(0, MAX_SLUG_LENGTH);
+function categoryHref(slug: string): string {
+  return `/category/${slug}`;
 }
 
-function sanitizeName(value: unknown): string | null {
+function sanitizeCategoryId(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const name = value.trim().replace(/\s+/g, " ");
-  if (name.length === 0 || name.length > MAX_NAME_LENGTH) return null;
-  return name;
-}
-
-function sanitizeOptionalString(
-  value: unknown,
-  max: number
-): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-  if (trimmed.length > max) return undefined;
-  return trimmed;
-}
-
-function sanitizeSlug(value: unknown): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value !== "string") return null;
-  const slug = slugify(value.trim());
-  if (!slug || slug.length > MAX_SLUG_LENGTH) return null;
-  return slug;
+  const id = value.trim();
+  return isValidId(id) ? id : null;
 }
 
 function sanitizePosition(value: unknown): number | undefined {
@@ -112,12 +78,33 @@ function sanitizeBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
-function sanitizeHref(value: unknown): string | null | undefined {
-  const href = sanitizeOptionalString(value, MAX_HREF_LENGTH);
-  if (href === undefined || href === null) return href;
-  // Allow relative paths and absolute http(s) URLs only.
-  if (href.startsWith("/") || /^https?:\/\//i.test(href)) return href;
-  return undefined;
+async function getCategoryById(
+  db: Database,
+  categoryId: string
+): Promise<Category | null> {
+  const [category] = await db
+    .select()
+    .from(categories)
+    .where(eq(categories.id, categoryId))
+    .limit(1);
+  return category ?? null;
+}
+
+async function getHeaderCollectionBySlug(
+  db: Database,
+  slug: string,
+  excludeId?: string
+): Promise<{ id: string } | null> {
+  const [existing] = await db
+    .select({ id: headerCollections.id })
+    .from(headerCollections)
+    .where(
+      excludeId
+        ? and(eq(headerCollections.slug, slug), ne(headerCollections.id, excludeId))
+        : eq(headerCollections.slug, slug)
+    )
+    .limit(1);
+  return existing ?? null;
 }
 
 async function readJsonObject(
@@ -156,75 +143,6 @@ async function readJsonObject(
   return { ok: true, body: body as Record<string, unknown> };
 }
 
-async function ensureUniqueCollectionSlug(
-  db: Database,
-  baseSlug: string,
-  excludeId?: string
-): Promise<string> {
-  let candidate = baseSlug.slice(0, MAX_SLUG_LENGTH) || "collection";
-  let attempt = 0;
-
-  while (attempt < 50) {
-    const [existing] = await db
-      .select({ id: headerCollections.id })
-      .from(headerCollections)
-      .where(
-        excludeId
-          ? and(
-              eq(headerCollections.slug, candidate),
-              ne(headerCollections.id, excludeId)
-            )
-          : eq(headerCollections.slug, candidate)
-      )
-      .limit(1);
-
-    if (!existing) return candidate;
-
-    attempt += 1;
-    const suffix = `-${attempt + 1}`;
-    candidate = `${baseSlug.slice(0, MAX_SLUG_LENGTH - suffix.length)}${suffix}`;
-  }
-
-  return `${baseSlug.slice(0, MAX_SLUG_LENGTH - 10)}-${nanoid(8)}`;
-}
-
-async function ensureUniqueItemSlug(
-  db: Database,
-  collectionId: string,
-  baseSlug: string,
-  excludeId?: string
-): Promise<string> {
-  let candidate = baseSlug.slice(0, MAX_SLUG_LENGTH) || "item";
-  let attempt = 0;
-
-  while (attempt < 50) {
-    const [existing] = await db
-      .select({ id: headerCollectionItems.id })
-      .from(headerCollectionItems)
-      .where(
-        excludeId
-          ? and(
-              eq(headerCollectionItems.collectionId, collectionId),
-              eq(headerCollectionItems.slug, candidate),
-              ne(headerCollectionItems.id, excludeId)
-            )
-          : and(
-              eq(headerCollectionItems.collectionId, collectionId),
-              eq(headerCollectionItems.slug, candidate)
-            )
-      )
-      .limit(1);
-
-    if (!existing) return candidate;
-
-    attempt += 1;
-    const suffix = `-${attempt + 1}`;
-    candidate = `${baseSlug.slice(0, MAX_SLUG_LENGTH - suffix.length)}${suffix}`;
-  }
-
-  return `${baseSlug.slice(0, MAX_SLUG_LENGTH - 10)}-${nanoid(8)}`;
-}
-
 async function countVisibleCollections(
   db: Database,
   excludeId?: string
@@ -236,17 +154,6 @@ async function countVisibleCollections(
 
   if (!excludeId) return rows.length;
   return rows.filter((r) => r.id !== excludeId).length;
-}
-
-async function countItemsInCollection(
-  db: Database,
-  collectionId: string
-): Promise<number> {
-  const [result] = await db
-    .select({ value: count() })
-    .from(headerCollectionItems)
-    .where(eq(headerCollectionItems.collectionId, collectionId));
-  return Number(result?.value ?? 0);
 }
 
 async function countAllCollections(db: Database): Promise<number> {
@@ -271,33 +178,67 @@ async function bustCache(c: AppContext) {
   );
 }
 
-function serializeCollectionRow(row: HeaderCollection) {
-  return {
-    id: row.id,
-    name: row.name,
-    slug: row.slug,
-    href: row.href,
-    description: row.description,
-    image: row.image,
-    position: row.position,
-    isVisible: row.isVisible,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
+/**
+ * Root categories that can still be added to the header (not already present).
+ */
+async function loadAvailableRootCategories(
+  db: Database,
+  usedSlugs: Set<string>
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    slug: string;
+    image: string | null;
+    position: number;
+    childCount: number;
+  }>
+> {
+  const roots = await db
+    .select()
+    .from(categories)
+    .where(isNull(categories.parentId))
+    .orderBy(asc(categories.position), asc(categories.name));
+
+  const allChildren = await db
+    .select({
+      parentId: categories.parentId,
+    })
+    .from(categories);
+
+  const childCountByParent = new Map<string, number>();
+  for (const row of allChildren) {
+    if (!row.parentId) continue;
+    childCountByParent.set(
+      row.parentId,
+      (childCountByParent.get(row.parentId) ?? 0) + 1
+    );
+  }
+
+  return roots
+    .filter((root) => !usedSlugs.has(root.slug))
+    .map((root) => ({
+      id: root.id,
+      name: root.name,
+      slug: root.slug,
+      image: root.image,
+      position: root.position,
+      childCount: childCountByParent.get(root.id) ?? 0,
+    }));
 }
 
-function serializeItemRow(row: HeaderCollectionItem) {
+function serializeCollectionRow(
+  row: HeaderCollection,
+  categoryId: string | null = null
+) {
   return {
     id: row.id,
-    collectionId: row.collectionId,
+    categoryId,
     name: row.name,
     slug: row.slug,
-    href: row.href,
-    description: row.description,
-    image: row.image,
+    href: categoryHref(row.slug),
     position: row.position,
     isVisible: row.isVisible,
-    featured: row.featured,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -309,7 +250,7 @@ const editHeader = new Hono<AppEnv>();
 
 editHeader.use("*", requireAdminMiddleware);
 
-// ─── GET / — full header tree (any admin can view) ────────────────────────────
+// ─── GET / — full header tree + available root categories ─────────────────────
 editHeader.get("/", async (c) => {
   const actor = getActor(c);
   const db = getDb(c);
@@ -318,16 +259,18 @@ editHeader.get("/", async (c) => {
     const collections = await loadAdminHeaderFromDb(db);
     const canUpdate = await resolveCanUpdate(db, actor.id, actor.role);
     const visibleCount = collections.filter((col) => col.isVisible).length;
+    const usedSlugs = new Set(collections.map((col) => col.slug));
+    const availableCategories = await loadAvailableRootCategories(db, usedSlugs);
 
     return c.json({
       success: true,
       data: collections,
+      availableCategories,
       meta: {
         totalCollections: collections.length,
         visibleCollections: visibleCount,
         maxVisibleCollections: MAX_VISIBLE_HEADER_COLLECTIONS,
         maxTotalCollections: MAX_TOTAL_COLLECTIONS,
-        maxItemsPerCollection: MAX_ITEMS_PER_COLLECTION,
         currentUserId: actor.id,
         currentUserRole: actor.role,
         canUpdate,
@@ -339,7 +282,7 @@ editHeader.get("/", async (c) => {
   }
 });
 
-// ─── POST /collections — create collection ────────────────────────────────────
+// ─── POST /collections — add a root category to the header ────────────────────
 editHeader.post(
   "/collections",
   requirePermission(PERMISSIONS.HEADER_UPDATE),
@@ -350,63 +293,37 @@ editHeader.post(
     if (!parsed.ok) return parsed.response;
     const { body } = parsed;
 
-    const name = sanitizeName(body.name);
-    if (!name) {
+    const categoryId = sanitizeCategoryId(body.categoryId);
+    if (!categoryId) {
       return errorJson(
         c,
         400,
-        "INVALID_NAME",
-        `Name is required (1–${MAX_NAME_LENGTH} characters).`
+        "INVALID_CATEGORY_ID",
+        "Select an existing category to add to the header."
       );
     }
 
-    let slug =
-      sanitizeSlug(body.slug) ??
-      (typeof body.slug === "undefined" ? slugify(name) : null);
-    if (!slug) {
+    const category = await getCategoryById(db, categoryId);
+    if (!category) {
       return errorJson(
         c,
-        400,
-        "INVALID_SLUG",
-        "Slug must contain letters or numbers."
+        404,
+        "CATEGORY_NOT_FOUND",
+        "Selected category was not found."
       );
     }
 
-    const description = sanitizeOptionalString(
-      body.description,
-      MAX_DESCRIPTION_LENGTH
-    );
-    if (description === undefined && body.description !== undefined) {
+    if (category.parentId) {
       return errorJson(
         c,
         400,
-        "INVALID_DESCRIPTION",
-        `Description must be at most ${MAX_DESCRIPTION_LENGTH} characters.`
-      );
-    }
-
-    const image = sanitizeOptionalString(body.image, MAX_IMAGE_LENGTH);
-    if (image === undefined && body.image !== undefined) {
-      return errorJson(
-        c,
-        400,
-        "INVALID_IMAGE",
-        `Image URL must be at most ${MAX_IMAGE_LENGTH} characters.`
-      );
-    }
-
-    const href = sanitizeHref(body.href);
-    if (href === undefined && body.href !== undefined) {
-      return errorJson(
-        c,
-        400,
-        "INVALID_HREF",
-        "Href must be a relative path (starting with /) or an http(s) URL."
+        "NOT_ROOT_CATEGORY",
+        "Only root categories can be added to the top header navigation."
       );
     }
 
     const isVisible = sanitizeBoolean(body.isVisible) ?? true;
-    const position = sanitizePosition(body.position) ?? 0;
+    const position = sanitizePosition(body.position);
 
     try {
       const total = await countAllCollections(db);
@@ -415,7 +332,7 @@ editHeader.post(
           c,
           400,
           "MAX_COLLECTIONS",
-          `You can have at most ${MAX_TOTAL_COLLECTIONS} header collections.`
+          `You can have at most ${MAX_TOTAL_COLLECTIONS} header categories.`
         );
       }
 
@@ -426,12 +343,42 @@ editHeader.post(
             c,
             400,
             "MAX_VISIBLE",
-            `At most ${MAX_VISIBLE_HEADER_COLLECTIONS} collections can be visible in the navbar. Hide another collection first, or create this one as hidden.`
+            `At most ${MAX_VISIBLE_HEADER_COLLECTIONS} categories can be visible in the navbar. Hide another one first, or add this as hidden.`
           );
         }
       }
 
-      slug = await ensureUniqueCollectionSlug(db, slug);
+      const existing = await getHeaderCollectionBySlug(db, category.slug);
+      if (existing) {
+        return errorJson(
+          c,
+          409,
+          "CATEGORY_ALREADY_ADDED",
+          "That category is already in the header."
+        );
+      }
+
+      // Append to end when position not provided.
+      let nextPosition = position;
+      if (nextPosition === undefined) {
+        const [maxRow] = await db
+          .select({ position: headerCollections.position })
+          .from(headerCollections)
+          .orderBy(asc(headerCollections.position))
+          .limit(1);
+
+        // Prefer max position + 10 for stable ordering gaps.
+        const all = await db
+          .select({ position: headerCollections.position })
+          .from(headerCollections);
+        const maxPos =
+          all.length === 0
+            ? -10
+            : Math.max(...all.map((row) => row.position));
+        nextPosition = maxPos + 10;
+        void maxRow;
+      }
+
       const now = new Date();
       const id = nanoid();
 
@@ -439,12 +386,9 @@ editHeader.post(
         .insert(headerCollections)
         .values({
           id,
-          name,
-          slug,
-          href: href ?? null,
-          description: description ?? null,
-          image: image ?? null,
-          position,
+          name: category.name,
+          slug: category.slug,
+          position: nextPosition,
           isVisible,
           createdAt: now,
           updatedAt: now,
@@ -457,7 +401,7 @@ editHeader.post(
         logAuditFromContext(c, {
           action: AUDIT_ACTIONS.HEADER_CREATE,
           category: AUDIT_CATEGORIES.HEADER,
-          description: `Created header collection "${created.name}"`,
+          description: `Added category "${created.name}" to store header`,
           targetType: AUDIT_TARGET_TYPES.HEADER_COLLECTION,
           targetId: created.id,
           targetLabel: created.name,
@@ -465,18 +409,22 @@ editHeader.post(
           changes: {
             name: { to: created.name },
             slug: { to: created.slug },
+            categoryId: { to: category.id },
             isVisible: { to: created.isVisible },
             position: { to: created.position },
           },
-          metadata: { kind: "header_collection" },
+          metadata: {
+            kind: "header_collection",
+            categoryId: category.id,
+          },
         }).then(() => undefined)
       );
 
       return c.json(
         {
           success: true,
-          message: `Collection "${created.name}" created.`,
-          data: serializeCollectionRow(created),
+          message: `"${created.name}" added to the header.`,
+          data: serializeCollectionRow(created, category.id),
         },
         201
       );
@@ -486,13 +434,13 @@ editHeader.post(
         c,
         500,
         "INTERNAL_ERROR",
-        "Failed to create header collection."
+        "Failed to add category to the header."
       );
     }
   }
 );
 
-// ─── PATCH /collections/:id — update collection ───────────────────────────────
+// ─── PATCH /collections/:id — visibility / category swap only ─────────────────
 editHeader.patch(
   "/collections/:id",
   requirePermission(PERMISSIONS.HEADER_UPDATE),
@@ -520,7 +468,7 @@ editHeader.patch(
           c,
           404,
           "COLLECTION_NOT_FOUND",
-          "Header collection not found."
+          "Header category not found."
         );
       }
 
@@ -528,91 +476,62 @@ editHeader.patch(
         updatedAt: new Date(),
       };
       const changes: Record<string, { from?: unknown; to?: unknown }> = {};
+      let resolvedCategoryId: string | null = null;
 
-      if (body.name !== undefined) {
-        const name = sanitizeName(body.name);
-        if (!name) {
+      // Optional: swap to a different root category.
+      if (body.categoryId !== undefined) {
+        const categoryId = sanitizeCategoryId(body.categoryId);
+        if (!categoryId) {
+          return errorJson(c, 400, "INVALID_CATEGORY_ID", "Invalid category id.");
+        }
+
+        const category = await getCategoryById(db, categoryId);
+        if (!category) {
+          return errorJson(
+            c,
+            404,
+            "CATEGORY_NOT_FOUND",
+            "Selected category was not found."
+          );
+        }
+
+        if (category.parentId) {
           return errorJson(
             c,
             400,
-            "INVALID_NAME",
-            `Name is required (1–${MAX_NAME_LENGTH} characters).`
+            "NOT_ROOT_CATEGORY",
+            "Only root categories can be used in the top header navigation."
           );
         }
-        if (name !== existing.name) {
-          updates.name = name;
-          changes.name = { from: existing.name, to: name };
-        }
-      }
 
-      if (body.slug !== undefined) {
-        const slug = sanitizeSlug(body.slug);
-        if (!slug) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_SLUG",
-            "Slug must contain letters or numbers."
-          );
-        }
-        const uniqueSlug = await ensureUniqueCollectionSlug(db, slug, id);
-        if (uniqueSlug !== existing.slug) {
-          updates.slug = uniqueSlug;
-          changes.slug = { from: existing.slug, to: uniqueSlug };
-        }
-      }
-
-      if (body.description !== undefined) {
-        const description = sanitizeOptionalString(
-          body.description,
-          MAX_DESCRIPTION_LENGTH
+        const duplicate = await getHeaderCollectionBySlug(
+          db,
+          category.slug,
+          id
         );
-        if (description === undefined) {
+        if (duplicate) {
           return errorJson(
             c,
-            400,
-            "INVALID_DESCRIPTION",
-            `Description must be at most ${MAX_DESCRIPTION_LENGTH} characters.`
+            409,
+            "CATEGORY_ALREADY_ADDED",
+            "That category is already in the header."
           );
         }
-        if (description !== existing.description) {
-          updates.description = description;
-          changes.description = {
-            from: existing.description,
-            to: description,
-          };
-        }
-      }
 
-      if (body.image !== undefined) {
-        const image = sanitizeOptionalString(body.image, MAX_IMAGE_LENGTH);
-        if (image === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_IMAGE",
-            `Image URL must be at most ${MAX_IMAGE_LENGTH} characters.`
-          );
-        }
-        if (image !== existing.image) {
-          updates.image = image;
-          changes.image = { from: existing.image, to: image };
-        }
-      }
+        resolvedCategoryId = category.id;
 
-      if (body.href !== undefined) {
-        const href = sanitizeHref(body.href);
-        if (href === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_HREF",
-            "Href must be a relative path (starting with /) or an http(s) URL."
-          );
-        }
-        if (href !== existing.href) {
-          updates.href = href;
-          changes.href = { from: existing.href, to: href };
+        const categoryUpdates: Partial<HeaderCollection> = {
+          name: category.name,
+          slug: category.slug,
+        };
+
+        for (const [key, value] of Object.entries(categoryUpdates) as Array<
+          [keyof HeaderCollection, unknown]
+        >) {
+          if (value !== existing[key]) {
+            (updates as Record<string, unknown>)[key] = value;
+            changes[key] = { from: existing[key], to: value };
+          }
         }
       }
 
@@ -650,7 +569,7 @@ editHeader.patch(
                 c,
                 400,
                 "MAX_VISIBLE",
-                `At most ${MAX_VISIBLE_HEADER_COLLECTIONS} collections can be visible in the navbar.`
+                `At most ${MAX_VISIBLE_HEADER_COLLECTIONS} categories can be visible in the navbar.`
               );
             }
           }
@@ -659,11 +578,21 @@ editHeader.patch(
         }
       }
 
+      // Free-form name / slug / href / description are intentionally ignored.
+      // Header entries always mirror the linked category.
+
       if (Object.keys(changes).length === 0) {
+        // Resolve categoryId for response even when no-op.
+        const [matched] = await db
+          .select({ id: categories.id })
+          .from(categories)
+          .where(eq(categories.slug, existing.slug))
+          .limit(1);
+
         return c.json({
           success: true,
           message: "No changes detected.",
-          data: serializeCollectionRow(existing),
+          data: serializeCollectionRow(existing, matched?.id ?? null),
         });
       }
 
@@ -673,26 +602,38 @@ editHeader.patch(
         .where(eq(headerCollections.id, id))
         .returning();
 
+      if (!resolvedCategoryId) {
+        const [matched] = await db
+          .select({ id: categories.id })
+          .from(categories)
+          .where(eq(categories.slug, updated.slug))
+          .limit(1);
+        resolvedCategoryId = matched?.id ?? null;
+      }
+
       await bustCache(c);
 
       c.executionCtx.waitUntil(
         logAuditFromContext(c, {
           action: AUDIT_ACTIONS.HEADER_UPDATE,
           category: AUDIT_CATEGORIES.HEADER,
-          description: `Updated header collection "${updated.name}"`,
+          description: `Updated header category "${updated.name}"`,
           targetType: AUDIT_TARGET_TYPES.HEADER_COLLECTION,
           targetId: updated.id,
           targetLabel: updated.name,
           severity: "info",
           changes,
-          metadata: { kind: "header_collection" },
+          metadata: {
+            kind: "header_collection",
+            categoryId: resolvedCategoryId,
+          },
         }).then(() => undefined)
       );
 
       return c.json({
         success: true,
-        message: `Collection "${updated.name}" updated.`,
-        data: serializeCollectionRow(updated),
+        message: `Header category "${updated.name}" updated.`,
+        data: serializeCollectionRow(updated, resolvedCategoryId),
       });
     } catch (error) {
       console.error("Error updating header collection:", error);
@@ -700,7 +641,7 @@ editHeader.patch(
         c,
         500,
         "INTERNAL_ERROR",
-        "Failed to update header collection."
+        "Failed to update header category."
       );
     }
   }
@@ -730,14 +671,12 @@ editHeader.delete(
           c,
           404,
           "COLLECTION_NOT_FOUND",
-          "Header collection not found."
+          "Header category not found."
         );
       }
 
-      // Cascade deletes items via FK.
-      await db
-        .delete(headerCollections)
-        .where(eq(headerCollections.id, id));
+      // Cascade deletes legacy header items via FK.
+      await db.delete(headerCollections).where(eq(headerCollections.id, id));
 
       await bustCache(c);
 
@@ -745,7 +684,7 @@ editHeader.delete(
         logAuditFromContext(c, {
           action: AUDIT_ACTIONS.HEADER_DELETE,
           category: AUDIT_CATEGORIES.HEADER,
-          description: `Deleted header collection "${existing.name}"`,
+          description: `Removed category "${existing.name}" from store header`,
           targetType: AUDIT_TARGET_TYPES.HEADER_COLLECTION,
           targetId: existing.id,
           targetLabel: existing.name,
@@ -760,7 +699,7 @@ editHeader.delete(
 
       return c.json({
         success: true,
-        message: `Collection "${existing.name}" deleted.`,
+        message: `"${existing.name}" removed from the header.`,
       });
     } catch (error) {
       console.error("Error deleting header collection:", error);
@@ -768,467 +707,13 @@ editHeader.delete(
         c,
         500,
         "INTERNAL_ERROR",
-        "Failed to delete header collection."
+        "Failed to remove category from the header."
       );
     }
   }
 );
 
-// ─── POST /collections/:id/items — create item ────────────────────────────────
-editHeader.post(
-  "/collections/:id/items",
-  requirePermission(PERMISSIONS.HEADER_UPDATE),
-  async (c) => {
-    const db = getDb(c);
-    const collectionId = c.req.param("id")?.trim() ?? "";
-
-    if (!isValidId(collectionId)) {
-      return errorJson(c, 400, "INVALID_ID", "Invalid collection id.");
-    }
-
-    const parsed = await readJsonObject(c);
-    if (!parsed.ok) return parsed.response;
-    const { body } = parsed;
-
-    const name = sanitizeName(body.name);
-    if (!name) {
-      return errorJson(
-        c,
-        400,
-        "INVALID_NAME",
-        `Name is required (1–${MAX_NAME_LENGTH} characters).`
-      );
-    }
-
-    let slug =
-      sanitizeSlug(body.slug) ??
-      (typeof body.slug === "undefined" ? slugify(name) : null);
-    if (!slug) {
-      return errorJson(
-        c,
-        400,
-        "INVALID_SLUG",
-        "Slug must contain letters or numbers."
-      );
-    }
-
-    const description = sanitizeOptionalString(
-      body.description,
-      MAX_DESCRIPTION_LENGTH
-    );
-    if (description === undefined && body.description !== undefined) {
-      return errorJson(
-        c,
-        400,
-        "INVALID_DESCRIPTION",
-        `Description must be at most ${MAX_DESCRIPTION_LENGTH} characters.`
-      );
-    }
-
-    const image = sanitizeOptionalString(body.image, MAX_IMAGE_LENGTH);
-    if (image === undefined && body.image !== undefined) {
-      return errorJson(
-        c,
-        400,
-        "INVALID_IMAGE",
-        `Image URL must be at most ${MAX_IMAGE_LENGTH} characters.`
-      );
-    }
-
-    const href = sanitizeHref(body.href);
-    if (href === undefined && body.href !== undefined) {
-      return errorJson(
-        c,
-        400,
-        "INVALID_HREF",
-        "Href must be a relative path (starting with /) or an http(s) URL."
-      );
-    }
-
-    const isVisible = sanitizeBoolean(body.isVisible) ?? true;
-    const featured = sanitizeBoolean(body.featured) ?? false;
-    const position = sanitizePosition(body.position) ?? 0;
-
-    try {
-      const [collection] = await db
-        .select()
-        .from(headerCollections)
-        .where(eq(headerCollections.id, collectionId))
-        .limit(1);
-
-      if (!collection) {
-        return errorJson(
-          c,
-          404,
-          "COLLECTION_NOT_FOUND",
-          "Header collection not found."
-        );
-      }
-
-      const itemCount = await countItemsInCollection(db, collectionId);
-      if (itemCount >= MAX_ITEMS_PER_COLLECTION) {
-        return errorJson(
-          c,
-          400,
-          "MAX_ITEMS",
-          `A collection can have at most ${MAX_ITEMS_PER_COLLECTION} items.`
-        );
-      }
-
-      slug = await ensureUniqueItemSlug(db, collectionId, slug);
-      const now = new Date();
-      const id = nanoid();
-
-      const [created] = await db
-        .insert(headerCollectionItems)
-        .values({
-          id,
-          collectionId,
-          name,
-          slug,
-          href: href ?? null,
-          description: description ?? null,
-          image: image ?? null,
-          position,
-          isVisible,
-          featured,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-
-      await bustCache(c);
-
-      c.executionCtx.waitUntil(
-        logAuditFromContext(c, {
-          action: AUDIT_ACTIONS.HEADER_CREATE,
-          category: AUDIT_CATEGORIES.HEADER,
-          description: `Created header item "${created.name}" under "${collection.name}"`,
-          targetType: AUDIT_TARGET_TYPES.HEADER_ITEM,
-          targetId: created.id,
-          targetLabel: created.name,
-          severity: "info",
-          changes: {
-            name: { to: created.name },
-            slug: { to: created.slug },
-            collectionId: { to: collectionId },
-          },
-          metadata: {
-            kind: "header_collection_item",
-            collectionId,
-            collectionName: collection.name,
-          },
-        }).then(() => undefined)
-      );
-
-      return c.json(
-        {
-          success: true,
-          message: `Item "${created.name}" created.`,
-          data: serializeItemRow(created),
-        },
-        201
-      );
-    } catch (error) {
-      console.error("Error creating header item:", error);
-      return errorJson(
-        c,
-        500,
-        "INTERNAL_ERROR",
-        "Failed to create header item."
-      );
-    }
-  }
-);
-
-// ─── PATCH /items/:id — update item ───────────────────────────────────────────
-editHeader.patch(
-  "/items/:id",
-  requirePermission(PERMISSIONS.HEADER_UPDATE),
-  async (c) => {
-    const db = getDb(c);
-    const id = c.req.param("id")?.trim() ?? "";
-
-    if (!isValidId(id)) {
-      return errorJson(c, 400, "INVALID_ID", "Invalid item id.");
-    }
-
-    const parsed = await readJsonObject(c);
-    if (!parsed.ok) return parsed.response;
-    const { body } = parsed;
-
-    try {
-      const [existing] = await db
-        .select()
-        .from(headerCollectionItems)
-        .where(eq(headerCollectionItems.id, id))
-        .limit(1);
-
-      if (!existing) {
-        return errorJson(c, 404, "ITEM_NOT_FOUND", "Header item not found.");
-      }
-
-      const updates: Partial<HeaderCollectionItem> = {
-        updatedAt: new Date(),
-      };
-      const changes: Record<string, { from?: unknown; to?: unknown }> = {};
-
-      if (body.name !== undefined) {
-        const name = sanitizeName(body.name);
-        if (!name) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_NAME",
-            `Name is required (1–${MAX_NAME_LENGTH} characters).`
-          );
-        }
-        if (name !== existing.name) {
-          updates.name = name;
-          changes.name = { from: existing.name, to: name };
-        }
-      }
-
-      if (body.slug !== undefined) {
-        const slug = sanitizeSlug(body.slug);
-        if (!slug) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_SLUG",
-            "Slug must contain letters or numbers."
-          );
-        }
-        const uniqueSlug = await ensureUniqueItemSlug(
-          db,
-          existing.collectionId,
-          slug,
-          id
-        );
-        if (uniqueSlug !== existing.slug) {
-          updates.slug = uniqueSlug;
-          changes.slug = { from: existing.slug, to: uniqueSlug };
-        }
-      }
-
-      if (body.description !== undefined) {
-        const description = sanitizeOptionalString(
-          body.description,
-          MAX_DESCRIPTION_LENGTH
-        );
-        if (description === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_DESCRIPTION",
-            `Description must be at most ${MAX_DESCRIPTION_LENGTH} characters.`
-          );
-        }
-        if (description !== existing.description) {
-          updates.description = description;
-          changes.description = {
-            from: existing.description,
-            to: description,
-          };
-        }
-      }
-
-      if (body.image !== undefined) {
-        const image = sanitizeOptionalString(body.image, MAX_IMAGE_LENGTH);
-        if (image === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_IMAGE",
-            `Image URL must be at most ${MAX_IMAGE_LENGTH} characters.`
-          );
-        }
-        if (image !== existing.image) {
-          updates.image = image;
-          changes.image = { from: existing.image, to: image };
-        }
-      }
-
-      if (body.href !== undefined) {
-        const href = sanitizeHref(body.href);
-        if (href === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_HREF",
-            "Href must be a relative path (starting with /) or an http(s) URL."
-          );
-        }
-        if (href !== existing.href) {
-          updates.href = href;
-          changes.href = { from: existing.href, to: href };
-        }
-      }
-
-      if (body.position !== undefined) {
-        const position = sanitizePosition(body.position);
-        if (position === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_POSITION",
-            "Position must be a non-negative integer."
-          );
-        }
-        if (position !== existing.position) {
-          updates.position = position;
-          changes.position = { from: existing.position, to: position };
-        }
-      }
-
-      if (body.isVisible !== undefined) {
-        const isVisible = sanitizeBoolean(body.isVisible);
-        if (isVisible === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_VISIBLE",
-            "isVisible must be a boolean."
-          );
-        }
-        if (isVisible !== existing.isVisible) {
-          updates.isVisible = isVisible;
-          changes.isVisible = { from: existing.isVisible, to: isVisible };
-        }
-      }
-
-      if (body.featured !== undefined) {
-        const featured = sanitizeBoolean(body.featured);
-        if (featured === undefined) {
-          return errorJson(
-            c,
-            400,
-            "INVALID_FEATURED",
-            "featured must be a boolean."
-          );
-        }
-        if (featured !== existing.featured) {
-          updates.featured = featured;
-          changes.featured = { from: existing.featured, to: featured };
-        }
-      }
-
-      if (Object.keys(changes).length === 0) {
-        return c.json({
-          success: true,
-          message: "No changes detected.",
-          data: serializeItemRow(existing),
-        });
-      }
-
-      const [updated] = await db
-        .update(headerCollectionItems)
-        .set(updates)
-        .where(eq(headerCollectionItems.id, id))
-        .returning();
-
-      await bustCache(c);
-
-      c.executionCtx.waitUntil(
-        logAuditFromContext(c, {
-          action: AUDIT_ACTIONS.HEADER_UPDATE,
-          category: AUDIT_CATEGORIES.HEADER,
-          description: `Updated header item "${updated.name}"`,
-          targetType: AUDIT_TARGET_TYPES.HEADER_ITEM,
-          targetId: updated.id,
-          targetLabel: updated.name,
-          severity: "info",
-          changes,
-          metadata: {
-            kind: "header_collection_item",
-            collectionId: updated.collectionId,
-          },
-        }).then(() => undefined)
-      );
-
-      return c.json({
-        success: true,
-        message: `Item "${updated.name}" updated.`,
-        data: serializeItemRow(updated),
-      });
-    } catch (error) {
-      console.error("Error updating header item:", error);
-      return errorJson(
-        c,
-        500,
-        "INTERNAL_ERROR",
-        "Failed to update header item."
-      );
-    }
-  }
-);
-
-// ─── DELETE /items/:id ────────────────────────────────────────────────────────
-editHeader.delete(
-  "/items/:id",
-  requirePermission(PERMISSIONS.HEADER_UPDATE),
-  async (c) => {
-    const db = getDb(c);
-    const id = c.req.param("id")?.trim() ?? "";
-
-    if (!isValidId(id)) {
-      return errorJson(c, 400, "INVALID_ID", "Invalid item id.");
-    }
-
-    try {
-      const [existing] = await db
-        .select()
-        .from(headerCollectionItems)
-        .where(eq(headerCollectionItems.id, id))
-        .limit(1);
-
-      if (!existing) {
-        return errorJson(c, 404, "ITEM_NOT_FOUND", "Header item not found.");
-      }
-
-      await db
-        .delete(headerCollectionItems)
-        .where(eq(headerCollectionItems.id, id));
-
-      await bustCache(c);
-
-      c.executionCtx.waitUntil(
-        logAuditFromContext(c, {
-          action: AUDIT_ACTIONS.HEADER_DELETE,
-          category: AUDIT_CATEGORIES.HEADER,
-          description: `Deleted header item "${existing.name}"`,
-          targetType: AUDIT_TARGET_TYPES.HEADER_ITEM,
-          targetId: existing.id,
-          targetLabel: existing.name,
-          severity: "warning",
-          changes: {
-            name: { from: existing.name },
-            slug: { from: existing.slug },
-          },
-          metadata: {
-            kind: "header_collection_item",
-            collectionId: existing.collectionId,
-          },
-        }).then(() => undefined)
-      );
-
-      return c.json({
-        success: true,
-        message: `Item "${existing.name}" deleted.`,
-      });
-    } catch (error) {
-      console.error("Error deleting header item:", error);
-      return errorJson(
-        c,
-        500,
-        "INTERNAL_ERROR",
-        "Failed to delete header item."
-      );
-    }
-  }
-);
-
-// ─── PUT /reorder — batch reorder collections and/or items ────────────────────
+// ─── PUT /reorder — batch reorder collections ─────────────────────────────────
 editHeader.put(
   "/reorder",
   requirePermission(PERMISSIONS.HEADER_UPDATE),
@@ -1242,93 +727,70 @@ editHeader.put(
     const collectionOrder = Array.isArray(body.collections)
       ? (body.collections as unknown[])
       : null;
-    const itemOrder = Array.isArray(body.items)
-      ? (body.items as unknown[])
-      : null;
 
-    if (!collectionOrder && !itemOrder) {
+    if (!collectionOrder || collectionOrder.length === 0) {
       return errorJson(
         c,
         400,
         "INVALID_BODY",
-        "Provide `collections` and/or `items` arrays of { id, position }."
+        "Provide a non-empty `collections` array of { id, position }."
       );
     }
 
     try {
       const now = new Date();
       let updatedCollections = 0;
-      let updatedItems = 0;
+      const seen = new Set<string>();
 
-      if (collectionOrder) {
-        for (const entry of collectionOrder) {
-          if (
-            entry === null ||
-            typeof entry !== "object" ||
-            Array.isArray(entry)
-          ) {
-            continue;
-          }
-          const row = entry as Record<string, unknown>;
-          const id =
-            typeof row.id === "string" ? row.id.trim() : "";
-          const position = sanitizePosition(row.position);
-          if (!isValidId(id) || position === undefined) continue;
-
-          const result = await db
-            .update(headerCollections)
-            .set({ position, updatedAt: now })
-            .where(eq(headerCollections.id, id))
-            .returning({ id: headerCollections.id });
-
-          if (result.length > 0) updatedCollections += 1;
+      for (const entry of collectionOrder) {
+        if (
+          entry === null ||
+          typeof entry !== "object" ||
+          Array.isArray(entry)
+        ) {
+          continue;
         }
+        const row = entry as Record<string, unknown>;
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        const position = sanitizePosition(row.position);
+        if (!isValidId(id) || position === undefined) continue;
+        if (seen.has(id)) continue;
+        seen.add(id);
+
+        const result = await db
+          .update(headerCollections)
+          .set({ position, updatedAt: now })
+          .where(eq(headerCollections.id, id))
+          .returning({ id: headerCollections.id });
+
+        if (result.length > 0) updatedCollections += 1;
       }
 
-      if (itemOrder) {
-        for (const entry of itemOrder) {
-          if (
-            entry === null ||
-            typeof entry !== "object" ||
-            Array.isArray(entry)
-          ) {
-            continue;
-          }
-          const row = entry as Record<string, unknown>;
-          const id =
-            typeof row.id === "string" ? row.id.trim() : "";
-          const position = sanitizePosition(row.position);
-          if (!isValidId(id) || position === undefined) continue;
-
-          const result = await db
-            .update(headerCollectionItems)
-            .set({ position, updatedAt: now })
-            .where(eq(headerCollectionItems.id, id))
-            .returning({ id: headerCollectionItems.id });
-
-          if (result.length > 0) updatedItems += 1;
-        }
-      }
-
-      if (updatedCollections + updatedItems > 0) {
-        await bustCache(c);
-
-        c.executionCtx.waitUntil(
-          logAuditFromContext(c, {
-            action: AUDIT_ACTIONS.HEADER_UPDATE,
-            category: AUDIT_CATEGORIES.HEADER,
-            description: `Reordered header nav (${updatedCollections} collections, ${updatedItems} items)`,
-            targetType: AUDIT_TARGET_TYPES.SYSTEM,
-            targetLabel: "header",
-            severity: "info",
-            metadata: {
-              kind: "header_reorder",
-              updatedCollections,
-              updatedItems,
-            },
-          }).then(() => undefined)
+      if (updatedCollections === 0) {
+        return errorJson(
+          c,
+          400,
+          "NOTHING_REORDERED",
+          "No valid header categories were reordered."
         );
       }
+
+      await bustCache(c);
+
+      c.executionCtx.waitUntil(
+        logAuditFromContext(c, {
+          action: AUDIT_ACTIONS.HEADER_UPDATE,
+          category: AUDIT_CATEGORIES.HEADER,
+          description: `Reordered store header (${updatedCollections} categories)`,
+          targetType: AUDIT_TARGET_TYPES.SYSTEM,
+          targetLabel: "header",
+          severity: "info",
+          metadata: {
+            kind: "header_reorder",
+            updatedCollections,
+          },
+        }).then(() => undefined)
+      );
 
       const collections = await loadAdminHeaderFromDb(db);
 
@@ -1336,7 +798,7 @@ editHeader.put(
         success: true,
         message: "Header order updated.",
         data: collections,
-        meta: { updatedCollections, updatedItems },
+        meta: { updatedCollections },
       });
     } catch (error) {
       console.error("Error reordering header:", error);
@@ -1380,6 +842,9 @@ editHeader.post(
     }
   }
 );
+
+// Keep unused type export for consumers; items table still exists for legacy rows.
+export type { HeaderCollectionItem };
 
 export default editHeader;
 export type { HeaderAdminCollection };

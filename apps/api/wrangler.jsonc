@@ -24,7 +24,8 @@
 		{
 			"binding": "DB",
 			"database_id": "2022fd32-e9fc-4b60-8c23-e1018fd718f3",
-			"database_name": "ragimart"
+			"database_name": "ragimart",
+			"migrations_dir": "../../packages/db/migrations"
 		}
 	],
 	"kv_namespaces": [

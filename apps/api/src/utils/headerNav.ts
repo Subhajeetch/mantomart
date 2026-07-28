@@ -1,7 +1,9 @@
 import { asc, and, eq, inArray } from "drizzle-orm";
 import {
+  categories,
   headerCollectionItems,
   headerCollections,
+  type Category,
   type Database,
   type HeaderCollection,
   type HeaderCollectionItem,
@@ -22,10 +24,10 @@ export type HeaderNavItem = {
   name: string;
   slug: string;
   href: string;
-  description: string | null;
-  image: string | null;
   position: number;
   featured: boolean;
+  /** Nested subcategories (e.g. Men → Shirts). */
+  children: HeaderNavItem[];
 };
 
 export type HeaderNavCollection = {
@@ -33,9 +35,11 @@ export type HeaderNavCollection = {
   name: string;
   slug: string;
   href: string;
-  description: string | null;
-  image: string | null;
   position: number;
+  /**
+   * First-level children of the root category.
+   * Typical shape: Men / Women columns in the mega menu.
+   */
   items: HeaderNavItem[];
 };
 
@@ -53,11 +57,10 @@ export type HeaderAdminItem = HeaderNavItem & {
 
 export type HeaderAdminCollection = {
   id: string;
+  categoryId: string | null;
   name: string;
   slug: string;
   href: string | null;
-  description: string | null;
-  image: string | null;
   position: number;
   isVisible: boolean;
   createdAt: Date | string | number | null;
@@ -65,12 +68,16 @@ export type HeaderAdminCollection = {
   items: HeaderAdminItem[];
 };
 
-function defaultCollectionHref(slug: string): string {
-  return `/c/${slug}`;
+function categoryHref(slug: string): string {
+  return `/category/${slug}`;
 }
 
-function defaultItemHref(collectionSlug: string, itemSlug: string): string {
-  return `/c/${collectionSlug}/${itemSlug}`;
+function defaultCollectionHref(slug: string): string {
+  return categoryHref(slug);
+}
+
+function defaultItemHref(itemSlug: string, collectionSlug: string): string {
+  return categoryHref(itemSlug || collectionSlug);
 }
 
 function resolveHref(
@@ -83,6 +90,26 @@ function resolveHref(
   return fallback;
 }
 
+function getUpdatedTime(value: Date | string | number | null): number | null {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const time = new Date(value).getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+  return null;
+}
+
+function groupCategoriesByParent(rows: Category[]) {
+  const byParent = new Map<string | null, Category[]>();
+  for (const row of rows) {
+    const list = byParent.get(row.parentId) ?? [];
+    list.push(row);
+    byParent.set(row.parentId, list);
+  }
+  return byParent;
+}
+
 function serializeItem(
   item: HeaderCollectionItem,
   collectionSlug: string
@@ -91,11 +118,10 @@ function serializeItem(
     id: item.id,
     name: item.name,
     slug: item.slug,
-    href: resolveHref(item.href, defaultItemHref(collectionSlug, item.slug)),
-    description: item.description,
-    image: item.image,
+    href: defaultItemHref(item.slug, collectionSlug),
     position: item.position,
     featured: item.featured,
+    children: [],
   };
 }
 
@@ -111,20 +137,72 @@ function serializeAdminItem(
   };
 }
 
+function serializeCategoryItem(
+  category: Category,
+  childrenByParent: Map<string | null, Category[]>
+): HeaderNavItem {
+  return {
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    href: categoryHref(category.slug),
+    position: category.position,
+    featured: false,
+    children: (childrenByParent.get(category.id) ?? []).map((child) =>
+      serializeCategoryItem(child, childrenByParent)
+    ),
+  };
+}
+
+function serializeCategoryAdminItem(
+  category: Category,
+  childrenByParent: Map<string | null, Category[]>
+): HeaderAdminItem {
+  return {
+    ...serializeCategoryItem(category, childrenByParent),
+    isVisible: true,
+    createdAt: category.createdAt,
+    updatedAt: category.updatedAt,
+  };
+}
+
+function trackLatest(
+  current: number | null,
+  value: Date | string | number | null
+): number | null {
+  const next = getUpdatedTime(value);
+  if (next === null) return current;
+  if (current === null) return next;
+  return Math.max(current, next);
+}
+
 /**
- * Load visible collections (+ visible items) from D1 for the public storefront.
+ * Load visible collections (+ category tree) from D1 for the public storefront.
  * Caps at MAX_VISIBLE_HEADER_COLLECTIONS.
+ *
+ * When a header collection slug matches a category, the mega-menu is built
+ * from that category's descendants (e.g. Fashion → Men / Women → …).
+ * Legacy free-form header items are used only as a fallback.
  */
 export async function loadPublicHeaderNavFromDb(
   db: Database
 ): Promise<HeaderNavPayload> {
-  const collections = await db
-    .select()
-    .from(headerCollections)
-    .where(eq(headerCollections.isVisible, true))
-    .orderBy(asc(headerCollections.position), asc(headerCollections.name));
+  const [collections, categoryRows] = await Promise.all([
+    db
+      .select()
+      .from(headerCollections)
+      .where(eq(headerCollections.isVisible, true))
+      .orderBy(asc(headerCollections.position), asc(headerCollections.name)),
+    db
+      .select()
+      .from(categories)
+      .orderBy(asc(categories.position), asc(categories.name)),
+  ]);
 
   const limited = collections.slice(0, MAX_VISIBLE_HEADER_COLLECTIONS);
+  const categoriesBySlug = new Map(categoryRows.map((row) => [row.slug, row]));
+  const categoriesById = new Map(categoryRows.map((row) => [row.id, row]));
+  const childrenByParent = groupCategoriesByParent(categoryRows);
 
   const items =
     limited.length === 0
@@ -156,32 +234,39 @@ export async function loadPublicHeaderNavFromDb(
   let latestUpdated: number | null = null;
 
   const navCollections: HeaderNavCollection[] = limited.map((col) => {
-    const colUpdated =
-      col.updatedAt instanceof Date
-        ? col.updatedAt.getTime()
-        : typeof col.updatedAt === "number"
-          ? col.updatedAt
-          : null;
-    if (colUpdated !== null) {
-      latestUpdated =
-        latestUpdated === null
-          ? colUpdated
-          : Math.max(latestUpdated, colUpdated);
+    const category = categoriesBySlug.get(col.slug) ?? null;
+    latestUpdated = trackLatest(
+      latestUpdated,
+      category?.updatedAt ?? col.updatedAt
+    );
+
+    if (category) {
+      const categoryItems = (childrenByParent.get(category.id) ?? []).map(
+        (child) => {
+          latestUpdated = trackLatest(latestUpdated, child.updatedAt);
+          return serializeCategoryItem(child, childrenByParent);
+        }
+      );
+
+      // Also track nested descendants lightly via the category map.
+      for (const item of categoryItems) {
+        const row = categoriesById.get(item.id);
+        latestUpdated = trackLatest(latestUpdated, row?.updatedAt ?? null);
+      }
+
+      return {
+        id: col.id,
+        name: category.name,
+        slug: category.slug,
+        href: categoryHref(category.slug),
+        position: col.position,
+        items: categoryItems,
+      };
     }
 
+    // Legacy free-form header rows (no matching category).
     const colItems = (itemsByCollection.get(col.id) ?? []).map((item) => {
-      const itemUpdated =
-        item.updatedAt instanceof Date
-          ? item.updatedAt.getTime()
-          : typeof item.updatedAt === "number"
-            ? item.updatedAt
-            : null;
-      if (itemUpdated !== null) {
-        latestUpdated =
-          latestUpdated === null
-            ? itemUpdated
-            : Math.max(latestUpdated, itemUpdated);
-      }
+      latestUpdated = trackLatest(latestUpdated, item.updatedAt);
       return serializeItem(item, col.slug);
     });
 
@@ -189,9 +274,7 @@ export async function loadPublicHeaderNavFromDb(
       id: col.id,
       name: col.name,
       slug: col.slug,
-      href: resolveHref(col.href, defaultCollectionHref(col.slug)),
-      description: col.description,
-      image: col.image,
+      href: defaultCollectionHref(col.slug),
       position: col.position,
       items: colItems,
     };
@@ -207,22 +290,28 @@ export async function loadPublicHeaderNavFromDb(
 
 /**
  * Full header tree for admin (includes hidden rows, no visibility cap).
+ * Linked categories drive names, hrefs, and mega-menu structure.
  */
 export async function loadAdminHeaderFromDb(
   db: Database
 ): Promise<HeaderAdminCollection[]> {
-  const collections = await db
-    .select()
-    .from(headerCollections)
-    .orderBy(asc(headerCollections.position), asc(headerCollections.name));
-
-  const items = await db
-    .select()
-    .from(headerCollectionItems)
-    .orderBy(
-      asc(headerCollectionItems.position),
-      asc(headerCollectionItems.name)
-    );
+  const [collections, items, categoryRows] = await Promise.all([
+    db
+      .select()
+      .from(headerCollections)
+      .orderBy(asc(headerCollections.position), asc(headerCollections.name)),
+    db
+      .select()
+      .from(headerCollectionItems)
+      .orderBy(
+        asc(headerCollectionItems.position),
+        asc(headerCollectionItems.name)
+      ),
+    db
+      .select()
+      .from(categories)
+      .orderBy(asc(categories.position), asc(categories.name)),
+  ]);
 
   const itemsByCollection = new Map<string, HeaderCollectionItem[]>();
   for (const item of items) {
@@ -231,21 +320,30 @@ export async function loadAdminHeaderFromDb(
     itemsByCollection.set(item.collectionId, list);
   }
 
-  return collections.map((col) => ({
-    id: col.id,
-    name: col.name,
-    slug: col.slug,
-    href: col.href,
-    description: col.description,
-    image: col.image,
-    position: col.position,
-    isVisible: col.isVisible,
-    createdAt: col.createdAt,
-    updatedAt: col.updatedAt,
-    items: (itemsByCollection.get(col.id) ?? []).map((item) =>
-      serializeAdminItem(item, col.slug)
-    ),
-  }));
+  const categoriesBySlug = new Map(categoryRows.map((row) => [row.slug, row]));
+  const childrenByParent = groupCategoriesByParent(categoryRows);
+
+  return collections.map((col) => {
+    const category = categoriesBySlug.get(col.slug) ?? null;
+    return {
+      id: col.id,
+      categoryId: category?.id ?? null,
+      name: category?.name ?? col.name,
+      slug: category?.slug ?? col.slug,
+      href: category ? categoryHref(category.slug) : defaultCollectionHref(col.slug),
+      position: col.position,
+      isVisible: col.isVisible,
+      createdAt: col.createdAt,
+      updatedAt: col.updatedAt,
+      items: category
+        ? (childrenByParent.get(category.id) ?? []).map((child) =>
+            serializeCategoryAdminItem(child, childrenByParent)
+          )
+        : (itemsByCollection.get(col.id) ?? []).map((item) =>
+            serializeAdminItem(item, col.slug)
+          ),
+    };
+  });
 }
 
 /**

@@ -3,10 +3,10 @@ export type HeaderNavItem = {
   name: string;
   slug: string;
   href: string;
-  description: string | null;
-  image: string | null;
   position: number;
   featured: boolean;
+  /** Nested subcategories under this item (e.g. Men → Shirts). */
+  children: HeaderNavItem[];
 };
 
 export type HeaderNavCollection = {
@@ -14,9 +14,11 @@ export type HeaderNavCollection = {
   name: string;
   slug: string;
   href: string;
-  description: string | null;
-  image: string | null;
   position: number;
+  /**
+   * First-level children of the root category.
+   * Rendered as columns in the mega menu (e.g. Men | Women).
+   */
   items: HeaderNavItem[];
 };
 

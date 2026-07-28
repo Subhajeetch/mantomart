@@ -16,10 +16,6 @@ export const headerCollections = sqliteTable(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
-    /** Optional override URL; store falls back to `/c/{slug}`. */
-    href: text("href"),
-    description: text("description"),
-    image: text("image"),
     position: integer("position").notNull().default(0),
     isVisible: integer("is_visible", { mode: "boolean" })
       .notNull()
@@ -45,10 +41,6 @@ export const headerCollectionItems = sqliteTable(
       .references(() => headerCollections.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
-    /** Optional override URL; store falls back to `/c/{collectionSlug}/{slug}`. */
-    href: text("href"),
-    description: text("description"),
-    image: text("image"),
     position: integer("position").notNull().default(0),
     isVisible: integer("is_visible", { mode: "boolean" })
       .notNull()
