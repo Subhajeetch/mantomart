@@ -1,4 +1,8 @@
-export { getHeaderNav } from "./api";
+export { categoryHref, getHeaderNav, resolveNavHref } from "./api";
 export { MobileBottomNav } from "./mobile-bottom-nav";
 export { StoreNavbar } from "./store-navbar";
-export type { HeaderNavCollection, HeaderNavItem } from "./types";
+export type {
+  HeaderNavCollection,
+  HeaderNavItem,
+  HeaderNavResponse,
+} from "./types";

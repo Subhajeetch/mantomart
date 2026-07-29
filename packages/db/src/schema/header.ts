@@ -3,63 +3,84 @@ import {
   text,
   integer,
   index,
-  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-/**
- * Top-level storefront header collections (e.g. Fashion, Tech).
- * Soft cap of 5 visible collections is enforced in the admin API.
- */
-export const headerCollections = sqliteTable(
-  "header_collections",
-  {
-    id: text("id").primaryKey(),
-    name: text("name").notNull(),
-    slug: text("slug").notNull().unique(),
-    position: integer("position").notNull().default(0),
-    isVisible: integer("is_visible", { mode: "boolean" })
-      .notNull()
-      .default(true),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-  },
-  (table) => [
-    index("header_collections_position_idx").on(table.position),
-    index("header_collections_visible_idx").on(table.isVisible),
-  ]
-);
+import { categories } from "./categories";
 
 /**
- * Sub-links under a header collection (mega-menu / dropdown items).
+ * Recursive header menu tree.
+ *
+ * Examples:
+ *
+ * Fashion (root)
+ * ├── Men
+ * │   ├── Tops
+ * │   └── Jeans
+ * └── Women
+ *     ├── Dresses
+ *     └── Shoes
  */
-export const headerCollectionItems = sqliteTable(
-  "header_collection_items",
+export const headerMenuNodes = sqliteTable(
+  "header_menu_nodes",
   {
     id: text("id").primaryKey(),
-    collectionId: text("collection_id")
-      .notNull()
-      .references(() => headerCollections.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    slug: text("slug").notNull(),
-    position: integer("position").notNull().default(0),
-    isVisible: integer("is_visible", { mode: "boolean" })
-      .notNull()
-      .default(true),
+
+    /**
+     * Null = top-level header item
+     */
+    parentId: text("parent_id").references(
+      (): any => headerMenuNodes.id,
+      { onDelete: "cascade" }
+    ),
+
+    /**
+     * Optional category this node points to.
+     * If null, it's just a grouping node.
+     */
+    categoryId: text("category_id").references(() => categories.id, {
+      onDelete: "set null",
+    }),
+
+    /**
+     * Used when the menu item is NOT a category.
+     */
+    customUrl: text("custom_url"),
+
+    /**
+     * Optional override.
+     *
+     * If null:
+     *  - uses category.name
+     */
+    title: text("title"),
+
+    /**
+     * mega
+     * dropdown
+     * simple
+     */
+    layout: text("layout").notNull().default("mega"),
     featured: integer("featured", { mode: "boolean" })
       .notNull()
       .default(false),
+
+    position: integer("position").notNull().default(0),
+
+    isVisible: integer("is_visible", { mode: "boolean" })
+      .notNull()
+      .default(true),
+
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (table) => [
-    index("header_collection_items_collection_id_idx").on(table.collectionId),
-    index("header_collection_items_position_idx").on(table.position),
-    uniqueIndex("header_collection_items_collection_slug_uidx").on(
-      table.collectionId,
-      table.slug
-    ),
+    index("header_menu_parent_idx").on(table.parentId),
+    index("header_menu_category_idx").on(table.categoryId),
+    index("header_menu_position_idx").on(table.position),
+    index("header_menu_visible_idx").on(table.isVisible),
   ]
 );
 
-export type HeaderCollection = typeof headerCollections.$inferSelect;
-export type HeaderCollectionItem = typeof headerCollectionItems.$inferSelect;
+export type HeaderMenuNode = typeof headerMenuNodes.$inferSelect;
+export type NewHeaderMenuNode = typeof headerMenuNodes.$inferInsert;
