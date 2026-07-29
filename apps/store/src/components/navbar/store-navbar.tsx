@@ -11,6 +11,8 @@ import {
   ShoppingCart,
   UserRound,
   X,
+  Folder,
+  FolderOpen,
 } from "lucide-react";
 import type { Session } from "@repo/types/session-client";
 
@@ -20,6 +22,22 @@ import { Button, buttonVariants } from "@/components/ui/button";
 
 import { resolveNavHref } from "./api";
 import type { HeaderNavCollection, HeaderNavItem } from "./types";
+import { Input } from "../ui/input";
+
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
+
+import {
+  NavigationMenu,
+  NavigationMenuContent,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  NavigationMenuTrigger,
+} from "@/components/ui/navigation-menu";
 
 type StoreNavbarProps = {
   collections: HeaderNavCollection[];
@@ -126,400 +144,192 @@ function Logo() {
 }
 
 /**
- * Pink section title — link when the node has a destination, plain text otherwise.
- * Matches the Myntra-style mega menu headers in the design screenshot.
+ * Desktop navigation using Shadcn NavigationMenu.
+ * Provides a clean, modern navigation structure.
  */
-function SectionTitle({
-  item,
-  className,
-}: {
-  item: HeaderNavItem;
-  className?: string;
-}) {
-  const href = navHref(item);
-  const classes = cn(
-    "mb-2 block text-sm font-semibold text-pink-500 transition-colors",
-    href && "hover:text-pink-600",
-    item.featured && "uppercase tracking-wide",
-    className
-  );
-
-  if (href) {
-    return (
-      <Link href={href} className={classes}>
-        {item.name}
-        {item.featured ? (
-          <span className="ml-1 align-super text-[9px] font-bold text-red-500">
-            NEW
-          </span>
-        ) : null}
-      </Link>
-    );
-  }
-
-  return (
-    <p className={classes}>
-      {item.name}
-      {item.featured ? (
-        <span className="ml-1 align-super text-[9px] font-bold text-red-500">
-          NEW
-        </span>
-      ) : null}
-    </p>
-  );
-}
-
-function LeafLink({ item }: { item: HeaderNavItem }) {
-  const href = navHref(item);
-
-  // Featured leaves render as pink standalone entries (e.g. "Plus Size").
-  if (item.featured) {
-    if (!href) {
-      return (
-        <span className="block py-1 text-sm font-semibold text-pink-500">
-          {item.name}
-        </span>
-      );
-    }
-    return (
-      <Link
-        href={href}
-        className="block py-1 text-sm font-semibold text-pink-500 transition-colors hover:text-pink-600"
-      >
-        {item.name}
-      </Link>
-    );
-  }
-
-  if (!href) {
-    return (
-      <span className="block py-0.5 text-sm text-muted-foreground">
-        {item.name}
-      </span>
-    );
-  }
-
-  return (
-    <Link
-      href={href}
-      className="block py-0.5 text-sm text-foreground/90 transition-colors hover:text-pink-500"
-    >
-      {item.name}
-    </Link>
-  );
-}
-
-/**
- * One mega-menu column.
- *
- * - Leaf-only section → pink link (standalone category)
- * - Section with children → pink header + dark links
- * - Nested grandchildren → pink sub-header + links (category-tree fallback)
- */
-function MegaSection({ section }: { section: HeaderNavItem }) {
-  if (isLeaf(section)) {
-    return (
-      <div className="min-w-0 px-6 py-5 lg:px-8">
-        <SectionTitle item={section} className="mb-0" />
-      </div>
-    );
-  }
-
-  // Split children into regular links vs nested groups (have their own kids).
-  const linkChildren = section.children.filter(isLeaf);
-  const groupChildren = section.children.filter((child) => !isLeaf(child));
-
-  return (
-    <div className="min-w-0 px-6 py-5 lg:px-8">
-      <SectionTitle item={section} />
-
-      {linkChildren.length > 0 && (
-        <ul className="space-y-0.5">
-          {linkChildren.map((child) => (
-            <li key={child.id}>
-              <LeafLink item={child} />
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {groupChildren.map((group, index) => (
-        <div
-          key={group.id}
-          className={cn(
-            index === 0 && linkChildren.length > 0 && "mt-3 border-t border-border/50 pt-3",
-            index > 0 && "mt-3 border-t border-border/50 pt-3"
-          )}
-        >
-          <SectionTitle item={group} />
-          {group.children.length > 0 && (
-            <ul className="space-y-0.5">
-              {group.children.map((grand) => (
-                <li key={grand.id}>
-                  {isLeaf(grand) ? (
-                    <LeafLink item={grand} />
-                  ) : (
-                    <>
-                      <SectionTitle item={grand} className="mb-1 mt-2" />
-                      <ul className="space-y-0.5">
-                        {grand.children.map((deep) => (
-                          <li key={deep.id}>
-                            <LeafLink item={deep} />
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * SEO-friendly desktop mega menu.
- *
- * - Every destination is a real <a> (Next Link) so crawlers see the full tree.
- * - Root tabs with children open a multi-column panel (e.g. Men | Women).
- * - Hover + keyboard focus open the panel; Escape / click-outside close it.
- */
-function DesktopCollections({
+function DesktopNavigationMenu({
   collections,
   pathname,
 }: {
   collections: HeaderNavCollection[];
   pathname: string;
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  const menuId = useId();
-
-  useEffect(() => {
-    setOpenId(null);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!openId) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenId(null);
-    };
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest?.(`[data-nav-root="${menuId}"]`)) {
-        setOpenId(null);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("mousedown", onPointerDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("mousedown", onPointerDown);
-    };
-  }, [menuId, openId]);
-
   if (collections.length === 0) return null;
 
   return (
-    <nav
-      data-nav-root={menuId}
-      aria-label="Main categories"
-      className="hidden min-w-0 flex-1 lg:block"
-    >
-      <ul className="flex items-center gap-0.5">
+    <NavigationMenu className="hidden lg:block">
+      <NavigationMenuList className="flex items-center ml-6">
         {collections.map((collection) => {
           const href = navHref(collection);
-          const active = isPathActive(pathname, href);
-          const hasMenu = collection.items.length > 0;
-          const isOpen = openId === collection.id;
-          const panelId = `${menuId}-${collection.id}-panel`;
-          const columnCount = Math.min(
-            Math.max(collection.items.length, 1),
-            MAX_MEGA_COLUMNS
-          );
+          const isActive = isPathActive(pathname, href);
+          const hasSubMenu = collection.items.length > 0;
 
           return (
-            <li
-              key={collection.id}
-              className="static"
-              onMouseEnter={() => hasMenu && setOpenId(collection.id)}
-              onMouseLeave={() =>
-                setOpenId((current) =>
-                  current === collection.id ? null : current
-                )
-              }
-            >
-              <div className="flex items-center">
-                {href ? (
-                  <Link
-                    href={href}
-                    className={cn(
-                      "relative inline-flex h-12 items-center px-3 text-xs font-bold uppercase tracking-wide text-foreground transition-colors hover:text-pink-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-                      (active || isOpen) &&
-                        "text-pink-500 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-pink-500"
-                    )}
-                    aria-current={active ? "page" : undefined}
-                    aria-expanded={hasMenu ? isOpen : undefined}
-                    aria-controls={hasMenu ? panelId : undefined}
-                    onFocus={() => hasMenu && setOpenId(collection.id)}
-                    onClick={() => {
-                      // Keep panel open on click so keyboard users can tab in.
-                      if (hasMenu) setOpenId(collection.id);
-                    }}
-                  >
-                    {collection.name}
-                  </Link>
-                ) : (
-                  <button
-                    type="button"
-                    className={cn(
-                      "relative inline-flex h-12 items-center px-3 text-xs font-bold uppercase tracking-wide text-foreground transition-colors hover:text-pink-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-                      isOpen &&
-                        "text-pink-500 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-pink-500"
-                    )}
-                    aria-expanded={hasMenu ? isOpen : undefined}
-                    aria-controls={hasMenu ? panelId : undefined}
-                    onFocus={() => hasMenu && setOpenId(collection.id)}
-                    onClick={() =>
-                      hasMenu &&
-                      setOpenId((current) =>
-                        current === collection.id ? null : collection.id
-                      )
-                    }
-                  >
-                    {collection.name}
-                  </button>
-                )}
-              </div>
-
-              {hasMenu && (
-                <div
-                  id={panelId}
-                  role="region"
-                  aria-label={`${collection.name} subcategories`}
-                  hidden={!isOpen}
+            <NavigationMenuItem key={collection.id} className="text-foreground/60 hover:text-primary">
+              {href && !hasSubMenu ? (
+                <NavigationMenuLink
+                  href={href}
                   className={cn(
-                    "absolute left-0 top-full z-50 mt-0 w-screen border-t border-border/40 bg-background shadow-xl ring-1 ring-foreground/5",
-                    !isOpen && "pointer-events-none"
+                    "px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition-colors",
+                    isActive
+                      ? "text-primary after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary"
+                      : "text-foreground hover:text-primary"
                   )}
                 >
-                  {/* Keep links in the DOM for SEO; hide visually when closed. */}
-                  <div
+                  {collection.name}
+                </NavigationMenuLink>
+              ) : hasSubMenu ? (
+                <div>
+                  <NavigationMenuTrigger
                     className={cn(
-                      "mx-auto grid max-w-7xl divide-x divide-border/40",
-                      !isOpen && "sr-only"
+                      "px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition-colors",
+                      isActive && "text-primary"
                     )}
-                    style={{
-                      gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-                    }}
                   >
-                    {collection.items.slice(0, MAX_MEGA_COLUMNS).map((section) => (
-                      <MegaSection key={section.id} section={section} />
-                    ))}
-                  </div>
+                    {collection.name}
+                  </NavigationMenuTrigger>
+                  <NavigationMenuContent className="p-0">
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                      {collection.items.slice(0, MAX_MEGA_COLUMNS).map((item) => {
+                        const itemHref = navHref(item);
+                        return (
+                          <div
+                            key={item.id}
+                            className={cn(
+                              "space-y-1 rounded-md p-3 text-sm",
+                              item.featured && "text-primary"
+                            )}
+                          >
+                            <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                              {item.name}
+                            </div>
+                            {item.children.length > 0 && (
+                              <ul className="mt-2 space-y-1 text-xs">
+                                {item.children.map((child) => {
+                                  const childHref = navHref(child);
+                                  return childHref ? (
+                                    <li key={child.id}>
+                                      <NavigationMenuLink
+                                        href={childHref}
+                                        className="flex items-center p-0 rounded-md text-muted-foreground hover:text-foreground hover:bg-background hover:underline"
+                                      >
+                                        {child.name}
+                                      </NavigationMenuLink>
+                                    </li>
+                                  ) : (
+                                    <li key={child.id}>
+                                      <span className="text-muted-foreground">
+                                        {child.name}
+                                      </span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </NavigationMenuContent>
                 </div>
+              ) : (
+                <span className="px-3 py-1.5 text-sm font-semibold uppercase tracking-wide text-foreground">
+                  {collection.name}
+                </span>
               )}
-            </li>
+            </NavigationMenuItem>
           );
         })}
-      </ul>
-    </nav>
+      </NavigationMenuList>
+    </NavigationMenu>
   );
 }
 
-function AccountButton() {
-  const { data, isPending } = useSession();
-  const session = data as Session | null;
-  const user = session?.user;
-
-  if (isPending) {
-    return (
-      <div className="size-8 animate-pulse rounded-full bg-muted" aria-hidden />
-    );
-  }
-
-  if (!user) {
-    return (
-      <Link
-        href="/login"
-        className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}
-      >
-        <UserRound className="size-3.5" />
-        Login
-      </Link>
-    );
-  }
-
-  return (
-    <Link
-      href="/home"
-      aria-label="Profile"
-      className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-    >
-      {user.image ? (
-        <img
-          src={user.image}
-          alt={user.name ?? "Profile"}
-          className="size-full object-cover"
-        />
-      ) : (
-        getInitials(user.name, user.email)
-      )}
-    </Link>
-  );
-}
-
-function MobileMenuItem({
-  item,
-  depth,
-  onClose,
-}: {
+/**
+ * Mobile navigation as a file-tree structure (like VS Code).
+ * Supports expand/collapse with proper indentation.
+ */
+interface MobileTreeNodeProps {
   item: HeaderNavItem;
   depth: number;
+  expanded: Set<string>;
+  onToggle: (id: string) => void;
   onClose: () => void;
-}) {
+}
+
+function MobileTreeNode({
+  item,
+  depth,
+  expanded,
+  onToggle,
+  onClose,
+}: MobileTreeNodeProps) {
   const href = navHref(item);
   const hasChildren = item.children.length > 0;
-  const padding =
-    depth === 0 ? "min-h-10 px-2 text-sm font-semibold" : depth === 1
-      ? "min-h-9 px-2 text-sm font-medium"
-      : "min-h-8 px-2 text-sm text-muted-foreground";
+  const isExpanded = expanded.has(item.id);
+
+  const paddingLeft = depth * 16;
 
   return (
-    <div className={cn(depth > 0 && "space-y-0.5")}>
-      {href ? (
-        <Link
-          href={href}
-          onClick={onClose}
-          className={cn(
-            "flex items-center hover:bg-muted hover:text-foreground",
-            padding,
-            item.featured && "text-pink-500"
-          )}
-        >
-          {item.name}
-        </Link>
-      ) : (
-        <p className={cn("flex items-center text-foreground", padding)}>
-          {item.name}
-        </p>
-      )}
+    <div>
+      <div className="flex items-center">
+        {/* Expand/Collapse toggle for items with children */}
+        {hasChildren && (
+          <button
+            type="button"
+            onClick={() => onToggle(item.id)}
+            className="mr-1 flex h-4 w-4 items-center justify-center"
+            aria-label={`${isExpanded ? "Collapse" : "Expand"} ${item.name}`}
+          >
+            {isExpanded ? (
+              <FolderOpen className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <Folder className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+        )}
+        {!hasChildren && <div className="mr-2 w-4" />}
 
-      {hasChildren && (
-        <ul
-          className={cn(
-            "grid gap-0.5",
-            depth === 0 && "space-y-1 pl-1",
-            depth >= 1 && "border-l border-border/60 pl-3"
-          )}
-        >
+        {/* Item link or text */}
+        {href ? (
+          <Link
+            href={href}
+            onClick={onClose}
+            className={cn(
+              "flex items-center py-1 text-sm",
+              item.featured && "text-pink-500 font-semibold",
+              "hover:text-foreground"
+            )}
+            style={{ paddingLeft: `${paddingLeft}px` }}
+          >
+            {item.name}
+          </Link>
+        ) : (
+          <span
+            className={cn(
+              "flex items-center py-1 text-sm",
+              item.featured && "text-pink-500 font-semibold",
+              "text-muted-foreground"
+            )}
+            style={{ paddingLeft: `${paddingLeft}px` }}
+          >
+            {item.name}
+          </span>
+        )}
+      </div>
+
+      {/* Children */}
+      {hasChildren && isExpanded && (
+        <ul className="ml-4">
           {item.children.map((child) => (
             <li key={child.id}>
-              <MobileMenuItem item={child} depth={depth + 1} onClose={onClose} />
+              <MobileTreeNode
+                item={child}
+                depth={depth + 1}
+                expanded={expanded}
+                onToggle={onToggle}
+                onClose={onClose}
+              />
             </li>
           ))}
         </ul>
@@ -537,6 +347,21 @@ function MobileMenu({
   onClose: () => void;
   collections: HeaderNavCollection[];
 }) {
+  // Track expanded state for each tree node
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const handleToggle = (id: string) => {
+    setExpanded((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
   useEffect(() => {
     if (!open) return;
 
@@ -606,37 +431,46 @@ function MobileMenu({
               Categories are not available right now.
             </p>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-2">
               {collections.map((collection) => {
                 const href = navHref(collection);
+
                 return (
-                  <section key={collection.id} className="space-y-1">
-                    {href ? (
-                      <Link
-                        href={href}
-                        onClick={onClose}
-                        className="flex min-h-10 items-center px-2 text-sm font-semibold uppercase tracking-wide text-foreground hover:bg-muted"
-                      >
-                        {collection.name}
-                      </Link>
-                    ) : (
-                      <p className="flex min-h-10 items-center px-2 text-sm font-semibold uppercase tracking-wide text-foreground">
-                        {collection.name}
-                      </p>
-                    )}
+                  <div key={collection.id} className="border-b pb-2">
+                    {/* Collection header */}
+                    <div className="flex items-center px-2">
+                      {href ? (
+                        <Link
+                          href={href}
+                          onClick={onClose}
+                          className="text-sm font-semibold uppercase tracking-wide text-foreground hover:text-pink-500"
+                        >
+                          {collection.name}
+                        </Link>
+                      ) : (
+                        <span className="text-sm font-semibold uppercase tracking-wide text-foreground">
+                          {collection.name}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Collection items as tree */}
                     {collection.items.length > 0 && (
-                      <div className="space-y-3 pl-1">
-                        {collection.items.map((section) => (
-                          <MobileMenuItem
-                            key={section.id}
-                            item={section}
-                            depth={1}
-                            onClose={onClose}
-                          />
+                      <ul className="mt-1 ml-4">
+                        {collection.items.map((item) => (
+                          <li key={item.id}>
+                            <MobileTreeNode
+                              item={item}
+                              depth={1}
+                              expanded={expanded}
+                              onToggle={handleToggle}
+                              onClose={onClose}
+                            />
+                          </li>
                         ))}
-                      </div>
+                      </ul>
                     )}
-                  </section>
+                  </div>
                 );
               })}
             </div>
@@ -719,24 +553,26 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
 
           <Logo />
 
-          <DesktopCollections
+          <DesktopNavigationMenu
             collections={visibleCollections}
             pathname={pathname}
           />
+
+          <div className="h-full w-full flex-1"></div>
 
           <form
             action="/search"
             method="get"
             role="search"
-            className="relative ml-auto mr-2 hidden min-w-55 max-w-md flex-1 md:block lg:ml-4 lg:flex-none lg:w-72 xl:w-80"
+            className="relative mr-2 hidden min-w-55 max-w-md flex-1 md:block lg:ml-4 lg:flex-none lg:w-72 xl:w-80"
           >
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
+            <Input
               name="q"
               type="search"
               placeholder="Search for products, brands and more"
               aria-label="Search products"
-              className="h-9 w-full border border-transparent bg-muted/70 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:bg-background focus:ring-1 focus:ring-ring/50"
+              className="h-9 w-full pl-9 pr-3"
             />
           </form>
 
@@ -768,5 +604,42 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
         collections={visibleCollections}
       />
     </>
+  );
+}
+
+function AccountButton() {
+  const { data, isPending } = useSession();
+  const session = data as Session | null;
+  const user = session?.user;
+
+  if (isPending) {
+    return (
+      <div className="size-8 animate-pulse rounded-full bg-muted hidden sm:inline-flex" aria-hidden />
+    );
+  }
+
+  if (!user) {
+    return (
+      <Link
+        href="/login"
+        className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}
+      >
+        <UserRound className="size-3.5" />
+        Login
+      </Link>
+    );
+  }
+
+  return (
+    <Link
+      href="/home"
+      aria-label="Profile"
+      className="size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground hidden sm:inline-flex"
+    >
+      <Avatar>
+        <AvatarImage src={user.image ?? undefined} alt={user.name ?? "Profile"} />
+        <AvatarFallback>{getInitials(user.name, user.email)}</AvatarFallback>
+      </Avatar>
+    </Link>
   );
 }
