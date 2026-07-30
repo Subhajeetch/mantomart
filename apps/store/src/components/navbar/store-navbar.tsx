@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ChevronRight,
   Heart,
   Menu,
   Search,
   ShoppingCart,
   UserRound,
   X,
-  Folder,
-  FolderOpen,
 } from "lucide-react";
 import type { Session } from "@repo/types/session-client";
 
@@ -46,6 +45,9 @@ type StoreNavbarProps = {
 const MAX_VISIBLE_COLLECTIONS = 5;
 const MAX_MEGA_COLUMNS = 5;
 
+/** Stable id so Base UI Field.Control does not emit mismatched SSR/client useId values. */
+const SEARCH_INPUT_ID = "store-navbar-search";
+
 function getInitials(name: string | null | undefined, email: string) {
   const source = name?.trim() || email;
   return source
@@ -68,10 +70,6 @@ function isPathActive(pathname: string, href: string | null) {
   const path = href.split("?")[0]?.split("#")[0] ?? href;
   if (!path || path === "/") return pathname === "/";
   return pathname === path || pathname.startsWith(`${path}/`);
-}
-
-function isLeaf(item: HeaderNavItem) {
-  return !item.children || item.children.length === 0;
 }
 
 /** Normalize + sort API payloads (defensive against partial / older cache). */
@@ -145,7 +143,9 @@ function Logo() {
 
 /**
  * Desktop navigation using Shadcn NavigationMenu.
- * Provides a clean, modern navigation structure.
+ * Depth mirrors the product taxonomy: Collection → Item → Leaf.
+ * Leaf links are the primary crawlable destinations in the interactive menu;
+ * the full tree is also exposed via SeoNavTree.
  */
 function DesktopNavigationMenu({
   collections,
@@ -163,6 +163,8 @@ function DesktopNavigationMenu({
           const href = navHref(collection);
           const isActive = isPathActive(pathname, href);
           const hasSubMenu = collection.items.length > 0;
+          const columns = collection.items.slice(0, MAX_MEGA_COLUMNS);
+          const columnCount = Math.min(Math.max(columns.length, 1), 3);
 
           return (
             <NavigationMenuItem key={collection.id} className="text-foreground/60 hover:text-primary">
@@ -189,20 +191,38 @@ function DesktopNavigationMenu({
                     {collection.name}
                   </NavigationMenuTrigger>
                   <NavigationMenuContent className="p-0">
-                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-                      {collection.items.slice(0, MAX_MEGA_COLUMNS).map((item) => {
+                    {/*
+                      w-max + whitespace-nowrap keep intrinsic width stable so labels
+                      never reflow to two lines while the popup resizes between triggers.
+                    */}
+                    <div
+                      className="grid w-max gap-x-6 gap-y-4 p-4"
+                      style={{
+                        gridTemplateColumns: `repeat(${columnCount}, minmax(10.5rem, max-content))`,
+                      }}
+                    >
+                      {columns.map((item) => {
                         const itemHref = navHref(item);
                         return (
                           <div
                             key={item.id}
                             className={cn(
-                              "space-y-1 rounded-md p-3 text-sm",
+                              "min-w-[10.5rem] space-y-1 rounded-md text-sm",
                               item.featured && "text-primary"
                             )}
                           >
-                            <div className="text-xs font-semibold uppercase tracking-wide text-primary">
-                              {item.name}
-                            </div>
+                            {itemHref ? (
+                              <NavigationMenuLink
+                                href={itemHref}
+                                className="block whitespace-nowrap p-0 text-xs font-semibold uppercase tracking-wide text-primary hover:underline hover:bg-transparent"
+                              >
+                                {item.name}
+                              </NavigationMenuLink>
+                            ) : (
+                              <div className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-primary">
+                                {item.name}
+                              </div>
+                            )}
                             {item.children.length > 0 && (
                               <ul className="mt-2 space-y-1 text-xs">
                                 {item.children.map((child) => {
@@ -211,14 +231,14 @@ function DesktopNavigationMenu({
                                     <li key={child.id}>
                                       <NavigationMenuLink
                                         href={childHref}
-                                        className="flex items-center p-0 rounded-md text-muted-foreground hover:text-foreground hover:bg-background hover:underline"
+                                        className="flex items-center whitespace-nowrap rounded-md p-0 text-muted-foreground hover:bg-transparent hover:text-foreground hover:underline"
                                       >
                                         {child.name}
                                       </NavigationMenuLink>
                                     </li>
                                   ) : (
                                     <li key={child.id}>
-                                      <span className="text-muted-foreground">
+                                      <span className="whitespace-nowrap text-muted-foreground">
                                         {child.name}
                                       </span>
                                     </li>
@@ -246,95 +266,102 @@ function DesktopNavigationMenu({
 }
 
 /**
- * Mobile navigation as a file-tree structure (like VS Code).
- * Supports expand/collapse with proper indentation.
+ * Mobile category row: Collection → Item → Leaf (3 levels, same as desktop).
+ * Only leaf destinations are links. Parents toggle expand/collapse with a chevron.
  */
-interface MobileTreeNodeProps {
-  item: HeaderNavItem;
-  depth: number;
-  expanded: Set<string>;
-  onToggle: (id: string) => void;
-  onClose: () => void;
-}
-
 function MobileTreeNode({
   item,
-  depth,
   expanded,
   onToggle,
   onClose,
-}: MobileTreeNodeProps) {
+}: {
+  item: HeaderNavItem;
+  expanded: Set<string>;
+  onToggle: (id: string) => void;
+  onClose: () => void;
+}) {
   const href = navHref(item);
   const hasChildren = item.children.length > 0;
   const isExpanded = expanded.has(item.id);
 
-  const paddingLeft = depth * 16;
-
-  return (
-    <div>
-      <div className="flex items-center">
-        {/* Expand/Collapse toggle for items with children */}
-        {hasChildren && (
-          <button
-            type="button"
-            onClick={() => onToggle(item.id)}
-            className="mr-1 flex h-4 w-4 items-center justify-center"
-            aria-label={`${isExpanded ? "Collapse" : "Expand"} ${item.name}`}
-          >
-            {isExpanded ? (
-              <FolderOpen className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <Folder className="h-4 w-4 text-muted-foreground" />
-            )}
-          </button>
-        )}
-        {!hasChildren && <div className="mr-2 w-4" />}
-
-        {/* Item link or text */}
-        {href ? (
-          <Link
-            href={href}
-            onClick={onClose}
+  // Branch node: expand/collapse only — never a link (matches desktop column headers).
+  if (hasChildren) {
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => onToggle(item.id)}
+          aria-expanded={isExpanded}
+          className={cn(
+            "flex w-full items-center justify-between gap-2 rounded-md px-2 py-2.5 text-left text-sm transition-colors",
+            "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            item.featured && "font-semibold text-primary",
+            isExpanded ? "text-foreground" : "text-foreground/90"
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+          <ChevronRight
+            aria-hidden
             className={cn(
-              "flex items-center py-1 text-sm",
-              item.featured && "text-pink-500 font-semibold",
-              "hover:text-foreground"
+              "size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
+              isExpanded && "rotate-90"
             )}
-            style={{ paddingLeft: `${paddingLeft}px` }}
-          >
-            {item.name}
-          </Link>
-        ) : (
-          <span
-            className={cn(
-              "flex items-center py-1 text-sm",
-              item.featured && "text-pink-500 font-semibold",
-              "text-muted-foreground"
-            )}
-            style={{ paddingLeft: `${paddingLeft}px` }}
-          >
-            {item.name}
-          </span>
+          />
+        </button>
+
+        {isExpanded && (
+          <ul className="ml-3 space-y-0.5 border-l border-border/60 pl-2">
+            {item.children.map((child) => {
+              const childHref = navHref(child);
+              // Desktop only surfaces one level under each column — no deeper nesting.
+              return (
+                <li key={child.id}>
+                  {childHref ? (
+                    <Link
+                      href={childHref}
+                      onClick={onClose}
+                      className={cn(
+                        "flex items-center rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors",
+                        "hover:bg-muted/60 hover:text-foreground",
+                        child.featured && "font-medium text-primary"
+                      )}
+                    >
+                      {child.name}
+                    </Link>
+                  ) : (
+                    <span className="flex items-center px-2 py-2 text-sm text-muted-foreground">
+                      {child.name}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
+    );
+  }
 
-      {/* Children */}
-      {hasChildren && isExpanded && (
-        <ul className="ml-4">
-          {item.children.map((child) => (
-            <li key={child.id}>
-              <MobileTreeNode
-                item={child}
-                depth={depth + 1}
-                expanded={expanded}
-                onToggle={onToggle}
-                onClose={onClose}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+  // Leaf item with no children: link when a destination exists.
+  if (href) {
+    return (
+      <Link
+        href={href}
+        onClick={onClose}
+        className={cn(
+          "flex items-center rounded-md px-2 py-2.5 text-sm transition-colors hover:bg-muted/60 hover:text-foreground",
+          item.featured ? "font-semibold text-primary" : "text-foreground/90"
+        )}
+      >
+        {item.name}
+      </Link>
+    );
+  }
+
+  return (
+    <span className="flex items-center px-2 py-2.5 text-sm text-muted-foreground">
+      {item.name}
+    </span>
   );
 }
 
@@ -347,20 +374,26 @@ function MobileMenu({
   onClose: () => void;
   collections: HeaderNavCollection[];
 }) {
-  // Track expanded state for each tree node
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const handleToggle = (id: string) => {
     setExpanded((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
       } else {
-        newSet.add(id);
+        next.add(id);
       }
-      return newSet;
+      return next;
     });
   };
+
+  // Reset expand state when the drawer closes so the next open starts clean.
+  useEffect(() => {
+    if (!open) {
+      setExpanded(new Set());
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -422,7 +455,7 @@ function MobileMenu({
           <Link
             href="/"
             onClick={onClose}
-            className="mb-2 flex h-10 items-center border-b px-2 text-sm font-medium"
+            className="mb-3 flex h-10 items-center rounded-md px-2 text-sm font-medium transition-colors hover:bg-muted/60"
           >
             Home
           </Link>
@@ -431,44 +464,68 @@ function MobileMenu({
               Categories are not available right now.
             </p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1">
               {collections.map((collection) => {
-                const href = navHref(collection);
+                const collectionExpanded = expanded.has(collection.id);
+                const hasItems = collection.items.length > 0;
 
                 return (
-                  <div key={collection.id} className="border-b pb-2">
-                    {/* Collection header */}
-                    <div className="flex items-center px-2">
-                      {href ? (
-                        <Link
-                          href={href}
-                          onClick={onClose}
-                          className="text-sm font-semibold uppercase tracking-wide text-foreground hover:text-pink-500"
+                  <div key={collection.id} className="border-b border-border/50 last:border-b-0">
+                    {hasItems ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleToggle(collection.id)}
+                          aria-expanded={collectionExpanded}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-2 rounded-md px-2 py-3 text-left transition-colors",
+                            "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          )}
                         >
-                          {collection.name}
-                        </Link>
-                      ) : (
-                        <span className="text-sm font-semibold uppercase tracking-wide text-foreground">
-                          {collection.name}
-                        </span>
-                      )}
-                    </div>
+                          <span className="text-sm font-semibold uppercase tracking-wide text-foreground">
+                            {collection.name}
+                          </span>
+                          <ChevronRight
+                            aria-hidden
+                            className={cn(
+                              "size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
+                              collectionExpanded && "rotate-90"
+                            )}
+                          />
+                        </button>
 
-                    {/* Collection items as tree */}
-                    {collection.items.length > 0 && (
-                      <ul className="mt-1 ml-4">
-                        {collection.items.map((item) => (
-                          <li key={item.id}>
-                            <MobileTreeNode
-                              item={item}
-                              depth={1}
-                              expanded={expanded}
-                              onToggle={handleToggle}
-                              onClose={onClose}
-                            />
-                          </li>
-                        ))}
-                      </ul>
+                        {collectionExpanded && (
+                          <ul className="space-y-0.5 pb-2 pl-1">
+                            {collection.items.map((item) => (
+                              <li key={item.id}>
+                                <MobileTreeNode
+                                  item={item}
+                                  expanded={expanded}
+                                  onToggle={handleToggle}
+                                  onClose={onClose}
+                                />
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    ) : (
+                      (() => {
+                        const href = navHref(collection);
+                        return href ? (
+                          <Link
+                            href={href}
+                            onClick={onClose}
+                            className="flex items-center rounded-md px-2 py-3 text-sm font-semibold uppercase tracking-wide text-foreground transition-colors hover:bg-muted/60 hover:text-primary"
+                          >
+                            {collection.name}
+                          </Link>
+                        ) : (
+                          <span className="flex items-center px-2 py-3 text-sm font-semibold uppercase tracking-wide text-foreground">
+                            {collection.name}
+                          </span>
+                        );
+                      })()
                     )}
                   </div>
                 );
@@ -568,6 +625,7 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
           >
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id={SEARCH_INPUT_ID}
               name="q"
               type="search"
               placeholder="Search for products, brands and more"
