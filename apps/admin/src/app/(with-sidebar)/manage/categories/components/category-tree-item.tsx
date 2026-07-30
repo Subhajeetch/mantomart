@@ -85,7 +85,7 @@ export function CategoryTreeItem({
   onEdit: (category: CategoryNode) => void;
   onDelete: (category: CategoryNode) => void;
 }) {
-  const [open, setOpen] = useState(depth < 2);
+  const [open, setOpen] = useState(false);
   const hasChildren = node.children.length > 0;
   const canNestMore = node.depth < maxDepth;
   const isBusy = busyId === node.id;

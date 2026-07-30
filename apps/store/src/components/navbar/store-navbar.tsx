@@ -17,6 +17,7 @@ import type { Session } from "@repo/types/session-client";
 
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 
 import { resolveNavHref } from "./api";
@@ -70,6 +71,18 @@ function isPathActive(pathname: string, href: string | null) {
   const path = href.split("?")[0]?.split("#")[0] ?? href;
   if (!path || path === "/") return pathname === "/";
   return pathname === path || pathname.startsWith(`${path}/`);
+}
+
+/** Outline "New" badge for featured leaf categories (primary border + text). */
+function FeaturedNewBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="shrink-0 border-primary text-primary text-[11px]"
+    >
+      New
+    </Badge>
+  );
 }
 
 /** Normalize + sort API payloads (defensive against partial / older cache). */
@@ -227,20 +240,30 @@ function DesktopNavigationMenu({
                               <ul className="mt-2 space-y-1 text-xs">
                                 {item.children.map((child) => {
                                   const childHref = navHref(child);
-                                  return childHref ? (
+                                  return (
                                     <li key={child.id}>
-                                      <NavigationMenuLink
-                                        href={childHref}
-                                        className="flex items-center whitespace-nowrap rounded-md p-0 text-muted-foreground hover:bg-transparent hover:text-foreground hover:underline"
-                                      >
-                                        {child.name}
-                                      </NavigationMenuLink>
-                                    </li>
-                                  ) : (
-                                    <li key={child.id}>
-                                      <span className="whitespace-nowrap text-muted-foreground">
-                                        {child.name}
-                                      </span>
+                                      {childHref ? (
+                                        <NavigationMenuLink
+                                          href={childHref}
+                                          title={child.name}
+                                          className="group/child flex max-w-[14rem] items-center gap-1.5 rounded-md p-0 text-muted-foreground no-underline hover:bg-transparent hover:text-foreground hover:no-underline"
+                                        >
+                                          <span className="min-w-0 truncate group-hover/child:underline">
+                                            {child.name}
+                                          </span>
+                                          {child.featured && <FeaturedNewBadge />}
+                                        </NavigationMenuLink>
+                                      ) : (
+                                        <span
+                                          title={child.name}
+                                          className="flex max-w-[14rem] items-center gap-1.5 text-muted-foreground"
+                                        >
+                                          <span className="min-w-0 truncate">
+                                            {child.name}
+                                          </span>
+                                          {child.featured && <FeaturedNewBadge />}
+                                        </span>
+                                      )}
                                     </li>
                                   );
                                 })}
@@ -320,17 +343,22 @@ function MobileTreeNode({
                     <Link
                       href={childHref}
                       onClick={onClose}
+                      title={child.name}
                       className={cn(
-                        "flex items-center rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors",
-                        "hover:bg-muted/60 hover:text-foreground",
-                        child.featured && "font-medium text-primary"
+                        "flex items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors",
+                        "hover:bg-muted/60 hover:text-foreground"
                       )}
                     >
-                      {child.name}
+                      <span className="min-w-0 flex-1 truncate">{child.name}</span>
+                      {child.featured && <FeaturedNewBadge />}
                     </Link>
                   ) : (
-                    <span className="flex items-center px-2 py-2 text-sm text-muted-foreground">
-                      {child.name}
+                    <span
+                      title={child.name}
+                      className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{child.name}</span>
+                      {child.featured && <FeaturedNewBadge />}
                     </span>
                   )}
                 </li>
@@ -420,12 +448,16 @@ function MobileMenu({
       )}
       aria-hidden={!open}
     >
-      <button
+      <Button
         type="button"
+        variant="outline"
         aria-label="Close menu"
         onClick={onClose}
+        tabIndex={open ? 0 : -1}
         className={cn(
-          "absolute inset-0 bg-black/20 backdrop-blur-[2px] transition-opacity duration-200",
+          // Full-screen scrim: override size/border/hover from outline so it stays a backdrop.
+          "absolute inset-0 size-auto h-auto w-auto rounded-none border-0 bg-black/20 p-0 shadow-none backdrop-blur-[2px] transition-opacity duration-200",
+          "hover:bg-black/20 hover:text-inherit focus-visible:border-transparent focus-visible:ring-0",
           open ? "opacity-100" : "opacity-0"
         )}
       />
@@ -443,7 +475,7 @@ function MobileMenu({
           <Button
             type="button"
             size="icon-sm"
-            variant="ghost"
+            variant="outline"
             onClick={onClose}
             aria-label="Close menu"
           >
@@ -452,13 +484,6 @@ function MobileMenu({
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Mobile categories">
-          <Link
-            href="/"
-            onClick={onClose}
-            className="mb-3 flex h-10 items-center rounded-md px-2 text-sm font-medium transition-colors hover:bg-muted/60"
-          >
-            Home
-          </Link>
           {collections.length === 0 ? (
             <p className="px-2 py-8 text-sm text-muted-foreground">
               Categories are not available right now.
