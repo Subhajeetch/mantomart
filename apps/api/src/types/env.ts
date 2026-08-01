@@ -3,8 +3,20 @@ export default interface Env {
   KV: KVNamespace;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+  /**
+   * Signs OAuth state + session cookies. Required in production.
+   * Must be ≥32 random chars. Pass via wrangler secret / .dev.vars —
+   * better-auth does not read CF bindings from process.env.
+   */
+  BETTER_AUTH_SECRET: string;
   NODE_ENV?: string;
+  /**
+   * Public API origin used as better-auth baseURL (OAuth redirect_uri).
+   * e.g. https://api.mantomart.com or http://localhost:8002
+   * BETTER_AUTH_URL is accepted as an alias by createAuth.
+   */
   API_URL?: string;
+  BETTER_AUTH_URL?: string;
   ORIGINS?: string;
   DOMAIN?: string;
   AE_APP_KEY: string;

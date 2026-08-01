@@ -83,21 +83,68 @@ function extractTouchedUserId(context: SessionTouchContext): string | null {
   return typeof returnedId === "string" ? returnedId : null;
 }
 
+export type AuthEnv = {
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  /**
+   * Required in production. Used to sign OAuth state + session cookies.
+   * On Cloudflare Workers this MUST be passed explicitly — better-auth cannot
+   * read wrangler secrets from process.env.
+   */
+  BETTER_AUTH_SECRET?: string;
+  NODE_ENV?: string;
+  /**
+   * Public origin of this API (no trailing slash), e.g.
+   * `https://api.mantomart.com` or `http://localhost:8002`.
+   * Also accepts BETTER_AUTH_URL as an alias.
+   */
+  API_URL?: string;
+  BETTER_AUTH_URL?: string;
+  APP_URL?: string;
+  ORIGINS?: string;
+  DOMAIN?: string;
+};
+
+/**
+ * Resolve the auth base URL used for OAuth redirect_uri + error pages.
+ *
+ * Important: never gate this only on NODE_ENV. If production is missing
+ * NODE_ENV=production, the old code fell back to localhost:8002 and Google
+ * OAuth returned `please_restart_the_process` (state written on one host,
+ * callback on another / verification missing).
+ */
+function resolveAuthBaseURL(env: AuthEnv): string {
+  const raw = (env.API_URL || env.BETTER_AUTH_URL || "").trim();
+  if (raw) return raw.replace(/\/$/, "");
+  return "http://localhost:8002";
+}
+
+function resolveIsProd(env: AuthEnv, baseURL: string): boolean {
+  if (env.NODE_ENV === "production") return true;
+  if (env.NODE_ENV === "development" || env.NODE_ENV === "dev" || env.NODE_ENV === "test") {
+    return false;
+  }
+  // NODE_ENV unset on many CF Workers — treat https API origin as production.
+  return baseURL.startsWith("https://");
+}
+
 export function createAuth(
   db: ReturnType<typeof createDb>,
-  env: {
-    GOOGLE_CLIENT_ID: string;
-    GOOGLE_CLIENT_SECRET: string;
-    NODE_ENV?: string;
-    API_URL?: string;
-    APP_URL?: string;
-    ORIGINS?: string;
-    DOMAIN?: string;
-  },
+  env: AuthEnv,
   sendResetPassEmail?: SendEmailFn,
   activity?: AuthActivityHooks,
 ) {
-  const isProd = env.NODE_ENV === "production";
+  const baseURL = resolveAuthBaseURL(env);
+  const isProd = resolveIsProd(env, baseURL);
+  const secret = env.BETTER_AUTH_SECRET?.trim() || undefined;
+
+  if (isProd && (!secret || secret.length < 32)) {
+    console.error(
+      "[auth] BETTER_AUTH_SECRET is missing or shorter than 32 chars. " +
+        "OAuth state cookies and sessions will be insecure or fail. " +
+        "Set it as a Cloudflare secret and pass it into createAuth.",
+    );
+  }
 
   return betterAuth({
     database: drizzleAdapter(db, {
@@ -110,16 +157,31 @@ export function createAuth(
       },
     }),
 
-    baseURL: isProd ? env.API_URL : "http://localhost:8002",
+    // Explicit secret — CF Workers do not expose wrangler secrets on process.env
+    // so better-auth's env.BETTER_AUTH_SECRET lookup would miss them.
+    ...(secret ? { secret } : {}),
+
+    baseURL,
     basePath: "/api/auth",
 
     trustedOrigins: [
-      ...(env.ORIGINS ? env.ORIGINS.split(",") : []),
+      ...(env.ORIGINS
+        ? env.ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+        : []),
       "https://mantomart.com",
       "https://admin.mantomart.com",
+      "https://api.mantomart.com",
       "http://localhost:8000",
       "http://localhost:8001",
+      "http://localhost:8002",
     ],
+
+    // OAuth state lives in D1; still set a state cookie as CSRF. Skip the
+    // cookie check only if you hit cookie-loss on multi-origin setups — keep
+    // the default (false) for security.
+    account: {
+      storeStateStrategy: "database",
+    },
 
     advanced: {
       /**
@@ -134,6 +196,7 @@ export function createAuth(
         enabled: isProd && Boolean(env.DOMAIN),
         domain: isProd && env.DOMAIN ? env.DOMAIN : undefined,
       },
+      useSecureCookies: isProd || baseURL.startsWith("https://"),
       // Persist IP / user-agent on the session row (used for lastLoginIp)
       ipAddress: {
         ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for", "x-real-ip"],
@@ -142,7 +205,7 @@ export function createAuth(
       // and localhost ports are same-site for credentialed API calls.
       defaultCookieAttributes: {
         sameSite: "lax",
-        secure: isProd,
+        secure: isProd || baseURL.startsWith("https://"),
         httpOnly: true,
         path: "/",
       },

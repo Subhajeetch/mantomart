@@ -55,8 +55,10 @@ function createAuthFromEnv(c: EnvContext) {
   const auth = createAuth(db, {
     GOOGLE_CLIENT_ID: c.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: c.env.GOOGLE_CLIENT_SECRET,
+    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
     NODE_ENV: c.env.NODE_ENV,
     API_URL: c.env.API_URL,
+    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
     ORIGINS: c.env.ORIGINS,
     DOMAIN: c.env.DOMAIN,
   });

@@ -197,7 +197,7 @@ function formatRemaining(timestamp: number | null) {
 const AE_API_BASE = '/api/ae';
 
 const ALIEXPRESS_AUTH_URL =
-  'https://api-sg.aliexpress.com/oauth/authorize?response_type=code&client_id=519374&redirect_uri=https://clean-bubble.vercel.app/callback';
+  `https://api-sg.aliexpress.com/oauth/authorize?response_type=code&client_id=519374&redirect_uri=${process.env.NEXT_PUBLIC_APP_URL}/connections`;
 
 function AliExpressCard() {
   const handledCodeRef = useRef(false);
