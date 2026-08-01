@@ -1,3 +1,4 @@
+import { AdminAuthGate } from "@/components/admin-auth-gate"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   SidebarInset,
@@ -10,11 +11,13 @@ export default function RootLayout({
 	children: React.ReactNode;
 }) {
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        {children}
-      </SidebarInset>
-    </SidebarProvider>
+    <AdminAuthGate>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          {children}
+        </SidebarInset>
+      </SidebarProvider>
+    </AdminAuthGate>
   )
 }

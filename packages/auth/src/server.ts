@@ -122,13 +122,29 @@ export function createAuth(
     ],
 
     advanced: {
+      /**
+       * Production: session cookie is scoped to DOMAIN (e.g. `.mantomart.com`)
+       * so mantomart.com (store) and admin.mantomart.com share one login.
+       *
+       * Local: host-only cookie on the API origin (localhost:8002). Both
+       * frontends talk to that same API with credentials, so one login still
+       * covers store + admin without cross-port Domain cookies.
+       */
       crossSubDomainCookies: {
-        enabled: isProd,
+        enabled: isProd && Boolean(env.DOMAIN),
         domain: isProd && env.DOMAIN ? env.DOMAIN : undefined,
       },
       // Persist IP / user-agent on the session row (used for lastLoginIp)
       ipAddress: {
         ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for", "x-real-ip"],
+      },
+      // SameSite=Lax is enough: store/admin/api share the eTLD+1 in prod,
+      // and localhost ports are same-site for credentialed API calls.
+      defaultCookieAttributes: {
+        sameSite: "lax",
+        secure: isProd,
+        httpOnly: true,
+        path: "/",
       },
     },
 

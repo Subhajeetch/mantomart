@@ -8,15 +8,13 @@ import {
   ShoppingCart,
   User,
   Star,
-  Cable ,
+  Cable,
   Store,
   FolderTree,
   type LucideIcon,
 } from "lucide-react"
 
-import { Session } from "@repo/types/session-client";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import type { Session } from "@repo/types/session-client";
 import { useSession } from "@/lib/auth-client";
 
 import { NavUser } from "@/components/nav-user"
@@ -128,29 +126,34 @@ const sidebarLinks: {
  
 
 
+/**
+ * Auth redirects live in AdminAuthGate (layout). This sidebar only renders
+ * when a staff session is already confirmed.
+ */
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data, isPending } = useSession();
   const session = data as Session | null;
-  const router = useRouter();
 
+  if (isPending || !session?.session) {
+    return (
+      <Sidebar collapsible="icon" {...props}>
+        <SidebarHeader>
+          <NavHeader />
+        </SidebarHeader>
+        <SidebarContent>
+          <div className="flex items-center justify-center p-6 text-xs text-muted-foreground">
+            Loading…
+          </div>
+        </SidebarContent>
+      </Sidebar>
+    );
+  }
 
-    useEffect(() => {
-    if (!isPending && !session) {
-      router.push("/login");
-    }
-  }, [session, isPending, router]);
-
-    if (!session) {
-      return null;
-    }
-
-    const finalUser = {
-      name: session.user.name,
-      email: session.user.email,
-      avatar: session.user.image ?? "/avatars/default.jpg",
-    }
-
-    //console.log(finalUser);
+  const finalUser = {
+    name: session.user.name,
+    email: session.user.email,
+    avatar: session.user.image ?? "/avatars/default.jpg",
+  };
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -165,5 +168,5 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
-  )
+  );
 }

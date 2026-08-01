@@ -31,8 +31,7 @@ import {
 } from "@/components/ui/sidebar"
 
 import { authClient } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
-
+import { getStoreLoginUrl, getAdminOverviewUrl } from "@/lib/app-urls";
 
 export function NavUser({
   user,
@@ -44,9 +43,7 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
-  const router = useRouter();
-     
-  
+
   // Generate initials from name
   const initials = user.name
     .split(" ")
@@ -54,6 +51,25 @@ export function NavUser({
     .join("")
     .toUpperCase()
     .slice(0, 2)
+
+  function handleSignOut() {
+    void authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          // Cross-origin hard nav to store login (admin has no /login UI).
+          window.location.assign(
+            getStoreLoginUrl(getAdminOverviewUrl()),
+          );
+        },
+        onError: () => {
+          // Still leave the admin app even if the API call fails.
+          window.location.assign(
+            getStoreLoginUrl(getAdminOverviewUrl()),
+          );
+        },
+      },
+    });
+  }
 
   return (
     <SidebarMenu>
@@ -116,11 +132,7 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() =>
-              authClient.signOut({
-                fetchOptions: { onSuccess: () => router.push("/login") },
-              })
-            }>
+            <DropdownMenuItem onClick={handleSignOut}>
               <LogOut />
               Log out
             </DropdownMenuItem>

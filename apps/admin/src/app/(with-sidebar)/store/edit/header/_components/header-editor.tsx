@@ -449,7 +449,8 @@ export function HeaderEditor() {
     if (!canUpdate) return;
     dragSnapshot.current = collections;
     const parsed = parseDragId(String(event.active.id));
-    if (!parsed) return;
+    // colzone is a drop target only — never a drag source
+    if (!parsed || parsed.kind === "colzone") return;
 
     let label = parsed.id;
     if (parsed.kind === "tab") {

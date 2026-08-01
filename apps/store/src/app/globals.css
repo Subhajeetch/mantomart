@@ -4,7 +4,6 @@
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
-@source "../../packages/ui/src";
 @source "./src";
 
 @theme inline {

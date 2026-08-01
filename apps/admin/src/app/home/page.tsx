@@ -1,17 +1,9 @@
-"use client"
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { redirect } from "next/navigation";
 
+/**
+ * Legacy /home route — staff land on overview after store login.
+ * Auth is enforced by AdminAuthGate on the (with-sidebar) layout.
+ */
 export default function Home() {
-    const router = useRouter();
-
-    useEffect(() => {
-        router.push("/overview");
-    }, [router]);
-
-    return (
-        <p>
-            Redirecting...
-        </p>
-    )
+  redirect("/overview");
 }

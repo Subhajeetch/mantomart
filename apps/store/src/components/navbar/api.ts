@@ -26,13 +26,13 @@ function getApiBaseUrl(): string {
  */
 async function fetchHeaderNav(): Promise<HeaderNavResponse | HeaderNavErrorResponse | null> {
   const apiBaseUrl = getApiBaseUrl();
-  
-  // In local development, the API should be at localhost:8002
-  // In production Cloudflare Workers, use the configured API URL
-  const url = apiBaseUrl 
+
+  // Prefer absolute API origin when set. During `next build` the API worker
+  // is often offline (ECONNREFUSED) — that is non-fatal; we render an empty nav.
+  const url = apiBaseUrl
     ? `${apiBaseUrl}/api/store/header`
     : "/api/store/header";
-  
+
   try {
     const response = await fetch(url, {
       headers: { Accept: "application/json" },
@@ -45,15 +45,34 @@ async function fetchHeaderNav(): Promise<HeaderNavResponse | HeaderNavErrorRespo
     });
 
     if (!response.ok) {
-      console.error(
+      console.warn(
         `getHeaderNav: API responded ${response.status} ${response.statusText}`
       );
       return null;
     }
 
-    return (await response.json()) as HeaderNavResponse | HeaderNavErrorResponse | null;
+    return (await response.json()) as
+      | HeaderNavResponse
+      | HeaderNavErrorResponse
+      | null;
   } catch (error) {
-    console.error("Failed to fetch storefront header nav:", error);
+    // Build-time / offline API is expected — keep the log quiet.
+    const cause =
+      error instanceof Error && "cause" in error
+        ? (error as Error & { cause?: { code?: string } }).cause
+        : undefined;
+    const code =
+      cause && typeof cause === "object" && "code" in cause
+        ? String(cause.code)
+        : "";
+
+    if (code === "ECONNREFUSED") {
+      console.warn(
+        "getHeaderNav: API unreachable during build/render — using empty nav."
+      );
+    } else {
+      console.warn("getHeaderNav: fetch failed — using empty nav.", error);
+    }
     return null;
   }
 }
@@ -153,16 +172,19 @@ export async function getHeaderNav(): Promise<HeaderNavCollection[]> {
   const body = await fetchHeaderNav();
 
   if (!body || typeof body !== "object" || body.success !== true) {
-    const message =
-      body && typeof body === "object" && "message" in body
-        ? String(body.message ?? "unknown error")
-        : "invalid payload";
-    console.error(`getHeaderNav: unsuccessful response (${message})`);
+    // null body is the normal offline/build path — no noisy error.
+    if (body) {
+      const message =
+        typeof body === "object" && "message" in body
+          ? String(body.message ?? "unknown error")
+          : "invalid payload";
+      console.warn(`getHeaderNav: unsuccessful response (${message})`);
+    }
     return [];
   }
 
   if (!Array.isArray(body.data?.collections)) {
-    console.error("getHeaderNav: collections missing or not an array");
+    console.warn("getHeaderNav: collections missing or not an array");
     return [];
   }
 
