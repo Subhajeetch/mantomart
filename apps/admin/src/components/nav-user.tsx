@@ -5,9 +5,13 @@ import {
   Bell,
   ChevronsUpDown,
   LogOut,
-  Sparkles,
-  Settings
+  Settings,
+  CircleArrowOutUpRight
 } from "lucide-react"
+
+import Image from "next/image"
+import Link from "next/link"
+import config from "@/mine.config"
 
 import {
   Avatar,
@@ -112,8 +116,18 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem>
-                <Sparkles />
-                Upgrade to Pro
+                <Link href={config.storeFrontURI} className="flex w-full items-center" target="_blank" rel="noopener noreferrer">
+                  <div className="flex gap-2 items-center mr-auto">
+                    <Image
+                        src="/logos/mantomart-logo-short.png"
+                        alt="Search Icon"
+                        width={16}
+                        height={16}
+                      />
+                    Storefront
+                  </div>
+                  <CircleArrowOutUpRight />
+                </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
