@@ -36,7 +36,7 @@ function normalizeUrl(value: unknown): string | null {
 
 function getImageDedupeKey(url: string) {
   try {
-    const parsed = new URL(url, 'https://ragimart.local');
+    const parsed = new URL(url, 'https://mantomart.com');
     const pathname = parsed.pathname.replace(
       /\.(jpe?g|png|webp|gif)(?:_.+)$/i,
       '.$1'

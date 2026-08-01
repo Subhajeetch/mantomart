@@ -1,5 +1,5 @@
 {
-  "name": "ragimart",
+  "name": "mantomart",
   "private": true,
   "scripts": {
     "build": "turbo run build",

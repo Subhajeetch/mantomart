@@ -8,7 +8,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "store",
+	"name": "mantomart-store",
 	"main": ".open-next/worker.js",
 	"compatibility_date": "2025-09-27",
 	"compatibility_flags": [
@@ -29,7 +29,7 @@
 			// Self-reference service binding, the service name must match the worker name
 			// see https://opennext.js.org/cloudflare/caching
 			"binding": "WORKER_SELF_REFERENCE",
-			"service": "store"
+			"service": "mantomart-store"
 		}
 	],
 	"observability": {
@@ -55,7 +55,4 @@
 	 * For production: Set the actual API worker URL (e.g., https://api.mantomart.com)
 	 * For development: Use wrangler secrets or .env.local
 	 */
-	"vars": {
-		"NEXT_PUBLIC_API_URL": "https://api.mantomart.com"
-	}
 }

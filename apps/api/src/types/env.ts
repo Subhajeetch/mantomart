@@ -25,7 +25,7 @@ export default interface Env {
   /**
    * OAuth redirect URI registered in Google Cloud Console.
    * Should point at the admin integrations page, e.g.
-   * https://admin.ragimart.com/connections
+   * https://admin.mantomart.com/connections
    */
   GOOGLE_ADS_REDIRECT_URI: string;
 

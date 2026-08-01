@@ -280,7 +280,7 @@ function GooglePreview({
               <span className="font-bold">{config.brandName}</span>
             </div>
             <p className="truncate text-xs text-[#4d5156]">
-              https://ragimart.com › product › {path}
+              https://mantomart.com › product › {path}
             </p>
             <h3 className="mt-1 line-clamp-2 text-lg font-bold leading-snug text-[#1a0dab]">
               {displayTitle}

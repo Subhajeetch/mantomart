@@ -34,8 +34,8 @@ app.use("*", async (c, next) => {
     c.env.ORIGINS
       ? c.env.ORIGINS.split(",")
       : [
-          "https://ragimart.com",
-          "https://admin.ragimart.com",
+          "https://mantomart.com",
+          "https://admin.mantomart.com",
           "http://localhost:8000",
           "http://localhost:8001",
         ]

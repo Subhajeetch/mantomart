@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
 	title: "Admin Dashboard",
-	description: "Ragimart Admin Dashboard",
+	description: "Mantomart Admin Dashboard",
 };
 
 export default function RootLayout({

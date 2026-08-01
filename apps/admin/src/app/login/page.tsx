@@ -2,8 +2,8 @@ import { Metadata } from "next";
 import LoginClient from "./LoginClient";
 
 export const metadata: Metadata = {
-  title: "Login/Signup - Ragimart",
-  description: "Login or signup to access your Ragimart account",
+  title: "Login/Signup - Mantomart",
+  description: "Login or signup to access your Mantomart account",
 };
 
 export default function LoginPage() {

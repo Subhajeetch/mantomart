@@ -376,7 +376,7 @@ export default function LoginForm({ authClient, appUrl, onSuccess }: Props) {
                 </button>
 
                 <p className="legal-text">
-                  By {mode === "login" ? "logging in" : "creating an account"}, you agree to ragimart's{" "}
+                  By {mode === "login" ? "logging in" : "creating an account"}, you agree to mantomart's{" "}
                   <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.
                 </p>
 

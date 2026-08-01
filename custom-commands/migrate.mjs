@@ -81,8 +81,8 @@ if (!dbName || dbName.startsWith("--")) {
     "Missing database name.\n\n" +
     "  Usage: pnpm db:migrate <dbname> --file=<migration> --local|--remote\n\n" +
     "  Examples:\n" +
-    "    pnpm db:migrate ragimart --file=0000_empty_gressill.sql --local\n" +
-    "    pnpm db:migrate ragimart --file=packages/db/migrations/0000_empty_gressill.sql --remote"
+    "    pnpm db:migrate mantomart --file=0000_empty_gressill.sql --local\n" +
+    "    pnpm db:migrate mantomart --file=packages/db/migrations/0000_empty_gressill.sql --remote"
   );
 }
 
