@@ -42,6 +42,10 @@ const strengthLabelColor = {
   3: "text-[#22c55e]",
 } as const;
 
+function isPositiveStrength(s: 0 | 1 | 2 | 3): s is 1 | 2 | 3 {
+  return s > 0;
+}
+
 export default function PassCheck({ password, show = true }: Props) {
   const passwordChecks = useMemo(() => getPasswordChecks(password), [password]);
   const strength = useMemo(() => getStrength(password), [password]);
@@ -64,7 +68,7 @@ export default function PassCheck({ password, show = true }: Props) {
               key={level}
               className={cn(
                 "h-1 flex-1 rounded-full bg-[#e5e5e5] transition-[background] duration-[250ms] ease-in-out",
-                strength >= level && strength > 0
+                strength >= level && isPositiveStrength(strength)
                   ? strengthBarActive[strength]
                   : undefined,
               )}
@@ -74,7 +78,7 @@ export default function PassCheck({ password, show = true }: Props) {
         <span
           className={cn(
             "min-w-[44px] text-right text-xs font-semibold",
-            strength > 0 ? strengthLabelColor[strength] : undefined,
+            isPositiveStrength(strength) ? strengthLabelColor[strength] : undefined,
           )}
         >
           {strengthLabel[strength]}
