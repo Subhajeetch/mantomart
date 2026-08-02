@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FolderPlus, Loader2, Pencil } from 'lucide-react';
 
+import { ImageUploadField } from '@/components/image-upload';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -24,7 +25,6 @@ export type CategoryFormValues = {
   slug: string;
   description: string;
   image: string;
-  position: number;
 };
 
 export function CategoryFormDialog({
@@ -49,7 +49,6 @@ export function CategoryFormDialog({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [image, setImage] = useState('');
-  const [position, setPosition] = useState('0');
   const [error, setError] = useState<string | null>(null);
 
   const isEdit = mode === 'edit';
@@ -69,6 +68,19 @@ export function CategoryFormDialog({
     return `Create a top-level category (depth 1/${maxDepth}).`;
   }, [isEdit, category, mode, parent, maxDepth]);
 
+  const imageName = useMemo(() => {
+    const fromName = toCategorySlug(name.trim());
+    if (fromName) return fromName;
+    if (isEdit && category?.slug) return category.slug;
+    return '';
+  }, [name, isEdit, category]);
+
+  const imagePurpose = useMemo(() => {
+    // e.g. category-fashion when name is "Fashion"
+    const slug = imageName || 'category';
+    return `category-${slug}`.slice(0, 64);
+  }, [imageName]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -76,12 +88,10 @@ export function CategoryFormDialog({
       setName(category.name);
       setDescription(category.description ?? '');
       setImage(category.image ?? '');
-      setPosition(String(category.position ?? 0));
     } else {
       setName('');
       setDescription('');
       setImage('');
-      setPosition('0');
     }
     setError(null);
   }, [open, isEdit, category]);
@@ -100,13 +110,9 @@ export function CategoryFormDialog({
 
     const slug = toCategorySlug(trimmedName);
     if (!slug) {
-      setError('Name must include at least one letter or number for the URL slug.');
-      return;
-    }
-
-    const pos = parseInt(position, 10);
-    if (!Number.isFinite(pos) || pos < 0) {
-      setError('Position must be a non-negative integer.');
+      setError(
+        'Name must include at least one letter or number for the URL slug.'
+      );
       return;
     }
 
@@ -126,7 +132,6 @@ export function CategoryFormDialog({
       slug,
       description: description.trim(),
       image: image.trim(),
-      position: pos,
     });
   }
 
@@ -164,20 +169,18 @@ export function CategoryFormDialog({
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="cat-image">Image URL (optional)</Label>
-            <Input
-              id="cat-image"
-              value={image}
-              onChange={(e) => setImage(e.target.value)}
-              placeholder="https://…"
-              disabled={loading}
-              maxLength={2048}
-            />
-            <p className="text-muted-foreground text-xs">
-              Shown as the folder icon in the tree when set.
-            </p>
-          </div>
+          <ImageUploadField
+            value={image}
+            onChange={setImage}
+            disabled={loading}
+            outputWidth={128}
+            outputHeight={128}
+            folder="category"
+            name={imageName}
+            purpose={imagePurpose}
+            label="Image (optional)"
+            hint="Drag & drop or choose a file. Crops to 128×128 WebP for the tree icon."
+          />
 
           <div className="space-y-2">
             <Label htmlFor="cat-desc">Description (optional)</Label>
@@ -190,21 +193,6 @@ export function CategoryFormDialog({
               rows={3}
               maxLength={2000}
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="cat-pos">Sort position</Label>
-            <Input
-              id="cat-pos"
-              type="number"
-              min={0}
-              value={position}
-              onChange={(e) => setPosition(e.target.value)}
-              disabled={loading}
-            />
-            <p className="text-muted-foreground text-xs">
-              Lower numbers appear first among siblings.
-            </p>
           </div>
 
           {error && (

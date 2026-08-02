@@ -46,4 +46,21 @@ export default interface Env {
    * Create at https://aistudio.google.com/apikey
    */
   GOOGLE_AI_STUDIO_API_KEY: string;
+
+  // ─── Cloudflare R2 (image uploads) ─────────────────────────────────────────
+  /**
+   * R2 bucket binding. Configure in wrangler.jsonc:
+   *   r2_buckets: [{ binding: "R2_IMAGES", bucket_name: "…", preview_bucket_name: "…" }]
+   *
+   * Local `wrangler dev` → Miniflare disk (.wrangler/state/v3/r2).
+   * Deployed Worker → real Cloudflare R2 bucket.
+   */
+  R2_IMAGES?: R2Bucket;
+
+  /**
+   * Optional public CDN / custom domain for objects (e.g. https://imgs.mantomart.com).
+   * When unset, images are served by this Worker at `{API_URL}/api/images/{key}`.
+   * Leave unset in local dev so URLs point at localhost.
+   */
+  R2_PUBLIC_URL?: string;
 }

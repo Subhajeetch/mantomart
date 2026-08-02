@@ -524,6 +524,234 @@ categoriesRouter.get(
   }
 );
 
+// ─── PUT /reorder — Discord-style sibling reordering via drag-and-drop ────────
+// Body: {
+//   parentId: string | null,   // siblings under this parent (null = roots)
+//   orderedIds: string[]       // full ordered list of sibling ids
+// }
+// Or batch: { items: { id, position }[] }  (positions only, no parent moves)
+categoriesRouter.put(
+  '/reorder',
+  requireAnyPermission(
+    PERMISSIONS.CATEGORY_UPDATE,
+    PERMISSIONS.CATEGORY_MANAGE
+  ),
+  async (c) => {
+    const db = getDb(c);
+
+    const parsed = await readJsonObject(c);
+    if (!parsed.ok) return parsed.response;
+    const { body } = parsed;
+
+    try {
+      const now = new Date();
+      let updatedCount = 0;
+
+      // ── Mode A: orderedIds under a single parent ──────────────────────────
+      if (Array.isArray(body.orderedIds)) {
+        const orderedIds = body.orderedIds
+          .filter((id): id is string => typeof id === 'string')
+          .map((id) => id.trim())
+          .filter((id) => isValidId(id));
+
+        // Dedupe while preserving order
+        const seen = new Set<string>();
+        const uniqueIds: string[] = [];
+        for (const id of orderedIds) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          uniqueIds.push(id);
+        }
+
+        if (uniqueIds.length === 0) {
+          return errorJson(
+            c,
+            400,
+            'INVALID_ORDER',
+            'orderedIds must be a non-empty array of category ids.'
+          );
+        }
+
+        let parentId: string | null = null;
+        if (body.parentId !== undefined && body.parentId !== null) {
+          if (
+            typeof body.parentId !== 'string' ||
+            !isValidId(body.parentId.trim())
+          ) {
+            return errorJson(
+              c,
+              400,
+              'INVALID_PARENT',
+              'Invalid parent category id.'
+            );
+          }
+          parentId = body.parentId.trim();
+
+          const [parent] = await db
+            .select({ id: categories.id })
+            .from(categories)
+            .where(eq(categories.id, parentId))
+            .limit(1);
+          if (!parent) {
+            return errorJson(
+              c,
+              404,
+              'PARENT_NOT_FOUND',
+              'Parent category not found.'
+            );
+          }
+        }
+
+        // Load all siblings under this parent
+        const siblings = await db
+          .select({ id: categories.id, parentId: categories.parentId })
+          .from(categories)
+          .where(
+            parentId
+              ? eq(categories.parentId, parentId)
+              : sql`${categories.parentId} IS NULL`
+          );
+
+        const siblingIds = new Set(siblings.map((s) => s.id));
+
+        // Every ordered id must be a current sibling (no cross-parent moves here)
+        for (const id of uniqueIds) {
+          if (!siblingIds.has(id)) {
+            return errorJson(
+              c,
+              400,
+              'INVALID_ORDER',
+              `Category ${id} is not a sibling under the given parent.`
+            );
+          }
+        }
+
+        // Must include all siblings so positions stay contiguous
+        if (uniqueIds.length !== siblingIds.size) {
+          return errorJson(
+            c,
+            400,
+            'INCOMPLETE_ORDER',
+            `orderedIds must include all ${siblingIds.size} siblings under this parent.`
+          );
+        }
+
+        // Apply positions with gaps of 10 for future inserts between
+        for (let i = 0; i < uniqueIds.length; i++) {
+          const id = uniqueIds[i]!;
+          const position = i * 10;
+          const result = await db
+            .update(categories)
+            .set({ position, updatedAt: now })
+            .where(
+              and(
+                eq(categories.id, id),
+                parentId
+                  ? eq(categories.parentId, parentId)
+                  : sql`${categories.parentId} IS NULL`
+              )
+            )
+            .returning({ id: categories.id });
+          if (result.length > 0) updatedCount += 1;
+        }
+      } else if (Array.isArray(body.items)) {
+        // ── Mode B: sparse { id, position }[] updates ──────────────────────
+        const items = body.items as unknown[];
+        if (items.length === 0) {
+          return errorJson(
+            c,
+            400,
+            'INVALID_BODY',
+            'Provide orderedIds or a non-empty items array of { id, position }.'
+          );
+        }
+
+        const seen = new Set<string>();
+        for (const entry of items) {
+          if (
+            entry === null ||
+            typeof entry !== 'object' ||
+            Array.isArray(entry)
+          ) {
+            continue;
+          }
+          const row = entry as Record<string, unknown>;
+          const id = typeof row.id === 'string' ? row.id.trim() : '';
+          const position = sanitizePosition(row.position);
+          if (!isValidId(id) || position === undefined) continue;
+          if (seen.has(id)) continue;
+          seen.add(id);
+
+          const result = await db
+            .update(categories)
+            .set({ position, updatedAt: now })
+            .where(eq(categories.id, id))
+            .returning({ id: categories.id });
+          if (result.length > 0) updatedCount += 1;
+        }
+      } else {
+        return errorJson(
+          c,
+          400,
+          'INVALID_BODY',
+          'Provide orderedIds (string[]) with optional parentId, or items: { id, position }[].'
+        );
+      }
+
+      if (updatedCount === 0) {
+        return errorJson(
+          c,
+          400,
+          'NOTHING_REORDERED',
+          'No categories were reordered.'
+        );
+      }
+
+      c.executionCtx.waitUntil(
+        logAuditFromContext(c, {
+          action: AUDIT_ACTIONS.CATEGORY_UPDATE,
+          category: AUDIT_CATEGORIES.CATEGORY,
+          description: `Reordered ${updatedCount} categor${updatedCount === 1 ? 'y' : 'ies'}`,
+          targetType: AUDIT_TARGET_TYPES.CATEGORY,
+          targetLabel: 'category-tree',
+          severity: 'info',
+          metadata: {
+            kind: 'category_reorder',
+            updatedCount,
+            parentId:
+              body.parentId === null
+                ? null
+                : typeof body.parentId === 'string'
+                  ? body.parentId
+                  : undefined,
+          },
+        }).then(() => undefined)
+      );
+
+      // Return fresh tree so the client can re-sync without a second round-trip
+      const rows = await db
+        .select()
+        .from(categories)
+        .orderBy(asc(categories.position), asc(categories.name));
+
+      return c.json({
+        success: true,
+        message: 'Category order updated.',
+        data: buildTree(rows),
+        meta: { updatedCount },
+      });
+    } catch (error) {
+      console.error('Error reordering categories:', error);
+      return errorJson(
+        c,
+        500,
+        'INTERNAL_ERROR',
+        'Failed to reorder categories.'
+      );
+    }
+  }
+);
+
 // ─── GET /:id — single category ───────────────────────────────────────────────
 categoriesRouter.get(
   '/:id',
@@ -635,7 +863,8 @@ categoriesRouter.post(
       parentId = body.parentId.trim();
     }
 
-    const position = sanitizePosition(body.position) ?? 0;
+    // Explicit position is optional — default to end of sibling list (DnD owns order).
+    let position = sanitizePosition(body.position);
 
     try {
       let depth = 1;
@@ -677,6 +906,27 @@ categoriesRouter.post(
         }
       }
 
+      if (position === undefined) {
+        const siblings = await db
+          .select({ position: categories.position })
+          .from(categories)
+          .where(
+            parentId
+              ? eq(categories.parentId, parentId)
+              : sql`${categories.parentId} IS NULL`
+          )
+          .orderBy(asc(categories.position));
+
+        const maxPos =
+          siblings.length > 0
+            ? Math.max(...siblings.map((s) => s.position ?? 0))
+            : -1;
+        position = maxPos + 1;
+      }
+
+      // Guaranteed set above (explicit body or auto end-of-list).
+      const finalPosition = position as number;
+
       slug = await ensureUniqueSlug(db, slug);
       const now = new Date();
       const id = nanoid();
@@ -690,7 +940,7 @@ categoriesRouter.post(
           description: description ?? null,
           image: image ?? null,
           parentId,
-          position,
+          position: finalPosition,
           createdAt: now,
           updatedAt: now,
         })

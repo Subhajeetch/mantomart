@@ -183,3 +183,72 @@ export function flattenTree(nodes: CategoryNode[]): CategoryFlat[] {
   walk(nodes);
   return result;
 }
+
+/**
+ * Reorder siblings under `parentId` (null = roots) to match `orderedIds`.
+ * Returns a new tree, or null if the ids don't match the current siblings.
+ */
+export function reorderSiblingsInTree(
+  nodes: CategoryNode[],
+  parentId: string | null,
+  orderedIds: string[]
+): CategoryNode[] | null {
+  if (parentId === null) {
+    return reorderListByIds(nodes, orderedIds);
+  }
+
+  function walk(list: CategoryNode[]): CategoryNode[] | null {
+    let changed = false;
+    const next: CategoryNode[] = [];
+
+    for (const node of list) {
+      if (node.id === parentId) {
+        const reordered = reorderListByIds(node.children, orderedIds);
+        if (!reordered) return null;
+        next.push({ ...node, children: reordered });
+        changed = true;
+      } else {
+        const childResult = walk(node.children);
+        if (childResult === null) return null;
+        if (childResult !== node.children) {
+          next.push({ ...node, children: childResult });
+          changed = true;
+        } else {
+          next.push(node);
+        }
+      }
+    }
+
+    return changed ? next : list;
+  }
+
+  const result = walk(nodes);
+  // walk returns the same reference when nothing changed under roots that
+  // aren't the target — but we still need to distinguish "not found".
+  // If parentId wasn't found, ordered ids never applied → return null only
+  // when the target parent is missing.
+  if (!findNode(nodes, parentId)) return null;
+  return result;
+}
+
+function reorderListByIds(
+  list: CategoryNode[],
+  orderedIds: string[]
+): CategoryNode[] | null {
+  if (list.length !== orderedIds.length) return null;
+
+  const byId = new Map(list.map((n) => [n.id, n]));
+  const next: CategoryNode[] = [];
+
+  for (let i = 0; i < orderedIds.length; i++) {
+    const id = orderedIds[i]!;
+    const node = byId.get(id);
+    if (!node) return null;
+    // Keep positions in sync with visual order (API also rewrites these).
+    next.push({ ...node, position: i * 10 });
+    byId.delete(id);
+  }
+
+  if (byId.size > 0) return null;
+  return next;
+}

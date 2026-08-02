@@ -16,9 +16,11 @@ import manageProducts from "./paths/admin/manage-products";
 import aiEndpoints from "./paths/admin/ai-endpoints";
 import editHeader from "./paths/admin/edit-header";
 import security from "./paths/admin/security";
+import imageUpload from "./paths/admin/image-upload-api";
 
 // from store (public)
 import storeHeader from "./paths/store/header";
+import storeImages from "./paths/store/images";
 
 export {
   aeProduct,
@@ -34,5 +36,7 @@ export {
   aiEndpoints,
   editHeader,
   security,
+  imageUpload,
   storeHeader,
+  storeImages,
 };

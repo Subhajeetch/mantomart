@@ -2,6 +2,22 @@
 
 import { useState } from 'react';
 import {
+  closestCenter,
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   ChevronRight,
   Folder,
   FolderOpen,
@@ -32,6 +48,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import type { CategoryNode } from '../utils';
+import { DragHandle } from './drag-handle';
 
 function CategoryIcon({
   image,
@@ -70,9 +87,11 @@ export function CategoryTreeItem({
   canDelete,
   busyId,
   depth = 0,
+  dragEnabled,
   onAddChild,
   onEdit,
   onDelete,
+  onReorder,
 }: {
   node: CategoryNode;
   maxDepth: number;
@@ -81,26 +100,92 @@ export function CategoryTreeItem({
   canDelete: boolean;
   busyId: string | null;
   depth?: number;
+  /** When false (e.g. while filtering), hide grips and disable DnD. */
+  dragEnabled: boolean;
   onAddChild: (parent: CategoryNode) => void;
   onEdit: (category: CategoryNode) => void;
   onDelete: (category: CategoryNode) => void;
+  onReorder: (
+    parentId: string | null,
+    orderedIds: string[]
+  ) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const hasChildren = node.children.length > 0;
   const canNestMore = node.depth < maxDepth;
-  const isBusy = busyId === node.id;
+  const isBusy = busyId === node.id || busyId === 'reorder';
   const hasCategoryActions = canCreate || canUpdate || canDelete;
+  const canDrag = dragEnabled && canUpdate && !isBusy;
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: node.id,
+    disabled: !canDrag,
+    data: {
+      parentId: node.parentId,
+      depth: node.depth,
+    },
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 20 : undefined,
+    opacity: isDragging ? 0.45 : 1,
+    paddingLeft: `${depth * 1.25 + 0.25}rem`,
+  };
+
+  const childIds = node.children.map((c) => c.id);
+
+  const childSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  function handleChildDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = childIds.indexOf(String(active.id));
+    const newIndex = childIds.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+
+    const next = [...childIds];
+    const [moved] = next.splice(oldIndex, 1);
+    if (!moved) return;
+    next.splice(newIndex, 0, moved);
+    void onReorder(node.id, next);
+  }
 
   return (
-    <div className="select-none">
+    <div ref={setNodeRef} style={style} className="select-none">
       <Collapsible open={open} onOpenChange={setOpen}>
         <div
           className={cn(
-            'group hover:bg-muted/60 flex items-center gap-1 rounded-md pr-1 transition-colors',
-            isBusy && 'opacity-60'
+            'group hover:bg-muted/60 flex items-center gap-0.5 rounded-md pr-1 transition-colors',
+            isBusy && 'opacity-60',
+            isDragging && 'bg-muted/80 ring-2 ring-primary/30 shadow-md'
           )}
-          style={{ paddingLeft: `${depth * 1.25 + 0.25}rem` }}
         >
+          {canDrag ? (
+            <DragHandle
+              attributes={attributes}
+              listeners={listeners}
+              disabled={!canDrag}
+              label={`Drag to reorder ${node.name}`}
+            />
+          ) : (
+            <span className="inline-flex size-7 shrink-0" aria-hidden />
+          )}
+
           {hasChildren ? (
             <CollapsibleTrigger asChild>
               <Button
@@ -215,21 +300,35 @@ export function CategoryTreeItem({
         {hasChildren && (
           <CollapsibleContent>
             <div className="border-border/60 ml-[calc(0.875rem+0.25rem)] border-l pl-0">
-              {node.children.map((child) => (
-                <CategoryTreeItem
-                  key={child.id}
-                  node={child}
-                  maxDepth={maxDepth}
-                  canCreate={canCreate}
-                  canUpdate={canUpdate}
-                  canDelete={canDelete}
-                  busyId={busyId}
-                  depth={depth + 1}
-                  onAddChild={onAddChild}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                />
-              ))}
+              {/* Nested DndContext so children only reorder among siblings */}
+              <DndContext
+                sensors={childSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleChildDragEnd}
+              >
+                <SortableContext
+                  items={childIds}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {node.children.map((child) => (
+                    <CategoryTreeItem
+                      key={child.id}
+                      node={child}
+                      maxDepth={maxDepth}
+                      canCreate={canCreate}
+                      canUpdate={canUpdate}
+                      canDelete={canDelete}
+                      busyId={busyId}
+                      depth={depth + 1}
+                      dragEnabled={dragEnabled}
+                      onAddChild={onAddChild}
+                      onEdit={onEdit}
+                      onDelete={onDelete}
+                      onReorder={onReorder}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
             </div>
           </CollapsibleContent>
         )}

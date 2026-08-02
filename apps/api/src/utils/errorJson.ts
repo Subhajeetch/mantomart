@@ -33,7 +33,19 @@ export type AppContext = Context<AppEnv>;
  */
 export type EnvContext = Context<{ Bindings: Env }>;
 
-type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 429 | 500 | 502 | 503;
+type ErrorStatus =
+  | 400
+  | 401
+  | 403
+  | 404
+  | 405
+  | 409
+  | 413
+  | 415
+  | 429
+  | 500
+  | 502
+  | 503;
 
 /**
  * Generic over the Hono env so both `{ Bindings }` and
