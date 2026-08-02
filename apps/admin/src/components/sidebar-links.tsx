@@ -17,7 +17,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 export function SidebarLinks({
@@ -35,6 +35,14 @@ export function SidebarLinks({
     }[]
   }[]
 }) {
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  /** Close the mobile sheet after navigation so it does not cover the page. */
+  function handleLinkClick() {
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }
 
   return (
     <SidebarGroup>
@@ -45,7 +53,7 @@ export function SidebarLinks({
             return (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton asChild>
-                  <Link href={item.url || "#"}>
+                  <Link href={item.url || "#"} onClick={handleLinkClick}>
                     {item.icon && <item.icon />}
                     <span>{item.title}</span>
                   </Link>
@@ -73,7 +81,7 @@ export function SidebarLinks({
                       {item.items?.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
                           <SidebarMenuSubButton asChild>
-                            <Link href={subItem.url}>
+                            <Link href={subItem.url} onClick={handleLinkClick}>
                               <span>{subItem.title}</span>
                             </Link>
                           </SidebarMenuSubButton>

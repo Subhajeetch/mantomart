@@ -46,7 +46,7 @@ export function NavUser({
     avatar: string
   }
 }) {
-  const { isMobile } = useSidebar()
+  const { isMobile, setOpenMobile } = useSidebar()
 
   // Generate initials from name
   const initials = user.name
@@ -56,7 +56,14 @@ export function NavUser({
     .toUpperCase()
     .slice(0, 2)
 
+  function closeMobileSidebar() {
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }
+
   function handleSignOut() {
+    closeMobileSidebar()
     void authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
@@ -78,7 +85,11 @@ export function NavUser({
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        {/*
+          modal={false}: mobile sidebar is a Sheet (Dialog). A nested modal
+          DropdownMenu fights the Sheet for focus/pointer events on touch.
+        */}
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
@@ -100,6 +111,8 @@ export function NavUser({
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
+            // Keep focus on the trigger so the Sheet does not steal it on close
+            onCloseAutoFocus={(event) => event.preventDefault()}
           >
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
@@ -115,8 +128,14 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Link href={config.storeFrontURI} className="flex w-full items-center" target="_blank" rel="noopener noreferrer">
+              <DropdownMenuItem asChild>
+                <Link
+                  href={config.storeFrontURI}
+                  className="flex w-full items-center"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={closeMobileSidebar}
+                >
                   <div className="flex gap-2 items-center mr-auto">
                     <Image
                         src="/logos/mantomart-logo-short.png"
@@ -132,15 +151,15 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={closeMobileSidebar}>
                 <BadgeCheck />
                 Account
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={closeMobileSidebar}>
                 <Settings />
                 Settings
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={closeMobileSidebar}>
                 <Bell />
                 Notifications
               </DropdownMenuItem>

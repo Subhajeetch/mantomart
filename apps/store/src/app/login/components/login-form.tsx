@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import PassCheck from "./pass-check";
-import "../login-form.css";
+import { cn } from "@/lib/utils";
 
 type AuthClient = {
   signIn: {
@@ -47,6 +47,11 @@ const shortLogoUrl = "/logos/mantomart-logo-short.png";
 const fullLogoUrl = "/logos/mantomart-logo.png";
 const heroImageUrl = "/images/login-hero-image.webp";
 const brandName = "Mantomart";
+
+const fieldInputClass =
+  "w-full appearance-none rounded-none border-0 border-b-[1.5px] border-solid border-[#ccc] bg-transparent pt-2.5 pr-10 pb-1.5 pl-0 text-base text-[#111] outline-none transition-[border-color] duration-[180ms] ease-in-out placeholder:text-base placeholder:text-[#aaa] focus:border-[#555]";
+
+const fieldClass = "relative mb-[18px]";
 
 export default function LoginForm({
   authClient,
@@ -180,45 +185,99 @@ export default function LoginForm({
   }
 
   return (
-    <main className="auth-page">
-      <header>
-        <div className="full-logo-container">
+    <main
+      className={cn(
+        "flex min-h-screen w-full flex-col bg-white text-[#111] antialiased",
+        "min-[600px]:items-center min-[600px]:bg-[#f0f1f3] min-[600px]:bg-[linear-gradient(135deg,#dfeee7,#c3ebfd,#e2bbfc)]",
+        "min-[1024px]:h-screen min-[1024px]:items-center min-[1024px]:pr-4",
+      )}
+    >
+      <header
+        className={cn(
+          "mx-auto hidden w-full max-w-[1200px] py-2.5 px-4",
+          "min-[1024px]:flex",
+        )}
+      >
+        <div>
           {/* Decorative brand assets — next/image not required for static public logos */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={fullLogoUrl} alt="Mantomart" className="full-logo" />
+          <img
+            src={fullLogoUrl}
+            alt="Mantomart"
+            className="h-auto w-[240px] object-contain"
+          />
         </div>
-        <div className="header-spacer" />
+        <div className="grow" />
       </header>
 
-      <div className="auth-grid-container">
-        <div className="auth-layout">
-          <div className="auth-hero">
+      <div
+        className={cn(
+          "w-full",
+          "min-[600px]:items-center min-[600px]:justify-center min-[1024px]:mx-auto min-[1024px]:flex min-[1024px]:h-[84%] min-[1024px]:w-full min-[1024px]:max-w-[1200px] min-[1024px]:items-center min-[1024px]:justify-center",
+        )}
+      >
+        <div
+          className={cn(
+            "min-[600px]:flex min-[600px]:justify-center min-[600px]:items-center min-[1024px]:grid min-[1024px]:w-full min-[1024px]:grid-cols-[1fr_410px] min-[1024px]:items-center min-[1024px]:gap-[60px]",
+          )}
+        >
+          <div
+            className={cn(
+              "hidden",
+              "min-[1024px]:flex min-[1024px]:items-center min-[1024px]:justify-center",
+            )}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={heroImageUrl} alt="" />
+            <img
+              src={heroImageUrl}
+              alt=""
+              className="pointer-events-none h-auto w-full max-w-[660px] select-none object-contain"
+            />
           </div>
 
-          <div className="auth-container">
-            <div className="brand">
-              <div className="brand-icon">
+          <div
+            className={cn(
+              "w-full max-w-full px-6 pb-12 pt-10",
+              "min-[600px]:my-10 min-[600px]:max-w-120 min-[600px]:rounded-[18px] min-[600px]:bg-white min-[600px]:px-11 min-[600px]:pb-11 min-[600px]:pt-12 min-[600px]:shadow-[0_2px_24px_rgba(0,0,0,0.09),0_1px_4px_rgba(0,0,0,0.05)]",
+              "min-[1024px]:m-0 min-[1024px]:max-w-105 min-[1024px]:rounded-2xl min-[1024px]:bg-white min-[1024px]:px-9 min-[1024px]:py-10 min-[1024px]:shadow-[0_10px_40px_rgba(0,0,0,0.08)] ",
+            )}
+          >
+            <div className="mb-7 flex items-center gap-2.5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#e7e7e7]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={shortLogoUrl} alt="" className="short-logo" />
+                <img
+                  src={shortLogoUrl}
+                  alt=""
+                  className="h-10 w-10 object-contain"
+                />
               </div>
-              <span className="brand-name">{brandName}</span>
+              <span className="text-[26px] font-bold tracking-[-0.3px] text-[#111]">
+                {brandName}
+              </span>
             </div>
 
             {mode === "forgot" && (
               <>
-                <h1 className="auth-heading">Reset password</h1>
+                <h1
+                  className={cn(
+                    "mb-[30px] text-[26px] font-bold leading-tight tracking-[-0.5px] text-[#111]",
+                    "min-[600px]:text-[30px]",
+                  )}
+                >
+                  Reset password
+                </h1>
 
                 {forgotSent ? (
-                  <div className="forgot-success">
-                    <p className="forgot-success-title">Check your inbox</p>
-                    <p className="forgot-success-body">
+                  <div className="flex flex-col gap-2.5">
+                    <p className="text-lg font-bold text-[#111]">
+                      Check your inbox
+                    </p>
+                    <p className="mb-2 text-sm leading-[1.6] text-[#666]">
                       We sent a password reset link to{" "}
                       <strong>{forgotEmail}</strong>. It expires in 1 hour.
                     </p>
                     <button
-                      className="switch-link"
+                      className="mb-[18px] block w-full cursor-pointer border-0 bg-transparent text-center text-[15px] font-medium text-[#2d7ff9] hover:underline"
                       type="button"
                       onClick={() => {
                         setForgotSent(false);
@@ -229,15 +288,19 @@ export default function LoginForm({
                     </button>
                   </div>
                 ) : (
-                  <form className="auth-form" onSubmit={handleForgot} noValidate>
-                    <p className="forgot-hint">
+                  <form
+                    className="flex flex-col"
+                    onSubmit={handleForgot}
+                    noValidate
+                  >
+                    <p className="mb-6 text-sm leading-[1.6] text-[#666]">
                       Enter the email address associated with your account and
                       we&apos;ll send you a link to reset your password.
                     </p>
 
-                    <div className="field">
+                    <div className={fieldClass}>
                       <input
-                        className="field-input"
+                        className={fieldInputClass}
                         type="email"
                         placeholder="Email address"
                         required
@@ -248,21 +311,29 @@ export default function LoginForm({
                     </div>
 
                     {error && (
-                      <p className="error-msg" role="alert">
+                      <p
+                        className="-mt-3 mb-3 text-[13px] text-[#e53935]"
+                        role="alert"
+                      >
                         {error}
                       </p>
                     )}
 
                     <button
                       type="submit"
-                      className="btn-primary"
+                      className={cn(
+                        "mb-5 mt-4 w-full cursor-pointer rounded-full border-0 bg-[#2d7ff9] px-5 py-3 text-[17px] font-semibold text-white transition-[background,transform] duration-150 ease-in-out",
+                        "hover:enabled:bg-[#1a6fe0]",
+                        "active:enabled:scale-[0.985]",
+                        "disabled:cursor-not-allowed disabled:opacity-55",
+                      )}
                       disabled={loading}
                     >
                       {loading ? "Sending…" : "Send reset link"}
                     </button>
 
                     <button
-                      className="switch-link"
+                      className="mb-[18px] block w-full cursor-pointer border-0 bg-transparent text-center text-[15px] font-medium text-[#2d7ff9] hover:underline"
                       type="button"
                       onClick={() => switchMode("login")}
                     >
@@ -275,16 +346,25 @@ export default function LoginForm({
 
             {mode !== "forgot" && (
               <>
-                <h1 className="auth-heading">
+                <h1
+                  className={cn(
+                    "mb-[30px] text-[26px] font-bold leading-tight tracking-[-0.5px] text-[#111]",
+                    "min-[600px]:text-[30px]",
+                  )}
+                >
                   {mode === "login" ? "Log In" : "Create Account"}
                 </h1>
 
-                <form className="auth-form" onSubmit={handleSubmit} noValidate>
+                <form
+                  className="flex flex-col"
+                  onSubmit={handleSubmit}
+                  noValidate
+                >
                   {mode === "signup" && (
                     <>
-                      <div className="field">
+                      <div className={fieldClass}>
                         <input
-                          className="field-input"
+                          className={fieldInputClass}
                           type="text"
                           placeholder="Full name"
                           required
@@ -294,9 +374,9 @@ export default function LoginForm({
                         />
                       </div>
 
-                      <div className="field">
+                      <div className={fieldClass}>
                         <input
-                          className="field-input"
+                          className={fieldInputClass}
                           type="email"
                           placeholder="Email address"
                           required
@@ -306,9 +386,9 @@ export default function LoginForm({
                         />
                       </div>
 
-                      <div className="field field-password">
+                      <div className={cn(fieldClass, "relative")}>
                         <input
-                          className="field-input"
+                          className={fieldInputClass}
                           type={showSignupPw ? "text" : "password"}
                           placeholder="Password"
                           required
@@ -320,7 +400,7 @@ export default function LoginForm({
                         />
                         <button
                           type="button"
-                          className="pw-toggle"
+                          className="absolute right-1 top-1/2 flex -translate-y-1/2 cursor-pointer items-center border-0 bg-transparent p-1 leading-none text-[#999] hover:text-[#555]"
                           onClick={() => setShowSignupPw((v) => !v)}
                           aria-label={
                             showSignupPw ? "Hide password" : "Show password"
@@ -328,7 +408,7 @@ export default function LoginForm({
                         >
                           {showSignupPw ? <EyeOffIcon /> : <EyeIcon />}
                         </button>
-                        <div className="password-strength-float">
+                        <div className="pointer-events-none absolute bottom-full right-5 z-10 mb-2 w-[240px]">
                           <PassCheck
                             password={signupPassword}
                             show={signupPasswordFocused}
@@ -336,9 +416,9 @@ export default function LoginForm({
                         </div>
                       </div>
 
-                      <div className="field">
+                      <div className={fieldClass}>
                         <input
-                          className="field-input"
+                          className={fieldInputClass}
                           type={showConfirmPw ? "text" : "password"}
                           placeholder="Confirm password"
                           required
@@ -348,7 +428,7 @@ export default function LoginForm({
                         />
                         <button
                           type="button"
-                          className="pw-toggle"
+                          className="absolute right-1 top-1/2 flex -translate-y-1/2 cursor-pointer items-center border-0 bg-transparent p-1 leading-none text-[#999] hover:text-[#555]"
                           onClick={() => setShowConfirmPw((v) => !v)}
                           aria-label={
                             showConfirmPw ? "Hide password" : "Show password"
@@ -358,25 +438,37 @@ export default function LoginForm({
                         </button>
                       </div>
 
-                      <div className="field">
-                        <div className="select-wrapper">
+                      <div className={fieldClass}>
+                        <div className="relative">
                           <select
-                            className={`gender-select${!gender ? " unselected" : ""}`}
+                            className={cn(
+                              "w-full cursor-pointer appearance-none rounded-none border-0 border-b-[1.5px] border-solid border-[#ccc] bg-transparent py-2.5 pr-10 pl-0 text-base outline-none transition-[border-color] duration-[180ms] ease-in-out focus:border-[#555]",
+                              !gender ? "text-[#aaa]" : "text-[#111]",
+                            )}
                             value={gender}
                             onChange={(e) => setGender(e.target.value)}
                             required
                           >
-                            <option value="" disabled>
+                            <option value="" disabled className="bg-white text-[#111]">
                               Gender
                             </option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                            <option value="other">Other</option>
-                            <option value="prefer_not_to_say">
+                            <option value="male" className="bg-white text-[#111]">
+                              Male
+                            </option>
+                            <option value="female" className="bg-white text-[#111]">
+                              Female
+                            </option>
+                            <option value="other" className="bg-white text-[#111]">
+                              Other
+                            </option>
+                            <option
+                              value="prefer_not_to_say"
+                              className="bg-white text-[#111]"
+                            >
                               Prefer not to say
                             </option>
                           </select>
-                          <span className="select-arrow">
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 leading-none text-[#999]">
                             <ChevronDownIcon />
                           </span>
                         </div>
@@ -386,9 +478,9 @@ export default function LoginForm({
 
                   {mode === "login" && (
                     <>
-                      <div className="field">
+                      <div className={fieldClass}>
                         <input
-                          className="field-input"
+                          className={fieldInputClass}
                           type="email"
                           placeholder="Email address"
                           required
@@ -398,9 +490,9 @@ export default function LoginForm({
                         />
                       </div>
 
-                      <div className="field">
+                      <div className={fieldClass}>
                         <input
-                          className="field-input"
+                          className={fieldInputClass}
                           type={showLoginPw ? "text" : "password"}
                           placeholder="Password"
                           required
@@ -410,7 +502,7 @@ export default function LoginForm({
                         />
                         <button
                           type="button"
-                          className="pw-toggle"
+                          className="absolute right-1 top-1/2 flex -translate-y-1/2 cursor-pointer items-center border-0 bg-transparent p-1 leading-none text-[#999] hover:text-[#555]"
                           onClick={() => setShowLoginPw((v) => !v)}
                           aria-label={
                             showLoginPw ? "Hide password" : "Show password"
@@ -420,9 +512,9 @@ export default function LoginForm({
                         </button>
                       </div>
 
-                      <div className="forgot-password-container">
+                      <div className="mb-[18px] flex justify-end">
                         <button
-                          className="forgot-password-text"
+                          className="cursor-pointer border-0 bg-transparent p-0 text-sm text-[#2d7ff9] hover:underline"
                           type="button"
                           onClick={() => switchMode("forgot")}
                         >
@@ -433,14 +525,22 @@ export default function LoginForm({
                   )}
 
                   {error && (
-                    <p className="error-msg" role="alert">
+                    <p
+                      className="-mt-3 mb-3 text-[13px] text-[#e53935]"
+                      role="alert"
+                    >
                       {error}
                     </p>
                   )}
 
                   <button
                     type="submit"
-                    className="btn-primary"
+                    className={cn(
+                      "mb-5 mt-4 w-full cursor-pointer rounded-full border-0 bg-[#2d7ff9] px-5 py-3 text-[17px] font-semibold text-white transition-[background,transform] duration-150 ease-in-out",
+                      "hover:enabled:bg-[#1a6fe0]",
+                      "active:enabled:scale-[0.985]",
+                      "disabled:cursor-not-allowed disabled:opacity-55",
+                    )}
                     disabled={loading}
                   >
                     {loading
@@ -452,7 +552,7 @@ export default function LoginForm({
                 </form>
 
                 <button
-                  className="switch-link"
+                  className="mb-[18px] block w-full cursor-pointer border-0 bg-transparent text-center text-[15px] font-medium text-[#2d7ff9] hover:underline"
                   onClick={() =>
                     switchMode(mode === "login" ? "signup" : "login")
                   }
@@ -463,21 +563,37 @@ export default function LoginForm({
                     : "Already have an account? Log in"}
                 </button>
 
-                <p className="legal-text">
+                <p className="mb-7 text-[12.5px] leading-[1.6] text-[#888]">
                   By {mode === "login" ? "logging in" : "creating an account"},
                   you agree to mantomart&apos;s{" "}
-                  <a href="#">Terms of Service</a> and{" "}
-                  <a href="#">Privacy Policy</a>.
+                  <a
+                    href="#"
+                    className="text-[#2d7ff9] no-underline hover:underline"
+                  >
+                    Terms of Service
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="#"
+                    className="text-[#2d7ff9] no-underline hover:underline"
+                  >
+                    Privacy Policy
+                  </a>
+                  .
                 </p>
 
-                <div className="or-divider-container">
-                  <div className="or-divider-line" />
-                  <p className="or-divider-text">or</p>
-                  <div className="or-divider-line" />
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="h-px grow bg-[#ddd]" />
+                  <p className="text-sm font-medium text-[#888]">or</p>
+                  <div className="h-px grow bg-[#ddd]" />
                 </div>
 
                 <button
-                  className="btn-social"
+                  className={cn(
+                    "mb-3 flex w-full cursor-pointer items-center justify-center gap-3 rounded-full border-[1.8px] border-solid border-[#111] bg-white px-5 py-3 text-base font-semibold text-[#111] transition-[background,transform] duration-150 ease-in-out",
+                    "hover:bg-[#f5f5f5]",
+                    "active:scale-[0.985]",
+                  )}
                   onClick={handleGoogle}
                   type="button"
                 >
@@ -500,7 +616,7 @@ function GoogleIcon() {
       height="20"
       viewBox="0 0 24 24"
       aria-hidden="true"
-      style={{ flexShrink: 0 }}
+      className="shrink-0"
     >
       <path
         fill="#4285F4"

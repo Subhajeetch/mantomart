@@ -193,6 +193,19 @@ function Sidebar({
             } as React.CSSProperties
           }
           side={side}
+          // Dropdown/select content is portaled outside the Sheet DOM tree.
+          // Without this, tapping a menu item is treated as an outside click
+          // and closes the mobile sidebar before the action runs.
+          onInteractOutside={(event) => {
+            const target = event.target as HTMLElement | null
+            if (
+              target?.closest(
+                "[data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='select-content'], [role='menu'], [role='listbox']"
+              )
+            ) {
+              event.preventDefault()
+            }
+          }}
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>

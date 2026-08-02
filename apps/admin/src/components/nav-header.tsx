@@ -53,7 +53,11 @@ export function NavHeader() {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        {/*
+          modal={false}: mobile sidebar is a Sheet (Dialog). A nested modal
+          DropdownMenu fights the Sheet for focus/pointer events on touch.
+        */}
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
@@ -74,6 +78,8 @@ export function NavHeader() {
             align="start"
             side={isMobile ? "bottom" : "right"}
             sideOffset={4}
+            // Keep focus on the trigger so the Sheet does not steal it on close
+            onCloseAutoFocus={(event) => event.preventDefault()}
           >
             <DropdownMenuLabel className="text-xs text-muted-foreground">
               Quick settings
