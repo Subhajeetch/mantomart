@@ -67,7 +67,8 @@ export function NavUser({
     void authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
-          // Cross-origin hard nav to store login (admin has no /login UI).
+          // Session cookie cleared by better-auth. Next admin visit has no
+          // session → middleware redirects to store and drops mm_admin_gate.
           window.location.assign(
             getStoreLoginUrl(getAdminOverviewUrl()),
           );

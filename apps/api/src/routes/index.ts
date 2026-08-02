@@ -15,6 +15,7 @@ import addProductMyList from "./paths/admin/add-product-mylist";
 import manageProducts from "./paths/admin/manage-products";
 import aiEndpoints from "./paths/admin/ai-endpoints";
 import editHeader from "./paths/admin/edit-header";
+import security from "./paths/admin/security";
 
 // from store (public)
 import storeHeader from "./paths/store/header";
@@ -32,5 +33,6 @@ export {
   manageProducts,
   aiEndpoints,
   editHeader,
+  security,
   storeHeader,
 };

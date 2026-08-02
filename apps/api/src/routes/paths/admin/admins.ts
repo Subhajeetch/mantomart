@@ -13,6 +13,7 @@ import { createDb, userPermissions, users } from '@repo/db';
 import type Env from '@/types/env';
 import { errorJson, type EnvContext } from '@/utils/errorJson';
 import { touchLastActive } from '@/utils/userActivity';
+import { invalidateAdminAccessForUser } from '@/utils/adminAccessCache';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
@@ -21,6 +22,18 @@ import {
   extractRequestAuditContext,
   type AuditActor,
 } from '@/utils/auditLog';
+
+/** Bust admin-panel access KV so demotions/promotions take effect immediately. */
+function scheduleAccessCacheInvalidation(
+  c: EnvContext,
+  userId: string
+): void {
+  c.executionCtx.waitUntil(
+    invalidateAdminAccessForUser(c.env.KV, userId).catch((error) => {
+      console.error('Failed to invalidate admin access cache:', error);
+    })
+  );
+}
 
 type AdminRole = 'admin' | 'owner';
 type UserRole = 'customer' | AdminRole;
@@ -642,6 +655,7 @@ admins.post('/add', async (c) => {
     }
 
     const promoted = updated[0];
+    scheduleAccessCacheInvalidation(c, promoted.id);
     scheduleAdminAudit(c, access.db, access.actor, {
       action: AUDIT_ACTIONS.ADMIN_PROMOTE,
       category: AUDIT_CATEGORIES.ADMIN,
@@ -774,6 +788,7 @@ admins.patch('/:id/role', async (c) => {
     }
 
     const roleUpdated = updated[0];
+    scheduleAccessCacheInvalidation(c, roleUpdated.id);
     scheduleAdminAudit(c, access.db, access.actor, {
       action: AUDIT_ACTIONS.ADMIN_ROLE_CHANGE,
       category: AUDIT_CATEGORIES.ADMIN,
@@ -1055,6 +1070,8 @@ admins.delete('/:id', async (c) => {
     }
 
     const demoted = updated[0];
+    // Critical: demoted staff must lose panel access on the next request.
+    scheduleAccessCacheInvalidation(c, demoted.id);
     scheduleAdminAudit(c, access.db, access.actor, {
       action: AUDIT_ACTIONS.ADMIN_DEMOTE,
       category: AUDIT_CATEGORIES.ADMIN,

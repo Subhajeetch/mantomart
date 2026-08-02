@@ -20,6 +20,7 @@ import {
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
 } from '@/utils/auditLog';
+import { invalidateAdminAccessForUser } from '@/utils/adminAccessCache';
 
 type UserRole = 'customer' | 'admin' | 'owner';
 type UserStatus = 'active' | 'banned' | 'deleted';
@@ -1200,6 +1201,12 @@ usersRouter.patch(
       }
 
       const updatedUser = updated[0];
+      // Ban must revoke cached admin-panel access immediately.
+      c.executionCtx.waitUntil(
+        invalidateAdminAccessForUser(c.env.KV, updatedUser.id).catch((error) => {
+          console.error('Failed to invalidate admin access cache:', error);
+        })
+      );
       c.executionCtx.waitUntil(
         logAuditFromContext(c, {
           action: banned ? AUDIT_ACTIONS.USER_BAN : AUDIT_ACTIONS.USER_UNBAN,
@@ -1451,6 +1458,12 @@ usersRouter.delete(
         .where(eq(userPermissions.userId, targetId));
 
       const deletedUser = updated[0];
+      // Soft-delete drops role to customer — bust any admin gate cache.
+      c.executionCtx.waitUntil(
+        invalidateAdminAccessForUser(c.env.KV, deletedUser.id).catch((error) => {
+          console.error('Failed to invalidate admin access cache:', error);
+        })
+      );
       c.executionCtx.waitUntil(
         logAuditFromContext(c, {
           action: AUDIT_ACTIONS.USER_DELETE,
