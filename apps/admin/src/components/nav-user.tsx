@@ -152,18 +152,24 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={closeMobileSidebar}>
-                <BadgeCheck />
-                Account
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={closeMobileSidebar}>
+              <DropdownMenuItem asChild>
                 <Link
-                  href="/settings"
-                  className="flex w-full gap-1.5 items-center"
+                  href="/account"
+                  className="flex w-full items-center gap-1.5"
                   onClick={closeMobileSidebar}
                 >
-                <Settings />
-                Settings
+                  <BadgeCheck />
+                  Account
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link
+                  href="/settings"
+                  className="flex w-full items-center gap-1.5"
+                  onClick={closeMobileSidebar}
+                >
+                  <Settings />
+                  Settings
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={closeMobileSidebar}>
