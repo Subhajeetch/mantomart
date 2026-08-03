@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Image from 'next/image';
 import {
   FileEdit,
   ImageOff,
@@ -16,6 +15,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { ProxiedNextImage } from '@/app/(with-sidebar)/settings/proxied-image';
 
 import ImportWizard from './import-wizard';
 import {
@@ -292,7 +292,7 @@ const MyList = () => {
                 >
                   <div className="relative aspect-square overflow-hidden bg-muted">
                     {imageUrl ? (
-                      <Image
+                      <ProxiedNextImage
                         src={imageUrl}
                         alt={title}
                         fill

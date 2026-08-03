@@ -25,6 +25,7 @@ import {
   editHeader,
   security,
   imageUpload,
+  imageProxy,
   storeHeader,
   storeImages,
 } from "./routes";
@@ -108,6 +109,7 @@ app.route("/api/ai", aiEndpoints);
 app.route("/api/admin/header", editHeader);
 app.route("/api/admin/security", security);
 app.route("/api/admin/images", imageUpload);
+app.route("/api/admin/image-proxy", imageProxy);
 app.route("/api/store/header", storeHeader);
 /** Public R2 object serve — used when R2_PUBLIC_URL is unset (local + default prod). */
 app.route("/api/images", storeImages);

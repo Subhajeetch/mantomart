@@ -30,6 +30,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { ProxiedNextImage } from "@/app/(with-sidebar)/settings/proxied-image";
 import ProductDetailDialog, {
   fetchAliExpressProductDetail,
   type AliExpressProductDetailResponse,
@@ -409,12 +410,13 @@ function ProductCard({
     >
       <div className="relative aspect-square overflow-hidden bg-muted">
         {imageUrl ? (
-          <Image
+          <ProxiedNextImage
             src={imageUrl}
             alt={title}
             fill
             className="object-cover transition duration-300 group-hover:scale-[1.03]"
             unoptimized
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted-foreground">

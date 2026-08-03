@@ -42,6 +42,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
 import {
   FullscreenDialog,
   FullscreenDialogBody,
@@ -1068,11 +1069,12 @@ export default function ImportWizard({
                               )}
                             >
                               <div className="relative aspect-square bg-muted">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
+                                <ProxiedImg
                                   src={img.url}
                                   alt={img.alt || form.name}
                                   className="h-full w-full object-contain"
+                                  loading="lazy"
+                                  referrerPolicy="no-referrer"
                                 />
                                 <button
                                   type="button"
@@ -1631,7 +1633,7 @@ export default function ImportWizard({
                             />
                             {form.sizeChartImage ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img
+                              <ProxiedImg
                                 src={form.sizeChartImage}
                                 alt="Size chart preview"
                                 className="mt-1 max-h-48 w-full rounded-md border object-contain bg-muted"
@@ -2002,12 +2004,12 @@ export default function ImportWizard({
                           : 'border-transparent hover:border-primary/40'
                       )}
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
+                      <ProxiedImg
                         src={img.url}
                         alt={img.alt || `Product image ${index + 1}`}
                         className="h-full w-full object-contain"
                         loading="lazy"
+                        referrerPolicy="no-referrer"
                       />
                       {isSelected ? (
                         <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">

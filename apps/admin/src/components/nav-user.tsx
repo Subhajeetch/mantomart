@@ -157,8 +157,14 @@ export function NavUser({
                 Account
               </DropdownMenuItem>
               <DropdownMenuItem onClick={closeMobileSidebar}>
+                <Link
+                  href="/settings"
+                  className="flex w-full gap-1.5 items-center"
+                  onClick={closeMobileSidebar}
+                >
                 <Settings />
                 Settings
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={closeMobileSidebar}>
                 <Bell />

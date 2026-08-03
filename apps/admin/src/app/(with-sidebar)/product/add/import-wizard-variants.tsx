@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
 import { centsToDisplay, type SkuDraft } from './storage';
 import {
   canUseGroupedVariants,
@@ -553,11 +554,12 @@ function VariantGroupCard({
             </button>
 
             {image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <ProxiedImg
                 src={image}
                 alt=""
                 className="h-14 w-14 shrink-0 rounded-md border object-cover"
+                loading="lazy"
+                referrerPolicy="no-referrer"
               />
             ) : (
               <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border bg-muted">
@@ -916,11 +918,12 @@ function VariantListCard({
                 : ''}
             </p>
             {sku.images[0]?.url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <ProxiedImg
                 src={sku.images[0].url}
                 alt=""
                 className="mt-2 h-14 w-14 rounded-md border object-cover"
+                loading="lazy"
+                referrerPolicy="no-referrer"
               />
             ) : null}
           </div>

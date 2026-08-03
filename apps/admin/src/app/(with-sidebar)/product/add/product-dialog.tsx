@@ -21,6 +21,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ProxiedImg } from "@/app/(with-sidebar)/settings/proxied-image";
+import { useProxiedImageSrc } from "@/app/(with-sidebar)/settings/use-settings";
 
 export type AliExpressSearchProduct = {
   itemId: string;
@@ -426,6 +428,7 @@ function ProductDetailDialog({
 
   const selectedImageUrl =
     selectedImage ?? parsed.galleryImages[0] ?? parsed.detailImages[0] ?? null;
+  const selectedImageDisplaySrc = useProxiedImageSrc(selectedImageUrl);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -469,13 +472,14 @@ function ProductDetailDialog({
               <div className="flex min-w-0 flex-col gap-4 xl:flex-row">
                 <div className="w-full shrink-0 space-y-3 xl:w-[420px]">
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border bg-muted sm:aspect-square">
-                    {selectedImageUrl ? (
+                    {selectedImageDisplaySrc ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={selectedImageUrl}
+                        src={selectedImageDisplaySrc}
                         alt={parsed.title}
                         className="h-full w-full object-contain"
                         loading="lazy"
+                        referrerPolicy="no-referrer"
                       />
                     ) : (
                       <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
@@ -498,12 +502,12 @@ function ProductDetailDialog({
                               : "hover:border-primary/50"
                           }`}
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
+                          <ProxiedImg
                             src={image}
                             alt=""
                             className="h-full w-full object-cover"
                             loading="lazy"
+                            referrerPolicy="no-referrer"
                           />
                         </button>
                       ))}
@@ -715,12 +719,12 @@ function ProductDetailDialog({
                   <div className="grid gap-3 md:grid-cols-2">
                     {parsed.detailImages.map((image) => (
                       <div key={image} className="overflow-hidden rounded-lg border bg-muted">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <ProxiedImg
                           src={image}
                           alt=""
                           className="h-auto w-full"
                           loading="lazy"
+                          referrerPolicy="no-referrer"
                         />
                       </div>
                     ))}

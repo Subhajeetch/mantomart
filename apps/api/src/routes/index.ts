@@ -17,6 +17,7 @@ import aiEndpoints from "./paths/admin/ai-endpoints";
 import editHeader from "./paths/admin/edit-header";
 import security from "./paths/admin/security";
 import imageUpload from "./paths/admin/image-upload-api";
+import imageProxy from "./paths/admin/image-proxy";
 
 // from store (public)
 import storeHeader from "./paths/store/header";
@@ -37,6 +38,7 @@ export {
   editHeader,
   security,
   imageUpload,
+  imageProxy,
   storeHeader,
   storeImages,
 };

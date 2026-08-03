@@ -24,6 +24,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
+import { useProxiedImageSrc } from '@/app/(with-sidebar)/settings/use-settings';
 import type { SavedAliExpressProduct } from './storage';
 import {
   fetchAliExpressProductDetail,
@@ -288,6 +290,7 @@ export default function ProductPreviewSheet({
 
   const mainImageDisplay =
     selectedImage ?? parsed.galleryImages[0] ?? parsed.detailImages[0] ?? null;
+  const mainImageSrc = useProxiedImageSrc(mainImageDisplay);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -396,12 +399,13 @@ export default function ProductPreviewSheet({
           <div className="mt-4 space-y-3">
             {/* Main image */}
             <div className="flex aspect-square items-center justify-center overflow-hidden rounded-xl border bg-muted sm:aspect-[4/3]">
-              {mainImageDisplay ? (
+              {mainImageSrc ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={mainImageDisplay}
+                  src={mainImageSrc}
                   alt={parsed.title}
                   className="h-full w-full object-contain"
+                  referrerPolicy="no-referrer"
                 />
               ) : (
                 <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
@@ -425,12 +429,12 @@ export default function ProductPreviewSheet({
                         : 'hover:border-primary/40'
                     }`}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <ProxiedImg
                       src={url}
                       alt=""
                       className="h-full w-full object-cover"
                       loading="lazy"
+                      referrerPolicy="no-referrer"
                     />
                   </button>
                 ))}
@@ -475,12 +479,12 @@ export default function ProductPreviewSheet({
                     key={url}
                     className="overflow-hidden rounded-lg border bg-muted"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <ProxiedImg
                       src={url}
                       alt=""
                       className="h-auto w-full"
                       loading="lazy"
+                      referrerPolicy="no-referrer"
                     />
                   </div>
                 ))}

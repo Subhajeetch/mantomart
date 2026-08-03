@@ -45,7 +45,8 @@ type ErrorStatus =
   | 429
   | 500
   | 502
-  | 503;
+  | 503
+  | 504;
 
 /**
  * Generic over the Hono env so both `{ Bindings }` and
