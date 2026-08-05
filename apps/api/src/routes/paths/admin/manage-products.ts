@@ -76,6 +76,8 @@ const MAX_BODY_BYTES = 2_500_000;
 const INSERT_CHUNK_SIZE = 10;
 const QUERY_CHUNK_SIZE = 80;
 const ADMIN_ROLES = ['admin', 'owner'] as const;
+/** Fixed buffer for payment-processor fees / tax leakage ($1.50 in cents). */
+const PAYMENT_PROCESSOR_FEE_CENTS = 150;
 
 const ID_RE = /^[A-Za-z0-9_-]+$/;
 const SAFE_URL_RE = /^(https?:\/\/|\/\/)/i;
@@ -111,12 +113,34 @@ type ParsedSku = {
   compareAtPrice: number | null;
   aePrice: number | null;
   aeSalePrice: number | null;
+  /** Server-computed estimated profit in cents (never trusted from client). */
+  estProfit: number | null;
   stock: number;
   sku: string | null;
   priceIncludesTax: boolean;
   images: ProductImage[];
   properties: ParsedProperty[];
 };
+
+/**
+ * estProfit = our selling price − AE actual cost − $1.50 processor buffer.
+ * Prefers AE sale price, falls back to list AE price. Null when cost is unknown.
+ */
+function computeEstProfit(
+  price: number,
+  aeSalePrice: number | null,
+  aePrice: number | null
+): number | null {
+  if (!Number.isFinite(price) || price < 0) return null;
+  const aeCost =
+    aeSalePrice !== null && Number.isFinite(aeSalePrice)
+      ? aeSalePrice
+      : aePrice !== null && Number.isFinite(aePrice)
+        ? aePrice
+        : null;
+  if (aeCost === null || aeCost < 0) return null;
+  return Math.round(price - aeCost - PAYMENT_PROCESSOR_FEE_CENTS);
+}
 
 type ParsedAttribute = {
   aeAttrNameId: string | null;
@@ -538,13 +562,18 @@ function parseSku(value: unknown, index: number): ParsedSku | { error: string } 
     });
   }
 
+  const resolvedAePrice = aePrice === undefined ? null : aePrice;
+  const resolvedAeSalePrice = aeSalePrice === undefined ? null : aeSalePrice;
+
   return {
     aeSkuId: aeSkuId === undefined ? null : aeSkuId,
     aeSkuAttr: aeSkuAttr === undefined ? null : aeSkuAttr,
     price,
     compareAtPrice: compareAtPrice === undefined ? null : compareAtPrice,
-    aePrice: aePrice === undefined ? null : aePrice,
-    aeSalePrice: aeSalePrice === undefined ? null : aeSalePrice,
+    aePrice: resolvedAePrice,
+    aeSalePrice: resolvedAeSalePrice,
+    // Always computed server-side — ignore any client-supplied estProfit.
+    estProfit: computeEstProfit(price, resolvedAeSalePrice, resolvedAePrice),
     stock,
     sku: skuCode === undefined ? null : skuCode,
     priceIncludesTax: sanitizeBoolean(value.priceIncludesTax, false),
@@ -904,6 +933,7 @@ async function replaceNestedProductData(
       compareAtPrice: parsedSku.compareAtPrice,
       aePrice: parsedSku.aePrice,
       aeSalePrice: parsedSku.aeSalePrice,
+      estProfit: parsedSku.estProfit,
       stock: parsedSku.stock,
       sku: parsedSku.sku,
       priceIncludesTax: parsedSku.priceIncludesTax,
@@ -1010,6 +1040,10 @@ manageProducts.get(
                 productId: productSkus.productId,
                 minPrice: min(productSkus.price),
                 maxPrice: max(productSkus.price),
+                minCompareAtPrice: min(productSkus.compareAtPrice),
+                maxCompareAtPrice: max(productSkus.compareAtPrice),
+                minEstProfit: min(productSkus.estProfit),
+                maxEstProfit: max(productSkus.estProfit),
               })
               .from(productSkus)
               .where(inArray(productSkus.productId, productIds))
@@ -1028,6 +1062,10 @@ manageProducts.get(
           {
             minPrice: toPrice(row.minPrice),
             maxPrice: toPrice(row.maxPrice),
+            minCompareAtPrice: toPrice(row.minCompareAtPrice),
+            maxCompareAtPrice: toPrice(row.maxCompareAtPrice),
+            minEstProfit: toPrice(row.minEstProfit),
+            maxEstProfit: toPrice(row.maxEstProfit),
           },
         ])
       );
@@ -1049,6 +1087,10 @@ manageProducts.get(
               : [],
             minPrice: prices?.minPrice ?? null,
             maxPrice: prices?.maxPrice ?? null,
+            minCompareAtPrice: prices?.minCompareAtPrice ?? null,
+            maxCompareAtPrice: prices?.maxCompareAtPrice ?? null,
+            minEstProfit: prices?.minEstProfit ?? null,
+            maxEstProfit: prices?.maxEstProfit ?? null,
           };
         }),
         meta: {

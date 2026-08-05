@@ -27,16 +27,22 @@ import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
 import { centsToDisplay, type SkuDraft } from './storage';
 import {
   canUseGroupedVariants,
+  computeDiscountPercent,
+  formatDiscountPercent,
   getSecondaryOptionLabel,
   getSharedSkuField,
   getSkuGroupDimensions,
   groupSkusByProperty,
+  MIN_VARIANT_DISCOUNT_PERCENT,
   pickDefaultGroupBy,
   shouldDefaultToGroupedView,
   type VariantViewMode,
 } from './import-wizard-utils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Matches API: $1.50 payment-processor / tax buffer (cents). */
+const PAYMENT_PROCESSOR_FEE_CENTS = 150;
 
 function parseDollarsToCents(raw: string): number | null {
   const trimmed = raw.trim();
@@ -62,6 +68,171 @@ function dollarsDisplay(cents: number | null | 'mixed'): string {
 function stockDisplay(stock: number | null | 'mixed'): string {
   if (stock === 'mixed' || stock == null) return '';
   return String(stock);
+}
+
+/**
+ * Frontend mirror of server `computeEstProfit`:
+ * our price − AE actual (sale → list) − $1.50.
+ * Preview only — the API recomputes and stores the real value on save.
+ */
+function computeEstProfitCents(
+  price: number,
+  aeSalePrice: number | null,
+  aePrice: number | null
+): number | null {
+  if (!Number.isFinite(price) || price < 0) return null;
+  const aeCost =
+    aeSalePrice !== null && Number.isFinite(aeSalePrice)
+      ? aeSalePrice
+      : aePrice !== null && Number.isFinite(aePrice)
+        ? aePrice
+        : null;
+  if (aeCost === null || aeCost < 0) return null;
+  return Math.round(price - aeCost - PAYMENT_PROCESSOR_FEE_CENTS);
+}
+
+function formatEstProfitCents(cents: number): string {
+  const sign = cents < 0 ? '-' : '';
+  return `${sign}$${centsToDisplay(Math.abs(cents))}`;
+}
+
+function formatEstProfitRange(skus: SkuDraft[]): string | null {
+  const profits = skus
+    .map((sku) =>
+      computeEstProfitCents(sku.price, sku.aeSalePrice, sku.aePrice)
+    )
+    .filter((n): n is number => n !== null);
+  if (!profits.length) return null;
+  const min = Math.min(...profits);
+  const max = Math.max(...profits);
+  if (min === max) return formatEstProfitCents(min);
+  return `${formatEstProfitCents(min)} – ${formatEstProfitCents(max)}`;
+}
+
+function formatDiscountRange(skus: SkuDraft[]): string | null {
+  const discounts = skus
+    .map((sku) => computeDiscountPercent(sku.price, sku.compareAtPrice))
+    .filter((n): n is number => n !== null);
+  if (!discounts.length) return null;
+  const min = Math.min(...discounts);
+  const max = Math.max(...discounts);
+  if (Math.abs(min - max) < 0.05) return formatDiscountPercent(min);
+  const minLabel = formatDiscountPercent(min);
+  const maxLabel = formatDiscountPercent(max);
+  if (!minLabel || !maxLabel) return null;
+  return `${minLabel.replace(' off', '')} – ${maxLabel}`;
+}
+
+/** Shown directly under the Our price ($) input. */
+function EstProfitHint({
+  cents,
+  rangeLabel,
+  className,
+}: {
+  cents?: number | null;
+  /** Preformatted range for mixed groups, e.g. "$1.20 – $2.40". */
+  rangeLabel?: string | null;
+  className?: string;
+}) {
+  const display =
+    rangeLabel ??
+    (cents != null && Number.isFinite(cents)
+      ? formatEstProfitCents(cents)
+      : null);
+  if (!display) return null;
+
+  const isNegative =
+    display.startsWith('-') || (cents != null && cents < 0);
+
+  return (
+    <p
+      className={cn(
+        'text-[11px] font-medium leading-tight tabular-nums',
+        isNegative
+          ? 'text-destructive'
+          : 'text-emerald-700 dark:text-emerald-400',
+        className
+      )}
+      title="Estimated profit = our price − AE cost − $1.50 (preview; saved on publish)"
+    >
+      Est. profit: {display}
+    </p>
+  );
+}
+
+/**
+ * Shown directly under the Compare at ($) input.
+ * Green when ≥ min discount, amber when below, muted when unset.
+ */
+function DiscountHint({
+  percent,
+  rangeLabel,
+  className,
+}: {
+  percent?: number | null;
+  /** Preformatted range for mixed groups. */
+  rangeLabel?: string | null;
+  className?: string;
+}) {
+  if (rangeLabel) {
+    return (
+      <p
+        className={cn(
+          'text-[11px] font-medium leading-tight tabular-nums text-muted-foreground',
+          className
+        )}
+        title={`Discount vs Compare at. Selected variants need ≥${MIN_VARIANT_DISCOUNT_PERCENT}% off to continue.`}
+      >
+        {rangeLabel}
+      </p>
+    );
+  }
+
+  if (percent == null || !Number.isFinite(percent)) {
+    return (
+      <p
+        className={cn(
+          'text-[11px] leading-tight text-muted-foreground',
+          className
+        )}
+        title={`Set Compare at above Our price. Minimum ${MIN_VARIANT_DISCOUNT_PERCENT}% off required to continue.`}
+      >
+        Set compare-at for % off
+      </p>
+    );
+  }
+
+  const label = formatDiscountPercent(percent);
+  if (!label) return null;
+
+  const meetsMin = percent + 1e-9 >= MIN_VARIANT_DISCOUNT_PERCENT;
+
+  return (
+    <p
+      className={cn(
+        'text-[11px] font-medium leading-tight tabular-nums',
+        meetsMin
+          ? 'text-emerald-700 dark:text-emerald-400'
+          : percent > 0
+            ? 'text-amber-600 dark:text-amber-500'
+            : 'text-destructive',
+        className
+      )}
+      title={
+        meetsMin
+          ? `Discount vs Compare at (${label})`
+          : `Need at least ${MIN_VARIANT_DISCOUNT_PERCENT}% off to continue (currently ${label})`
+      }
+    >
+      {label}
+      {!meetsMin && percent > 0 ? (
+        <span className="font-normal">
+          {' '}
+          · min {MIN_VARIANT_DISCOUNT_PERCENT}%
+        </span>
+      ) : null}
+    </p>
+  );
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -281,65 +452,76 @@ export function ImportWizardVariants({
       {/* Bulk apply bar — always useful with many variants */}
       {skus.length > 1 ? (
         <Card className="border-dashed bg-muted/20">
-          <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:flex-wrap sm:items-end">
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground sm:mr-1">
-              <Package className="h-3.5 w-3.5" />
-              Bulk edit
+          <CardContent className="space-y-3 p-3 sm:p-4">
+            <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                Bulk edit
+              </div>
+              <p className="text-[11px] text-muted-foreground sm:text-xs">
+                Fill any fields, then apply to selected variants or all.
+              </p>
             </div>
-            <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 sm:max-w-xl">
-              <div className="space-y-1">
-                <Label className="text-xs">Our price ($)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={bulkPrice}
-                  onChange={(e) => setBulkPrice(e.target.value)}
-                  placeholder="e.g. 19.99"
-                  className="h-8"
-                />
+
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:gap-4">
+              <div className="grid flex-1 grid-cols-1 gap-2 xs:grid-cols-2 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Our price ($)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={bulkPrice}
+                    onChange={(e) => setBulkPrice(e.target.value)}
+                    placeholder="e.g. 19.99"
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Compare at ($)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={bulkCompare}
+                    onChange={(e) => setBulkCompare(e.target.value)}
+                    placeholder="e.g. 29.99"
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1 xs:col-span-2 sm:col-span-1">
+                  <Label className="text-xs">Stock</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={bulkStock}
+                    onChange={(e) => setBulkStock(e.target.value)}
+                    placeholder="Optional"
+                    className="h-9"
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Compare at ($)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={bulkCompare}
-                  onChange={(e) => setBulkCompare(e.target.value)}
-                  placeholder="Optional"
-                  className="h-8"
-                />
+
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:shrink-0 lg:flex-col xl:flex-row">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9 w-full sm:w-auto lg:min-w-[11.5rem]"
+                  onClick={applyBulkToSelected}
+                  disabled={selectedSkuCount === 0}
+                >
+                  Apply to selected ({selectedSkuCount})
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-9 w-full sm:w-auto lg:min-w-[11.5rem]"
+                  onClick={applyBulkToAll}
+                >
+                  Apply to all ({skus.length})
+                </Button>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Stock</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={bulkStock}
-                  onChange={(e) => setBulkStock(e.target.value)}
-                  placeholder="Optional"
-                  className="h-8"
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={applyBulkToSelected}
-                disabled={selectedSkuCount === 0}
-              >
-                Apply to selected ({selectedSkuCount})
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={applyBulkToAll}
-              >
-                Apply to all ({skus.length})
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -470,6 +652,17 @@ function VariantGroupCard({
 
   const aeSaleSample = groupSkus.find((s) => s.aeSalePrice != null)?.aeSalePrice;
   const totalStock = groupSkus.reduce((sum, s) => sum + s.stock, 0);
+  const groupEstProfitLabel = formatEstProfitRange(groupSkus);
+  const groupDiscountLabel = formatDiscountRange(groupSkus);
+  const sharedDiscountPercent =
+    sharedPrice !== 'mixed' &&
+    sharedCompare !== 'mixed' &&
+    typeof sharedPrice === 'number' &&
+    (sharedCompare === null || typeof sharedCompare === 'number')
+      ? computeDiscountPercent(sharedPrice, sharedCompare)
+      : null;
+  const discountIsMixed =
+    sharedPrice === 'mixed' || sharedCompare === 'mixed';
 
   const toggleGroupSelected = () => {
     const next = !allSelected;
@@ -627,6 +820,10 @@ function VariantGroupCard({
                 }}
                 className="h-8"
               />
+              <EstProfitHint
+                rangeLabel={groupEstProfitLabel}
+                className="pt-0.5"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">
@@ -643,7 +840,7 @@ function VariantGroupCard({
                 step="0.01"
                 value={compareDraft}
                 placeholder={
-                  sharedCompare === 'mixed' ? 'Set all…' : 'Optional'
+                  sharedCompare === 'mixed' ? 'Set all…' : 'e.g. 29.99'
                 }
                 onFocus={() => setCompareFocused(true)}
                 onBlur={() => {
@@ -658,6 +855,11 @@ function VariantGroupCard({
                   }
                 }}
                 className="h-8"
+              />
+              <DiscountHint
+                percent={discountIsMixed ? null : sharedDiscountPercent}
+                rangeLabel={discountIsMixed ? groupDiscountLabel : null}
+                className="pt-0.5"
               />
             </div>
             <div className="space-y-1">
@@ -724,6 +926,11 @@ function VariantGroupCard({
               {secondaryOptions.map(({ index, sku, label }) => {
                 const isOut = sku.stock <= 0;
                 const isOn = sku.selected && !isOut;
+                const chipDiscount = computeDiscountPercent(
+                  sku.price,
+                  sku.compareAtPrice
+                );
+                const chipDiscountLabel = formatDiscountPercent(chipDiscount);
                 return (
                   <button
                     key={sku.aeSkuId + index}
@@ -744,9 +951,11 @@ function VariantGroupCard({
                     title={
                       isOut
                         ? `${label} — out of stock`
-                        : isOn
-                          ? `Unselect ${label}`
-                          : `Select ${label}`
+                        : chipDiscountLabel
+                          ? `${label} · ${chipDiscountLabel}`
+                          : isOn
+                            ? `Unselect ${label}`
+                            : `Select ${label}`
                     }
                   >
                     {isOn ? <Check className="h-3 w-3" /> : null}
@@ -761,82 +970,103 @@ function VariantGroupCard({
 
             {expanded ? (
               <div className="space-y-2 pt-1">
-                {secondaryOptions.map(({ index, sku, label }) => (
-                  <div
-                    key={`detail-${sku.aeSkuId}-${index}`}
-                    className={cn(
-                      'grid gap-2 rounded-md border bg-muted/15 p-2 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,5.5rem))] sm:items-end',
-                      !(sku.selected && sku.stock > 0) && 'opacity-60'
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium">{label}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        Stock: {sku.stock}
-                        {sku.aeSalePrice != null
-                          ? ` · AE $${centsToDisplay(sku.aeSalePrice)}`
-                          : ''}
-                      </p>
-                    </div>
-                    <div className="space-y-0.5">
-                      <Label className="text-[10px]">Price ($)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={(sku.price / 100).toFixed(2)}
-                        onChange={(e) => {
-                          const cents = parseDollarsToCents(e.target.value);
-                          if (cents == null) return;
-                          onUpdateSkuAt(index, { price: cents });
-                        }}
-                        className="h-8"
-                      />
-                    </div>
-                    <div className="space-y-0.5">
-                      <Label className="text-[10px]">Compare ($)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={
-                          sku.compareAtPrice != null
-                            ? (sku.compareAtPrice / 100).toFixed(2)
-                            : ''
-                        }
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          if (!raw) {
-                            onUpdateSkuAt(index, { compareAtPrice: null });
-                            return;
+                {secondaryOptions.map(({ index, sku, label }) => {
+                  const rowEst = computeEstProfitCents(
+                    sku.price,
+                    sku.aeSalePrice,
+                    sku.aePrice
+                  );
+                  const rowDiscount = computeDiscountPercent(
+                    sku.price,
+                    sku.compareAtPrice
+                  );
+                  return (
+                    <div
+                      key={`detail-${sku.aeSkuId}-${index}`}
+                      className={cn(
+                        'grid gap-2 rounded-md border bg-muted/15 p-2 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,6rem))] sm:items-start',
+                        !(sku.selected && sku.stock > 0) && 'opacity-60'
+                      )}
+                    >
+                      <div className="min-w-0 sm:pt-5">
+                        <p className="truncate text-xs font-medium">{label}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          Stock: {sku.stock}
+                          {sku.aeSalePrice != null
+                            ? ` · AE $${centsToDisplay(sku.aeSalePrice)}`
+                            : sku.aePrice != null
+                              ? ` · AE $${centsToDisplay(sku.aePrice)}`
+                              : ''}
+                        </p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <Label className="text-[10px]">Price ($)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={(sku.price / 100).toFixed(2)}
+                          onChange={(e) => {
+                            const cents = parseDollarsToCents(e.target.value);
+                            if (cents == null) return;
+                            onUpdateSkuAt(index, { price: cents });
+                          }}
+                          className="h-8"
+                        />
+                        <EstProfitHint
+                          cents={rowEst}
+                          className="text-[10px]"
+                        />
+                      </div>
+                      <div className="space-y-0.5">
+                        <Label className="text-[10px]">Compare ($)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={
+                            sku.compareAtPrice != null
+                              ? (sku.compareAtPrice / 100).toFixed(2)
+                              : ''
                           }
-                          const cents = parseDollarsToCents(raw);
-                          if (cents == null) return;
-                          onUpdateSkuAt(index, { compareAtPrice: cents });
-                        }}
-                        className="h-8"
-                        placeholder="—"
-                      />
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (!raw) {
+                              onUpdateSkuAt(index, { compareAtPrice: null });
+                              return;
+                            }
+                            const cents = parseDollarsToCents(raw);
+                            if (cents == null) return;
+                            onUpdateSkuAt(index, { compareAtPrice: cents });
+                          }}
+                          className="h-8"
+                          placeholder="—"
+                        />
+                        <DiscountHint
+                          percent={rowDiscount}
+                          className="text-[10px]"
+                        />
+                      </div>
+                      <div className="space-y-0.5">
+                        <Label className="text-[10px]">Stock</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={sku.stock}
+                          onChange={(e) => {
+                            const stock = parseStock(e.target.value) ?? 0;
+                            onUpdateSkuAt(index, (s) => ({
+                              ...s,
+                              stock,
+                              selected: stock > 0 ? s.selected : false,
+                            }));
+                          }}
+                          className="h-8"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-0.5">
-                      <Label className="text-[10px]">Stock</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={sku.stock}
-                        onChange={(e) => {
-                          const stock = parseStock(e.target.value) ?? 0;
-                          onUpdateSkuAt(index, (s) => ({
-                            ...s,
-                            stock,
-                            selected: stock > 0 ? s.selected : false,
-                          }));
-                        }}
-                        className="h-8"
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -862,6 +1092,15 @@ function VariantListCard({
 }) {
   const skuSelected = sku.selected && sku.stock > 0;
   const isOutOfStock = sku.stock <= 0;
+  const estProfit = computeEstProfitCents(
+    sku.price,
+    sku.aeSalePrice,
+    sku.aePrice
+  );
+  const discountPercent = computeDiscountPercent(
+    sku.price,
+    sku.compareAtPrice
+  );
 
   return (
     <Card
@@ -915,7 +1154,9 @@ function VariantListCard({
               Stock: {sku.stock}
               {sku.aeSalePrice != null
                 ? ` · AE $${centsToDisplay(sku.aeSalePrice)}`
-                : ''}
+                : sku.aePrice != null
+                  ? ` · AE $${centsToDisplay(sku.aePrice)}`
+                  : ''}
             </p>
             {sku.images[0]?.url ? (
               <ProxiedImg
@@ -945,6 +1186,7 @@ function VariantListCard({
               }}
               className="h-8"
             />
+            <EstProfitHint cents={estProfit} className="pt-0.5" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Compare at ($)</Label>
@@ -969,8 +1211,9 @@ function VariantListCard({
                 });
               }}
               className="h-8"
-              placeholder="Optional"
+              placeholder="e.g. 29.99"
             />
+            <DiscountHint percent={discountPercent} className="pt-0.5" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Stock</Label>

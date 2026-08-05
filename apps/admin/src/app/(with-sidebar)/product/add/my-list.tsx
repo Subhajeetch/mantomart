@@ -19,6 +19,7 @@ import { ProxiedNextImage } from '@/app/(with-sidebar)/settings/proxied-image';
 
 import ImportWizard from './import-wizard';
 import {
+  IMPORT_WIZARD_STEP_COUNT,
   PRODUCT_DRAFTS_KEY,
   SAVED_PRODUCTS_KEY,
   readDrafts,
@@ -197,7 +198,8 @@ const MyList = () => {
                     </div>
                   )}
                   <Badge className="absolute left-2 top-2 bg-amber-600 hover:bg-amber-600">
-                    Draft · step {draft.currentStep + 1}/6
+                    Draft · step {draft.currentStep + 1}/
+                    {IMPORT_WIZARD_STEP_COUNT}
                   </Badge>
                 </div>
                 <CardContent className="space-y-3 p-3">

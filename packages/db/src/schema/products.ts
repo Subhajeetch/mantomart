@@ -93,6 +93,11 @@ export const products = sqliteTable("products", {
   // analytics
   orderCount: integer("order_count").notNull().default(0),
   totalRevenue: integer("total_revenue").notNull().default(0),
+  /**
+   * Cumulative estimated profit from completed orders (cents).
+   * Updated when an order is placed/fulfilled — not set at product create time.
+   */
+  revenueInProfit: integer("revenue_in_profit").notNull().default(0),
 
   // for admins
   productAddedBy: text("product_added_by").references(() => users.id),
@@ -148,6 +153,13 @@ export const productSkus = sqliteTable("product_skus", {
   // AE source prices — kept for reference/markup calculation
   aePrice: integer("ae_price"), // ae: sku_price (cents)
   aeSalePrice: integer("ae_sale_price"), // ae: offer_sale_price (cents)
+
+  /**
+   * Estimated profit for this variant in cents.
+   * Computed server-side as: our price − AE actual price − $1.50 (processor/tax buffer).
+   * Null when AE cost is unknown (manual products without AE prices).
+   */
+  estProfit: integer("est_profit"),
 
   stock: integer("stock").notNull().default(0), // ae: sku_available_stock
   sku: text("sku"), // our internal SKU code

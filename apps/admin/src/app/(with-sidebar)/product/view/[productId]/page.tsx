@@ -28,10 +28,9 @@ import {
   ShieldAlert,
   ShoppingBag,
   ShoppingCart,
-  Star,
   Tags,
+  TrendingUp,
   Trash2,
-  User,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -68,6 +67,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import {
+  formatCentsRange,
   formatDateTime,
   formatMoney,
   requestJson,
@@ -75,6 +75,7 @@ import {
   type ProductDetailMeta,
   type ProductSku,
 } from '../../manage/utils';
+import Image from 'next/image';
 
 function getInitials(name: string | null | undefined) {
   return (name || 'Admin')
@@ -102,6 +103,89 @@ function InfoTile({
         {label}
       </div>
       <p className="mt-1 truncate font-medium tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+/** Resolve the best image URL for a variant (SKU images → property image). */
+function getVariantImageUrl(sku: ProductSku): string | null {
+  const fromImages = sku.images?.find((img) => img?.url)?.url;
+  if (fromImages) return fromImages;
+  const fromProp = sku.properties?.find((prop) => prop.image)?.image;
+  return fromProp || null;
+}
+
+function rangeFromValues(values: number[]): {
+  min: number | null;
+  max: number | null;
+  label: string | null;
+} {
+  if (!values.length) return { min: null, max: null, label: null };
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return { min, max, label: formatCentsRange(min, max) };
+}
+
+function PriceOverview({ skus }: { skus: ProductSku[] }) {
+  const sell = rangeFromValues(skus.map((sku) => sku.price).filter((n) => Number.isFinite(n)));
+  const compare = rangeFromValues(
+    skus
+      .map((sku) => sku.compareAtPrice)
+      .filter((n): n is number => n !== null && n !== undefined && Number.isFinite(n))
+  );
+  const aeActual = rangeFromValues(
+    skus
+      .map((sku) =>
+        sku.aeSalePrice !== null && sku.aeSalePrice !== undefined
+          ? sku.aeSalePrice
+          : sku.aePrice
+      )
+      .filter((n): n is number => n !== null && n !== undefined && Number.isFinite(n))
+  );
+  const aeCompare = rangeFromValues(
+    skus
+      .map((sku) => sku.aePrice)
+      .filter((n): n is number => n !== null && n !== undefined && Number.isFinite(n))
+  );
+
+  return (
+    <div className="rounded-lg border p-3">
+      <div className="text-muted-foreground flex items-center gap-2 text-xs">
+        <DollarSign className="size-3.5" />
+        Price
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <p className="text-base font-semibold tabular-nums tracking-tight">
+          {sell.label ?? 'No price'}
+        </p>
+        {compare.label && (
+          <p
+            className="text-muted-foreground text-sm tabular-nums line-through"
+            title={`Compare at: ${compare.label}`}
+          >
+            {compare.label}
+          </p>
+        )}
+      </div>
+      {(aeActual.label || aeCompare.label) && (
+        <div className="text-xs flex gap-2">
+          <Image
+                src="/icons/aliexpress_logo.webp"
+                alt="Search Icon"
+                width={16}
+                height={14}
+              />
+          {aeActual.label && (
+              <span className="font-medium tabular-nums">{aeActual.label}</span>
+          )}
+          {aeCompare.label &&
+            aeCompare.label !== aeActual.label && (
+                <span className="text-muted-foreground tabular-nums line-through">
+                  {aeCompare.label}
+                </span>
+            )}
+        </div>
+      )}
     </div>
   );
 }
@@ -261,25 +345,33 @@ function VariantsDialog({
   const columns = useMemo<ColumnDef<VariantRow>[]>(
     () => [
       {
-        accessorKey: 'sku',
-        header: ({ column }) => (
-          <SortableHead
-            label="SKU"
-            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          />
-        ),
-        cell: ({ row }) => (
-          <div className="min-w-36">
-            <p className="font-medium">
-              {row.original.sku || `Variant ${row.original.index + 1}`}
-            </p>
-            {row.original.aeSkuId && (
-              <p className="text-muted-foreground mt-0.5 max-w-44 truncate text-xs">
-                AE {row.original.aeSkuId}
-              </p>
-            )}
-          </div>
-        ),
+        id: 'image',
+        header: 'Image',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const url = getVariantImageUrl(row.original);
+          return (
+            <div className="bg-muted relative size-11 overflow-hidden rounded-md border">
+              {url ? (
+                <CustomImage
+                  src={url}
+                  alt={
+                    row.original.images?.[0]?.alt ||
+                    row.original.sku ||
+                    `Variant ${row.original.index + 1}`
+                  }
+                  width={44}
+                  height={44}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <ImageIcon className="text-muted-foreground size-3.5" />
+                </div>
+              )}
+            </div>
+          );
+        },
       },
       {
         id: 'options',
@@ -289,7 +381,7 @@ function VariantsDialog({
             .join(' '),
         header: 'Options',
         cell: ({ row }) => (
-          <div className="flex min-w-64 max-w-[420px] flex-wrap gap-1.5">
+          <div className="flex min-w-48 max-w-[420px] flex-wrap gap-1.5">
             {row.original.properties.length ? (
               row.original.properties.map((prop, propIndex) => (
                 <Badge
@@ -317,22 +409,36 @@ function VariantsDialog({
           />
         ),
         cell: ({ row }) => (
-          <span className="font-medium tabular-nums">
-            {formatMoney(row.original.price)}
-          </span>
+          <div className="min-w-20">
+            <span className="font-medium tabular-nums">
+              {formatMoney(row.original.price)}
+            </span>
+            {row.original.compareAtPrice != null && (
+              <p className="text-muted-foreground text-xs tabular-nums line-through">
+                {formatMoney(row.original.compareAtPrice)}
+              </p>
+            )}
+          </div>
         ),
       },
       {
-        accessorKey: 'compareAtPrice',
+        accessorKey: 'estProfit',
         header: ({ column }) => (
           <SortableHead
-            label="Compare"
+            label="Est. Profit"
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           />
         ),
         cell: ({ row }) => (
-          <span className="text-muted-foreground tabular-nums">
-            {formatMoney(row.original.compareAtPrice)}
+          <span
+            className={cn(
+              'font-medium tabular-nums',
+              row.original.estProfit != null &&
+                row.original.estProfit < 0 &&
+                'text-destructive'
+            )}
+          >
+            {formatMoney(row.original.estProfit)}
           </span>
         ),
       },
@@ -351,20 +457,6 @@ function VariantsDialog({
           >
             {row.original.stock}
           </Badge>
-        ),
-      },
-      {
-        id: 'source',
-        header: 'Source',
-        cell: ({ row }) => (
-          <div className="max-w-44 text-xs">
-            <p className="truncate">
-              {row.original.aeSkuAttr || row.original.aeSkuId || 'Manual'}
-            </p>
-            {row.original.priceIncludesTax && (
-              <p className="text-muted-foreground mt-1">Tax included</p>
-            )}
-          </div>
         ),
       },
     ],
@@ -388,7 +480,7 @@ function VariantsDialog({
         <DialogHeader>
           <DialogTitle>Product variants</DialogTitle>
           <DialogDescription>
-            Prices, stock, SKU codes, and option combinations for this product.
+            Variant images, prices, estimated profit, stock, and option combinations.
           </DialogDescription>
         </DialogHeader>
 
@@ -414,7 +506,7 @@ function VariantsDialog({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search variants by SKU, AE id, option, price, or stock..."
+            placeholder="Search variants by option, price, or stock..."
             className="pl-9"
           />
         </div>
@@ -510,18 +602,19 @@ export default function ProductViewPage() {
     void loadProduct();
   }, [loadProduct]);
 
-  const priceRange = useMemo(() => {
-    const prices = product?.skus.map((sku) => sku.price) ?? [];
-    if (!prices.length) return 'No price';
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    return min === max ? formatMoney(min) : `${formatMoney(min)} - ${formatMoney(max)}`;
-  }, [product]);
-
   const totalStock = useMemo(
     () => product?.skus.reduce((sum, sku) => sum + sku.stock, 0) ?? 0,
     [product]
   );
+
+  const estProfitRange = useMemo(() => {
+    const values =
+      product?.skus
+        .map((sku) => sku.estProfit)
+        .filter((n): n is number => n !== null && n !== undefined && Number.isFinite(n)) ??
+      [];
+    return rangeFromValues(values).label;
+  }, [product]);
 
   async function handleDelete() {
     if (!product) return;
@@ -695,7 +788,7 @@ export default function ProductViewPage() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
-                  <InfoTile label="Price" value={priceRange} icon={Package} />
+                  <PriceOverview skus={product.skus} />
                   <InfoTile label="Stock" value={totalStock} icon={ShoppingBag} />
                   <button
                     type="button"
@@ -716,24 +809,19 @@ export default function ProductViewPage() {
                     icon={ShoppingCart}
                   />
                   <InfoTile
-                    label="Revenue"
+                    label="Revenue (Total Sold)"
                     value={formatMoney(product.totalRevenue ?? 0)}
                     icon={DollarSign}
                   />
                   <InfoTile
-                    label="Rating"
-                    value={product.aeRating ? `${product.aeRating}/5` : 'Not set'}
-                    icon={Star}
+                    label="Revenue in profit"
+                    value={formatMoney(product.revenueInProfit ?? 0)}
+                    icon={TrendingUp}
                   />
                   <InfoTile
-                    label="AE Reviews"
-                    value={product.aeReviewCount ?? 'Not set'}
-                    icon={Star}
-                  />
-                  <InfoTile
-                    label="AE Sales"
-                    value={product.aeSalesCount || 'Not set'}
-                    icon={ShoppingBag}
+                    label="Est. Profit"
+                    value={estProfitRange ?? 'Not set'}
+                    icon={TrendingUp}
                   />
                   <InfoTile
                     label="Created"
@@ -744,16 +832,6 @@ export default function ProductViewPage() {
                     label="Updated"
                     value={formatDateTime(product.updatedAt)}
                     icon={Calendar}
-                  />
-                  <InfoTile
-                    label="Added by"
-                    value={product.addedBy?.name || product.productAddedBy || 'Unknown'}
-                    icon={User}
-                  />
-                  <InfoTile
-                    label="Position"
-                    value={product.position ?? 0}
-                    icon={Package}
                   />
                 </div>
 
@@ -869,6 +947,26 @@ export default function ProductViewPage() {
                         <p>{product.aeStatus}</p>
                       </div>
                     )}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-muted-foreground text-xs">AE rating</p>
+                        <p>
+                          {product.aeRating != null
+                            ? `${product.aeRating}/5`
+                            : 'Not set'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">AE reviews</p>
+                        <p className="tabular-nums">
+                          {product.aeReviewCount ?? 'Not set'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">AE sales</p>
+                        <p>{product.aeSalesCount || 'Not set'}</p>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

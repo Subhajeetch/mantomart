@@ -49,6 +49,8 @@ export type ProductSku = {
   compareAtPrice: number | null;
   aePrice: number | null;
   aeSalePrice: number | null;
+  /** Estimated profit in cents (server-computed). Optional on drafts before save. */
+  estProfit?: number | null;
   stock: number;
   sku: string | null;
   priceIncludesTax: boolean;
@@ -76,6 +78,10 @@ export type ProductSummary = {
   published: boolean;
   minPrice: number | null;
   maxPrice: number | null;
+  minCompareAtPrice?: number | null;
+  maxCompareAtPrice?: number | null;
+  minEstProfit?: number | null;
+  maxEstProfit?: number | null;
 };
 
 /** Full product payload for view / edit flows. */
@@ -95,6 +101,8 @@ export type ProductDetail = {
   featured: boolean;
   orderCount: number;
   totalRevenue: number;
+  /** Cumulative estimated profit from orders (cents). Optional until migration/API ships. */
+  revenueInProfit?: number;
   createdAt: string | number | Date;
   updatedAt: string | number | Date;
   mobileDetail: string | null;
@@ -320,6 +328,28 @@ export function formatPriceRange(product: {
     return `${formatMoney(product.minPrice)} - ${formatMoney(product.maxPrice)}`;
   }
   return formatMoney(product.minPrice);
+}
+
+/** Format a min/max cents range the same way as selling price. */
+export function formatCentsRange(
+  min: number | null | undefined,
+  max: number | null | undefined
+): string | null {
+  if (min === null || min === undefined) return null;
+  if (max !== null && max !== undefined && max !== min) {
+    return `${formatMoney(min)} - ${formatMoney(max)}`;
+  }
+  return formatMoney(min);
+}
+
+export function formatEstProfitRange(product: {
+  minEstProfit?: number | null;
+  maxEstProfit?: number | null;
+}): string | null {
+  return formatCentsRange(
+    product.minEstProfit ?? null,
+    product.maxEstProfit ?? null
+  );
 }
 
 export function slugify(input: string): string {

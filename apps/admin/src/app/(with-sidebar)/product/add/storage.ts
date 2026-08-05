@@ -121,8 +121,12 @@ export type ImportFormState = {
   aeStatus: string | null;
 };
 
+/** Draft schema:
+ *  - v1: 6 wizard steps (variants + images combined at step 1)
+ *  - v2: 7 wizard steps (variants = 1, images = 2; later steps +1)
+ */
 export type ProductImportDraft = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   listItemId: string;
   aeProductId: string;
   updatedAt: string;
@@ -132,6 +136,45 @@ export type ProductImportDraft = {
   imageSnapshot: string | null;
   form: ImportFormState;
 };
+
+/** Latest draft schema written by the import wizard. */
+export const PRODUCT_IMPORT_DRAFT_SCHEMA_VERSION = 2 as const;
+
+/** Total steps in the current import wizard (v2). */
+export const IMPORT_WIZARD_STEP_COUNT = 7;
+
+/**
+ * Normalize a loaded draft to the current 7-step wizard.
+ * v1 drafts stored a combined Variants & Images step at index 1; steps after
+ * that shift +1 so attributes/categories/seo/publish land on the right screen.
+ */
+export function migrateImportDraft(
+  draft: ProductImportDraft
+): ProductImportDraft {
+  const clampStep = (step: number) =>
+    Math.min(
+      Math.max(0, Number.isFinite(step) ? Math.floor(step) : 0),
+      IMPORT_WIZARD_STEP_COUNT - 1
+    );
+
+  if (draft.schemaVersion >= 2) {
+    return {
+      ...draft,
+      schemaVersion: 2,
+      currentStep: clampStep(draft.currentStep),
+    };
+  }
+
+  const oldStep = draft.currentStep ?? 0;
+  // 0 basics, 1 combined variants+images stay; 2–5 become 3–6
+  const nextStep = oldStep <= 1 ? oldStep : oldStep + 1;
+
+  return {
+    ...draft,
+    schemaVersion: 2,
+    currentStep: clampStep(nextStep),
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -149,7 +192,7 @@ function isSavedProduct(value: unknown): value is SavedAliExpressProduct {
 function isDraft(value: unknown): value is ProductImportDraft {
   return (
     isRecord(value) &&
-    value.schemaVersion === 1 &&
+    (value.schemaVersion === 1 || value.schemaVersion === 2) &&
     typeof value.listItemId === 'string' &&
     typeof value.aeProductId === 'string' &&
     isRecord(value.form)
@@ -188,7 +231,7 @@ export function readDrafts(): ProductImportDraft[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isDraft);
+    return parsed.filter(isDraft).map(migrateImportDraft);
   } catch {
     return [];
   }

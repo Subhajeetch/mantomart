@@ -38,6 +38,8 @@ import { cn } from '@/lib/utils';
 
 import {
   flattenCategories,
+  formatCentsRange,
+  formatEstProfitRange,
   formatPriceRange,
   requestCategories,
   requestJson,
@@ -79,6 +81,11 @@ function ProductCard({
   canUpdate: boolean;
 }) {
   const image = product.images?.[0]?.url;
+  const compareAtLabel = formatCentsRange(
+    product.minCompareAtPrice,
+    product.maxCompareAtPrice
+  );
+  const estProfitLabel = formatEstProfitRange(product);
 
   return (
     <Card className="group relative overflow-hidden p-0 transition-colors hover:border-primary/40">
@@ -114,6 +121,14 @@ function ProductCard({
               <PackageSearch className="text-muted-foreground size-8" />
             </div>
           )}
+          {estProfitLabel && (
+            <span
+              className="absolute bottom-2 left-2 z-[1] max-w-[calc(100%-1rem)] truncate rounded-md border border-emerald-500/20 bg-background/90 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-emerald-700 shadow-sm backdrop-blur-sm dark:text-emerald-400"
+              title={`Estimated profit: ${estProfitLabel}`}
+            >
+              Est. Profit: {estProfitLabel}
+            </span>
+          )}
         </div>
 
         <CardContent className="space-y-2 p-3">
@@ -121,8 +136,16 @@ function ProductCard({
             {product.name}
           </h3>
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-semibold tabular-nums">
-              {formatPriceRange(product)}
+            <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 truncate text-sm font-semibold tabular-nums">
+              <span>{formatPriceRange(product)}</span>
+              {compareAtLabel && (
+                <span
+                  className="text-muted-foreground text-xs font-normal line-through"
+                  title={`Compare at: ${compareAtLabel}`}
+                >
+                  {compareAtLabel}
+                </span>
+              )}
             </p>
             <Badge
               variant={product.published ? 'default' : 'secondary'}

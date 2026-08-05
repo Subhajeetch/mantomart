@@ -75,6 +75,7 @@ import KeywordResearchSheet from './keyword-research-sheet';
 import ProductPreviewSheet from './product-preview-sheet';
 import {
   getDraft,
+  PRODUCT_IMPORT_DRAFT_SCHEMA_VERSION,
   removeDraft,
   removeSavedProduct,
   slugify,
@@ -395,7 +396,7 @@ export default function ImportWizard({
     saveTimerRef.current = setTimeout(() => {
       const now = new Date();
       const draft: ProductImportDraft = {
-        schemaVersion: 1,
+        schemaVersion: PRODUCT_IMPORT_DRAFT_SCHEMA_VERSION,
         listItemId,
         aeProductId: form.aeProductId,
         updatedAt: now.toISOString(),
@@ -530,8 +531,8 @@ export default function ImportWizard({
       return;
     }
 
-    // When entering variants step, stamp step-1 title onto image alt texts
-    if (nextStep === 1) {
+    // When entering Images step, stamp product title onto empty image alt texts
+    if (nextStep === 2) {
       setForm((prev) => (prev ? applyTitleToImageAlts(prev) : prev));
     }
 
@@ -539,11 +540,22 @@ export default function ImportWizard({
     setStep(nextStep);
   };
 
+  const showStepValidationError = (err: string) => {
+    setStepError(err);
+    // Short toast so the error is visible without scrolling; full detail stays at bottom
+    const short =
+      err.length > 72 ? `${err.slice(0, 69).trimEnd()}…` : err;
+    toast.error(short, {
+      description: 'Scroll down for more info.',
+      duration: 4500,
+    });
+  };
+
   const handleNext = () => {
     if (!form) return;
     const err = validateStep(step, form);
     if (err) {
-      setStepError(err);
+      showStepValidationError(err);
       return;
     }
     goToStep(Math.min(step + 1, WIZARD_STEPS.length - 1));
@@ -671,11 +683,12 @@ export default function ImportWizard({
   const handlePublish = async () => {
     if (!form || !listItemId) return;
 
-    for (let s = 0; s <= 4; s++) {
+    // Validate every step before the final Publish screen
+    for (let s = 0; s < WIZARD_STEPS.length - 1; s++) {
       const err = validateStep(s, form);
       if (err) {
         setStep(s);
-        setStepError(err);
+        showStepValidationError(err);
         return;
       }
     }
@@ -1000,8 +1013,24 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 1: Variants & Images ── */}
+                {/* ── Step 1: Variants ── */}
                 {step === 1 ? (
+                  <div className="space-y-6">
+                    <ImportWizardVariants
+                      skus={form.skus}
+                      selectedSkuCount={selectedSkuCount}
+                      onUpdateSkus={(updater) =>
+                        updateForm((prev) => ({
+                          ...prev,
+                          skus: updater(prev.skus),
+                        }))
+                      }
+                    />
+                  </div>
+                ) : null}
+
+                {/* ── Step 2: Images & Videos ── */}
+                {step === 2 ? (
                   <div className="space-y-6">
                     <section className="space-y-3">
                       <div className="flex items-center justify-between gap-2">
@@ -1137,17 +1166,6 @@ export default function ImportWizard({
                       </div>
                     </section>
 
-                    <ImportWizardVariants
-                      skus={form.skus}
-                      selectedSkuCount={selectedSkuCount}
-                      onUpdateSkus={(updater) =>
-                        updateForm((prev) => ({
-                          ...prev,
-                          skus: updater(prev.skus),
-                        }))
-                      }
-                    />
-
                     {form.videos.length > 0 ? (
                       <section className="space-y-2">
                         <h3 className="text-sm font-semibold">
@@ -1171,8 +1189,8 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 2: Product Attributes ── */}
-                {step === 2 ? (
+                {/* ── Step 3: Product Attributes ── */}
+                {step === 3 ? (
                   <div className="space-y-5">
                     <section className="space-y-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1432,8 +1450,8 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 3: Categories & Size chart ── */}
-                {step === 3 ? (
+                {/* ── Step 4: Categories & Size chart ── */}
+                {step === 4 ? (
                   <div className="space-y-6">
                     <section className="space-y-3">
                       <div>
@@ -1663,8 +1681,8 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 4: SEO & Tags ── */}
-                {step === 4 ? (
+                {/* ── Step 5: SEO & Tags ── */}
+                {step === 5 ? (
                   <div className="space-y-6">
                     <GooglePreview
                       title={form.metaTitle}
@@ -1764,8 +1782,8 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 5: Publish ── */}
-                {step === 5 ? (
+                {/* ── Step 6: Publish ── */}
+                {step === 6 ? (
                   <div className="space-y-5">
                     <Card>
                       <CardContent className="space-y-4 p-4 sm:p-5">

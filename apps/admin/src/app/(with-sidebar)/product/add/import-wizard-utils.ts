@@ -673,14 +673,90 @@ export function shouldDefaultToGroupedView(skus: SkuDraft[]): boolean {
 
 export const WIZARD_STEPS = [
   { id: 0, key: 'basics', label: 'Title & Description' },
-  { id: 1, key: 'variants', label: 'Variants & Images' },
-  { id: 2, key: 'attributes', label: 'Attributes' },
-  { id: 3, key: 'categories', label: 'Categories & Size' },
-  { id: 4, key: 'seo', label: 'SEO & Tags' },
-  { id: 5, key: 'publish', label: 'Publish' },
+  { id: 1, key: 'variants', label: 'Variants' },
+  { id: 2, key: 'images', label: 'Images' },
+  { id: 3, key: 'attributes', label: 'Attributes' },
+  { id: 4, key: 'categories', label: 'Categories & Size' },
+  { id: 5, key: 'seo', label: 'SEO & Tags' },
+  { id: 6, key: 'publish', label: 'Publish' },
 ] as const;
 
 export type WizardStepId = (typeof WIZARD_STEPS)[number]['id'];
+
+/** Selected variants must show at least this much off vs compare-at. */
+export const MIN_VARIANT_DISCOUNT_PERCENT = 10;
+
+/**
+ * Percent off relative to compare-at price.
+ * `null` when compare-at is missing/invalid so the discount cannot be shown.
+ */
+export function computeDiscountPercent(
+  priceCents: number,
+  compareAtCents: number | null | undefined
+): number | null {
+  if (
+    compareAtCents == null ||
+    !Number.isFinite(compareAtCents) ||
+    compareAtCents <= 0
+  ) {
+    return null;
+  }
+  if (!Number.isFinite(priceCents) || priceCents < 0) return null;
+  if (priceCents >= compareAtCents) return 0;
+  return ((compareAtCents - priceCents) / compareAtCents) * 100;
+}
+
+/** True when compare-at yields at least `minPercent` off our price. */
+export function meetsMinDiscount(
+  priceCents: number,
+  compareAtCents: number | null | undefined,
+  minPercent: number = MIN_VARIANT_DISCOUNT_PERCENT
+): boolean {
+  const pct = computeDiscountPercent(priceCents, compareAtCents);
+  return pct !== null && pct + 1e-9 >= minPercent;
+}
+
+export function formatDiscountPercent(percent: number | null): string | null {
+  if (percent === null || !Number.isFinite(percent)) return null;
+  const rounded = Math.round(percent * 10) / 10;
+  const display =
+    Number.isInteger(rounded) || Math.abs(rounded - Math.round(rounded)) < 0.05
+      ? String(Math.round(rounded))
+      : rounded.toFixed(1);
+  return `${display}% off`;
+}
+
+function validateSelectedVariants(form: ImportFormState): string | null {
+  const selected = form.skus.filter((s) => s.selected && s.stock > 0);
+  if (selected.length === 0) return 'Select at least one variant.';
+
+  for (const sku of selected) {
+    if (!Number.isFinite(sku.price) || sku.price < 0) {
+      return `Invalid price for variant "${sku.label}".`;
+    }
+
+    if (sku.compareAtPrice == null || !Number.isFinite(sku.compareAtPrice)) {
+      return `Set a Compare at price for "${sku.label}" (at least ${MIN_VARIANT_DISCOUNT_PERCENT}% off required).`;
+    }
+
+    if (sku.compareAtPrice <= 0) {
+      return `Compare at price for "${sku.label}" must be greater than $0.`;
+    }
+
+    if (sku.price >= sku.compareAtPrice) {
+      return `Our price for "${sku.label}" must be lower than Compare at to show a discount.`;
+    }
+
+    const discount = computeDiscountPercent(sku.price, sku.compareAtPrice);
+    if (discount === null || discount < MIN_VARIANT_DISCOUNT_PERCENT) {
+      const actual =
+        discount === null ? '0' : (Math.round(discount * 10) / 10).toFixed(1);
+      return `Variant "${sku.label}" is only ${actual}% off. Raise Compare at or lower Our price to at least ${MIN_VARIANT_DISCOUNT_PERCENT}% off.`;
+    }
+  }
+
+  return null;
+}
 
 export function validateStep(
   step: number,
@@ -691,17 +767,13 @@ export function validateStep(
     if (form.name.trim().length > 300) return 'Title is too long.';
   }
   if (step === 1) {
-    const selected = form.skus.filter((s) => s.selected && s.stock > 0);
-    if (selected.length === 0) return 'Select at least one variant.';
-    for (const sku of selected) {
-      if (!Number.isFinite(sku.price) || sku.price < 0) {
-        return `Invalid price for variant "${sku.label}".`;
-      }
-    }
+    return validateSelectedVariants(form);
+  }
+  if (step === 2) {
     const images = form.productImages.filter((i) => i.selected !== false);
     if (images.length === 0) return 'Select at least one product image.';
   }
-  if (step === 2) {
+  if (step === 3) {
     const selectedAttributes = form.attributes.filter(
       (attr) => attr.selected !== false
     );
@@ -711,12 +783,12 @@ export function validateStep(
       }
     }
   }
-  if (step === 3) {
+  if (step === 4) {
     if (form.categoryIds.length === 0) {
       return 'Select or create at least one category.';
     }
   }
-  if (step === 4) {
+  if (step === 5) {
     const derivedSlug = slugify(form.name);
     if (!derivedSlug) {
       return 'Product title must produce a valid URL slug.';
