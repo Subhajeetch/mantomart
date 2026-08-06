@@ -1207,8 +1207,12 @@ manageProducts.patch(
       }
 
       const beforeNested = await loadNestedProductData(db, id);
-      const slug = await ensureUniqueSlug(db, payload.slug, id);
+      // Slug is always re-derived from the product title on edit (client may send it too).
+      const slug = await ensureUniqueSlug(db, payload.slug || payload.name, id);
       const now = new Date();
+
+      // AE identity + catalog position are immutable on edit — set at import time only.
+      // Client cannot flip isAEProduct, re-link aeProductId, or change list position here.
       await db
         .update(products)
         .set({
@@ -1219,21 +1223,21 @@ manageProducts.patch(
           hasSizeChart: payload.hasSizeChart,
           sizeChartImage: payload.sizeChartImage,
           sizeChartDescription: payload.sizeChartDescription,
-          isAEProduct: payload.isAEProduct,
-          aeProductId: payload.aeProductId,
-          aeCategoryId: payload.aeCategoryId,
-          aeRating: payload.aeRating,
-          aeReviewCount: payload.aeReviewCount,
-          aeSalesCount: payload.aeSalesCount,
-          aeStatus: payload.aeStatus,
-          aeLastSynced: payload.isAEProduct ? existing.aeLastSynced : null,
+          isAEProduct: existing.isAEProduct,
+          aeProductId: existing.aeProductId,
+          aeCategoryId: existing.aeCategoryId,
+          aeRating: existing.aeRating,
+          aeReviewCount: existing.aeReviewCount,
+          aeSalesCount: existing.aeSalesCount,
+          aeStatus: existing.aeStatus,
+          aeLastSynced: existing.aeLastSynced,
           images: payload.images,
           videos: payload.videos,
           mainVideo: payload.mainVideo,
           categoryId: payload.categoryIds[0] ?? null,
           published: payload.published,
           featured: payload.featured,
-          position: payload.position,
+          position: existing.position,
           metaTitle: payload.metaTitle,
           metaDescription: payload.metaDescription,
           tags: payload.tags,
@@ -1242,6 +1246,8 @@ manageProducts.patch(
         })
         .where(eq(products.id, id));
 
+      // Nested SKUs/attrs/categories still come from the edit payload.
+      // Preserve AE cost fields on SKUs when the client omits them (safety).
       await replaceNestedProductData(db, id, payload, now);
 
       c.executionCtx.waitUntil(

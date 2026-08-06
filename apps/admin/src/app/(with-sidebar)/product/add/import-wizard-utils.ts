@@ -818,6 +818,68 @@ export async function markdownToHtml(md: string): Promise<string> {
   }
 }
 
+/**
+ * Extract gallery images + videos from a live AliExpress product detail payload.
+ * Used by the product edit media dialogs to pick additional assets.
+ */
+export function extractAliExpressMedia(
+  detail: AliExpressProductDetailResponse | null
+): { images: string[]; videos: Array<{ url: string; poster: string | null }> } {
+  const empty = {
+    images: [] as string[],
+    videos: [] as Array<{ url: string; poster: string | null }>,
+  };
+  if (!detail) return empty;
+
+  const response = detail.aliexpress_ds_product_get_response;
+  const rawResult = response?.result;
+  const result = isRecord(rawResult) ? rawResult : {};
+
+  const baseInfo = isRecord(result.ae_item_base_info_dto)
+    ? result.ae_item_base_info_dto
+    : {};
+  const multimediaInfo = isRecord(result.ae_multimedia_info_dto)
+    ? result.ae_multimedia_info_dto
+    : {};
+  const skuWrapper = isRecord(result.ae_item_sku_info_dtos)
+    ? result.ae_item_sku_info_dtos
+    : {};
+  const videoWrapper = isRecord(multimediaInfo.ae_video_dtos)
+    ? multimediaInfo.ae_video_dtos
+    : {};
+
+  const rawSkus = toRecordArray(skuWrapper.ae_item_sku_info_d_t_o);
+  const skuImages = rawSkus.flatMap((sku) =>
+    getSkuProperties(sku).map((property) => property.sku_image)
+  );
+
+  const videos: Array<{ url: string; poster: string | null }> = [];
+  for (const v of toRecordArray(videoWrapper.ae_video_d_t_o)) {
+    const url = normalizeUrl(v.media_url);
+    if (!url) continue;
+    videos.push({
+      url,
+      poster: normalizeUrl(v.poster_url),
+    });
+  }
+
+  const videoPosters = videos.map((v) => v.poster).filter(Boolean);
+  const galleryUrls = uniqueUrls([
+    ...splitImageUrls(multimediaInfo.image_urls),
+    ...skuImages,
+    ...videoPosters,
+  ]);
+  const detailUrls = uniqueUrls([
+    ...getMobileDetailImages(baseInfo.mobile_detail),
+    ...getHtmlImageUrls(baseInfo.detail),
+  ]);
+
+  return {
+    images: uniqueUrls([...galleryUrls, ...detailUrls]),
+    videos,
+  };
+}
+
 export function buildPublishPayload(form: ImportFormState) {
   const selectedSkus = form.skus.filter((s) => s.selected && s.stock > 0);
   const selectedImages = dedupeProductImages(form.productImages)

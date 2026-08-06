@@ -276,15 +276,27 @@ export async function requestJson<T>(
   return data as T;
 }
 
-export async function requestCategories<T>(path = '/tree'): Promise<T> {
+export async function requestCategories<T>(
+  path = '/tree',
+  options: RequestInit = {}
+): Promise<T> {
   const base = getCategoriesApiBase();
   const url = path.startsWith('http')
     ? path
-    : `${base}${path.startsWith('/') ? path : `/${path}`}`;
+    : !path || path === '/'
+      ? base
+      : path.startsWith('?')
+        ? `${base}${path}`
+        : `${base}${path.startsWith('/') ? path : `/${path}`}`;
 
   const response = await fetch(url, {
+    ...options,
     credentials: 'include',
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
     cache: 'no-store',
   });
 
