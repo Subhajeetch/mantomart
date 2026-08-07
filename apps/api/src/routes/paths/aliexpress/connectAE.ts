@@ -1,4 +1,6 @@
 import {
+  AliExpressNotConnectedError,
+  AliExpressTokenError,
   connectAliExpress,
   disconnectAliExpress,
   getAliExpressConnectionStatus,
@@ -54,6 +56,29 @@ function errorResponse(
 }
 
 function parseAliExpressError(error: unknown) {
+  if (error instanceof AliExpressNotConnectedError) {
+    return errorResponse(
+      'AliExpress is not connected',
+      'ALIEXPRESS_NOT_CONNECTED',
+      409
+    );
+  }
+
+  if (error instanceof AliExpressTokenError) {
+    const lower = error.publicMessage.toLowerCase();
+    if (
+      lower.includes('refresh token has expired') ||
+      lower.includes('refresh_token_expired')
+    ) {
+      return errorResponse(
+        'AliExpress refresh token has expired. Please reconnect AliExpress.',
+        'REFRESH_TOKEN_EXPIRED',
+        401,
+        error.raw
+      );
+    }
+  }
+
   if (!(error instanceof Error)) {
     return errorResponse('An unexpected error occurred', 'UNKNOWN_ERROR', 500);
   }
@@ -209,13 +234,19 @@ aeAuth.get(
         status: 'success',
         severity: 'info',
         changes: { connected: { from: false, to: true } },
-        metadata: { expiresAt: tokens.expires_at },
+        metadata: {
+          expiresAt: tokens.expires_at,
+          refreshExpiresAt: tokens.refresh_expires_at,
+        },
       });
 
+      // Never return raw tokens to the browser.
       return c.json({
         success: true,
         message: 'AliExpress connected successfully',
-        tokens,
+        connected: true,
+        expires_at: tokens.expires_at,
+        refresh_expires_at: tokens.refresh_expires_at,
       });
     } catch (error) {
       console.error('Error connecting AliExpress:', error);
@@ -250,6 +281,7 @@ aeAuth.get(
         changes: { connected: { from: status.connected, to: false } },
         metadata: {
           previousExpiresAt: status.expires_at,
+          previousRefreshExpiresAt: status.refresh_expires_at,
           wasConnected: status.connected,
         },
       });
@@ -328,6 +360,31 @@ aeAuth.get(
         );
       }
 
+      if (!before.can_refresh) {
+        recordAliExpressAudit(c, {
+          action: AUDIT_ACTIONS.AE_TOKEN_REFRESH,
+          description:
+            'AliExpress token refresh failed because the refresh token has expired',
+          status: 'failure',
+          severity: 'warning',
+          metadata: {
+            code: 'REFRESH_TOKEN_EXPIRED',
+            refreshExpiresAt: before.refresh_expires_at,
+          },
+        });
+
+        return c.json(
+          {
+            success: false,
+            error:
+              'AliExpress refresh token has expired. Please reconnect AliExpress.',
+            code: 'REFRESH_TOKEN_EXPIRED',
+            refresh_expires_at: before.refresh_expires_at,
+          },
+          401
+        );
+      }
+
       const tokens = await refreshAliExpressTokens(c.env);
 
       recordAliExpressAudit(c, {
@@ -337,15 +394,23 @@ aeAuth.get(
         severity: 'info',
         changes: {
           expiresAt: { from: before.expires_at, to: tokens.expires_at },
+          refreshExpiresAt: {
+            from: before.refresh_expires_at,
+            to: tokens.refresh_expires_at,
+          },
         },
-        metadata: { expiresAt: tokens.expires_at },
+        metadata: {
+          expiresAt: tokens.expires_at,
+          refreshExpiresAt: tokens.refresh_expires_at,
+        },
       });
 
       return c.json({
         success: true,
         message: 'AliExpress token refreshed successfully',
-        tokens,
+        connected: true,
         expires_at: tokens.expires_at,
+        refresh_expires_at: tokens.refresh_expires_at,
       });
     } catch (error) {
       console.error('Error refreshing AliExpress access token:', error);

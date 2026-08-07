@@ -248,15 +248,21 @@ googleAuth.get(
         status: 'success',
         severity: 'info',
         changes: { connected: { from: false, to: true } },
-        metadata: { expiresAt: tokens.expires_at },
+        metadata: {
+          expiresAt: tokens.expires_at,
+          refreshExpiresAt: tokens.refresh_expires_at,
+          refreshTokenObtainedAt: tokens.refresh_token_obtained_at,
+        },
       });
 
       return c.json({
         success: true,
         message: 'Google Ads connected successfully',
-        expires_at: tokens.expires_at,
         // Do not return raw tokens to the browser.
         connected: true,
+        expires_at: tokens.expires_at,
+        refresh_expires_at: tokens.refresh_expires_at,
+        refresh_token_obtained_at: tokens.refresh_token_obtained_at,
       });
     } catch (error) {
       console.error('Error connecting Google Ads:', error);
@@ -291,6 +297,8 @@ googleAuth.get(
         changes: { connected: { from: status.connected, to: false } },
         metadata: {
           previousExpiresAt: status.expires_at,
+          previousRefreshExpiresAt: status.refresh_expires_at,
+          previousRefreshTokenObtainedAt: status.refresh_token_obtained_at,
           wasConnected: status.connected,
         },
       });
@@ -393,6 +401,32 @@ googleAuth.get(
         );
       }
 
+      if (!before.can_refresh) {
+        recordGoogleAudit(c, {
+          action: AUDIT_ACTIONS.GOOGLE_TOKEN_REFRESH,
+          description:
+            'Google Ads token refresh failed because the refresh token is missing or expired',
+          status: 'failure',
+          severity: 'warning',
+          metadata: {
+            code: 'REFRESH_TOKEN_EXPIRED',
+            refreshExpiresAt: before.refresh_expires_at,
+            hasRefreshToken: before.has_refresh_token,
+          },
+        });
+
+        return c.json(
+          {
+            success: false,
+            error:
+              'Google Ads refresh token is missing or expired. Please reconnect Google Ads.',
+            code: 'REFRESH_TOKEN_EXPIRED',
+            refresh_expires_at: before.refresh_expires_at,
+          },
+          401
+        );
+      }
+
       const tokens = await refreshGoogleAdsTokens(c.env);
 
       recordGoogleAudit(c, {
@@ -402,15 +436,25 @@ googleAuth.get(
         severity: 'info',
         changes: {
           expiresAt: { from: before.expires_at, to: tokens.expires_at },
+          refreshExpiresAt: {
+            from: before.refresh_expires_at,
+            to: tokens.refresh_expires_at,
+          },
         },
-        metadata: { expiresAt: tokens.expires_at },
+        metadata: {
+          expiresAt: tokens.expires_at,
+          refreshExpiresAt: tokens.refresh_expires_at,
+          refreshTokenObtainedAt: tokens.refresh_token_obtained_at,
+        },
       });
 
       return c.json({
         success: true,
         message: 'Google Ads token refreshed successfully',
-        expires_at: tokens.expires_at,
         connected: true,
+        expires_at: tokens.expires_at,
+        refresh_expires_at: tokens.refresh_expires_at,
+        refresh_token_obtained_at: tokens.refresh_token_obtained_at,
       });
     } catch (error) {
       console.error('Error refreshing Google Ads access token:', error);

@@ -6,8 +6,10 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  Info,
   Loader2,
   RefreshCw,
+  ShieldAlert,
   Unplug,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,12 +29,6 @@ import Image from 'next/image';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-type TokenData = {
-  access_token?: string;
-  refresh_token?: string;
-  expires_at?: number;
-};
-
 type ApiErrorBody = {
   success?: false;
   error?: string;
@@ -47,31 +43,56 @@ type StatusResponse = {
   expiresAt?: number | null;
   is_expired?: boolean;
   has_refresh_token?: boolean;
+  refresh_expires_at?: number | null;
+  refreshExpiresAt?: number | null;
+  refresh_expires_in_ms?: number | null;
+  is_refresh_expired?: boolean;
+  can_refresh?: boolean;
+  refresh_token_obtained_at?: number | null;
+  refresh_inactivity_expires_at?: number | null;
+  refresh_token_note?: string | null;
 };
 
 type ConnectResponse = {
   success: true;
   message?: string;
-  tokens?: TokenData;
   expires_at?: number | null;
   expiresAt?: number | null;
+  refresh_expires_at?: number | null;
+  refreshExpiresAt?: number | null;
+  refresh_token_obtained_at?: number | null;
+  refresh_inactivity_expires_at?: number | null;
+  refresh_token_note?: string | null;
+  can_refresh?: boolean;
+  is_refresh_expired?: boolean;
   connected?: boolean;
 };
 
-type RefreshResponse = {
-  success: true;
-  message?: string;
-  tokens?: TokenData;
-  expires_at?: number | null;
-  expiresAt?: number | null;
-};
+type RefreshResponse = ConnectResponse;
 
 type ConnectionState = {
   connected: boolean;
   expiresAt: number | null;
+  refreshExpiresAt: number | null;
+  canRefresh: boolean;
+  isRefreshExpired: boolean;
+  refreshTokenObtainedAt: number | null;
+  refreshInactivityExpiresAt: number | null;
+  refreshTokenNote: string | null;
 };
 
 type ProviderAction = 'connect' | 'disconnect' | 'refresh' | null;
+
+const EMPTY_CONNECTION: ConnectionState = {
+  connected: false,
+  expiresAt: null,
+  refreshExpiresAt: null,
+  canRefresh: false,
+  isRefreshExpired: false,
+  refreshTokenObtainedAt: null,
+  refreshInactivityExpiresAt: null,
+  refreshTokenNote: null,
+};
 
 async function requestJson<T>(
   url: string,
@@ -124,6 +145,16 @@ async function requestJson<T>(
   return data as T;
 }
 
+function pickTimestamp(...candidates: unknown[]): number | null {
+  for (const candidate of candidates) {
+    const timestamp = Number(candidate);
+    if (Number.isFinite(timestamp) && timestamp > 0) {
+      return timestamp;
+    }
+  }
+  return null;
+}
+
 function getExpiresAt(data: unknown): number | null {
   const value = data as {
     expires_at?: unknown;
@@ -132,22 +163,104 @@ function getExpiresAt(data: unknown): number | null {
     status?: { expires_at?: unknown; expiresAt?: unknown };
   };
 
-  const candidates = [
+  return pickTimestamp(
     value.expires_at,
     value.expiresAt,
     value.tokens?.expires_at,
     value.status?.expires_at,
-    value.status?.expiresAt,
-  ];
+    value.status?.expiresAt
+  );
+}
 
-  for (const candidate of candidates) {
-    const timestamp = Number(candidate);
-    if (Number.isFinite(timestamp) && timestamp > 0) {
-      return timestamp;
-    }
+function getRefreshExpiresAt(data: unknown): number | null {
+  const value = data as {
+    refresh_expires_at?: unknown;
+    refreshExpiresAt?: unknown;
+    tokens?: { refresh_expires_at?: unknown };
+    status?: { refresh_expires_at?: unknown; refreshExpiresAt?: unknown };
+  };
+
+  return pickTimestamp(
+    value.refresh_expires_at,
+    value.refreshExpiresAt,
+    value.tokens?.refresh_expires_at,
+    value.status?.refresh_expires_at,
+    value.status?.refreshExpiresAt
+  );
+}
+
+function connectionFromStatus(
+  data: StatusResponse,
+  previous?: ConnectionState
+): ConnectionState {
+  if (!data.connected) {
+    return { ...EMPTY_CONNECTION };
   }
 
-  return null;
+  const expiresAt = getExpiresAt(data) ?? previous?.expiresAt ?? null;
+  const refreshExpiresAt =
+    getRefreshExpiresAt(data) ?? previous?.refreshExpiresAt ?? null;
+  const isRefreshExpired =
+    data.is_refresh_expired ??
+    (refreshExpiresAt !== null ? refreshExpiresAt <= Date.now() : false);
+  const canRefresh =
+    data.can_refresh ??
+    (data.has_refresh_token !== false && !isRefreshExpired);
+
+  return {
+    connected: true,
+    expiresAt,
+    refreshExpiresAt,
+    canRefresh,
+    isRefreshExpired,
+    refreshTokenObtainedAt: pickTimestamp(
+      data.refresh_token_obtained_at,
+      previous?.refreshTokenObtainedAt
+    ),
+    refreshInactivityExpiresAt: pickTimestamp(
+      data.refresh_inactivity_expires_at,
+      previous?.refreshInactivityExpiresAt
+    ),
+    refreshTokenNote:
+      typeof data.refresh_token_note === 'string'
+        ? data.refresh_token_note
+        : (previous?.refreshTokenNote ?? null),
+  };
+}
+
+function connectionFromMutateResponse(
+  data: ConnectResponse | RefreshResponse,
+  previous?: ConnectionState
+): ConnectionState {
+  const expiresAt = getExpiresAt(data) ?? previous?.expiresAt ?? null;
+  const refreshExpiresAt =
+    getRefreshExpiresAt(data) ?? previous?.refreshExpiresAt ?? null;
+  const isRefreshExpired =
+    data.is_refresh_expired ??
+    (refreshExpiresAt !== null ? refreshExpiresAt <= Date.now() : false);
+  const canRefresh =
+    data.can_refresh ??
+    (previous?.canRefresh !== false && !isRefreshExpired);
+
+  return {
+    connected: true,
+    expiresAt,
+    refreshExpiresAt,
+    canRefresh,
+    isRefreshExpired,
+    refreshTokenObtainedAt: pickTimestamp(
+      data.refresh_token_obtained_at,
+      previous?.refreshTokenObtainedAt
+    ),
+    refreshInactivityExpiresAt: pickTimestamp(
+      data.refresh_inactivity_expires_at,
+      previous?.refreshInactivityExpiresAt
+    ),
+    refreshTokenNote:
+      typeof data.refresh_token_note === 'string'
+        ? data.refresh_token_note
+        : (previous?.refreshTokenNote ?? null),
+  };
 }
 
 function cleanOAuthParams() {
@@ -172,24 +285,176 @@ function formatDate(timestamp: number | null) {
   }).format(new Date(timestamp));
 }
 
-function formatRemaining(timestamp: number | null) {
+function formatRemaining(timestamp: number | null, now: number) {
   if (!timestamp) return 'Expiry time unavailable';
 
-  const diffMs = timestamp - Date.now();
+  const diffMs = timestamp - now;
   if (diffMs <= 0) return 'Expired';
 
-  const minutes = Math.ceil(diffMs / 60_000);
-  if (minutes < 60) {
-    return `${minutes} minute${minutes === 1 ? '' : 's'} remaining`;
+  const totalMinutes = Math.ceil(diffMs / 60_000);
+  if (totalMinutes < 60) {
+    return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'} remaining`;
   }
 
-  const hours = Math.ceil(minutes / 60);
-  if (hours < 48) {
-    return `${hours} hour${hours === 1 ? '' : 's'} remaining`;
+  const totalHours = Math.ceil(totalMinutes / 60);
+  if (totalHours < 48) {
+    return `${totalHours} hour${totalHours === 1 ? '' : 's'} remaining`;
   }
 
-  const days = Math.ceil(hours / 24);
+  const days = Math.floor(diffMs / 86_400_000);
+  const hours = Math.floor((diffMs % 86_400_000) / 3_600_000);
+
+  if (days >= 14) {
+    return `${days} day${days === 1 ? '' : 's'} remaining`;
+  }
+
+  if (hours > 0) {
+    return `${days} day${days === 1 ? '' : 's'} ${hours} hour${hours === 1 ? '' : 's'} remaining`;
+  }
+
   return `${days} day${days === 1 ? '' : 's'} remaining`;
+}
+
+function formatCantRefreshAfter(timestamp: number | null, now: number) {
+  if (!timestamp) return null;
+  if (timestamp <= now) return 'Can no longer refresh — reconnect required';
+  return `Can't refresh after ${formatDate(timestamp)} · ${formatRemaining(timestamp, now)}`;
+}
+
+type TokenExpiryBlockProps = {
+  title: string;
+  expiresAt: number | null;
+  now: number;
+  emptyLabel?: string;
+  helperText?: string | null;
+  tone?: 'default' | 'warning' | 'danger';
+};
+
+function TokenExpiryBlock({
+  title,
+  expiresAt,
+  now,
+  emptyLabel = 'Expiry time unavailable',
+  helperText,
+  tone = 'default',
+}: TokenExpiryBlockProps) {
+  const isExpired = expiresAt !== null && expiresAt <= now;
+  const remaining = expiresAt
+    ? formatRemaining(expiresAt, now)
+    : emptyLabel;
+
+  const remainingClass =
+    tone === 'danger' || isExpired
+      ? 'text-destructive'
+      : tone === 'warning'
+        ? 'text-amber-600 dark:text-amber-500'
+        : 'text-muted-foreground';
+
+  return (
+    <div className="space-y-1.5 rounded-lg border bg-muted/30 p-3">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Clock className="h-4 w-4 shrink-0" />
+        {title}
+      </div>
+      <div className="space-y-0.5 pl-6 text-sm">
+        <p className="text-foreground">{formatDate(expiresAt)}</p>
+        <p className={remainingClass}>{remaining}</p>
+        {helperText ? (
+          <p className="pt-1 text-xs text-muted-foreground">{helperText}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+type RefreshTokenBlockProps = {
+  connection: ConnectionState;
+  now: number;
+  /** Provider-specific copy when there is no hard refresh expiry. */
+  noFixedExpiryNote?: string;
+};
+
+function RefreshTokenBlock({
+  connection,
+  now,
+  noFixedExpiryNote,
+}: RefreshTokenBlockProps) {
+  const {
+    refreshExpiresAt,
+    isRefreshExpired,
+    canRefresh,
+    refreshInactivityExpiresAt,
+    refreshTokenNote,
+  } = connection;
+
+  const hasHardExpiry = refreshExpiresAt !== null;
+  const cantRefreshLabel = formatCantRefreshAfter(refreshExpiresAt, now);
+  const softWarning =
+    !hasHardExpiry &&
+    refreshInactivityExpiresAt !== null &&
+    refreshInactivityExpiresAt - now < 30 * 86_400_000;
+
+  if (hasHardExpiry) {
+    return (
+      <div className="space-y-2">
+        <TokenExpiryBlock
+          title="Refresh token expiry"
+          expiresAt={refreshExpiresAt}
+          now={now}
+          tone={isRefreshExpired ? 'danger' : softWarning ? 'warning' : 'default'}
+          helperText={
+            isRefreshExpired
+              ? 'Access tokens can no longer be renewed. Reconnect to continue.'
+              : cantRefreshLabel
+          }
+        />
+        {!canRefresh ? (
+          <Alert variant="destructive">
+            <ShieldAlert className="h-4 w-4" />
+            <AlertTitle>Reconnect required</AlertTitle>
+            <AlertDescription>
+              The refresh token has expired, so automatic and manual refresh will
+              fail until you reconnect.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1.5 rounded-lg border bg-muted/30 p-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Info className="h-4 w-4 shrink-0" />
+          Refresh token
+        </div>
+        <div className="space-y-1 pl-6 text-sm">
+          <p className="text-foreground">No fixed expiry</p>
+          {refreshInactivityExpiresAt ? (
+            <p
+              className={
+                softWarning
+                  ? 'text-amber-600 dark:text-amber-500'
+                  : 'text-muted-foreground'
+              }
+            >
+              May stop working after {formatDate(refreshInactivityExpiresAt)} if
+              unused ({formatRemaining(refreshInactivityExpiresAt, now)})
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              {noFixedExpiryNote ??
+                'Long-lived — reconnect if refresh starts failing.'}
+            </p>
+          )}
+          {refreshTokenNote ? (
+            <p className="pt-1 text-xs text-muted-foreground">{refreshTokenNote}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── AliExpress ───────────────────────────────────────────────────────────────
@@ -202,10 +467,8 @@ const ALIEXPRESS_AUTH_URL =
 function AliExpressCard() {
   const handledCodeRef = useRef(false);
 
-  const [connection, setConnection] = useState<ConnectionState>({
-    connected: false,
-    expiresAt: null,
-  });
+  const [connection, setConnection] =
+    useState<ConnectionState>(EMPTY_CONNECTION);
 
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<ProviderAction>(null);
@@ -218,15 +481,20 @@ function AliExpressCard() {
     return connection.expiresAt !== null && connection.expiresAt <= now;
   }, [connection.expiresAt, now]);
 
+  const badgeLabel = connection.isRefreshExpired
+    ? 'Reconnect required'
+    : isExpired
+      ? 'Access expired'
+      : 'Connected';
+
+  const badgeVariant =
+    connection.isRefreshExpired || isExpired ? 'destructive' : 'default';
+
   const loadStatus = useCallback(async () => {
     setError(null);
     try {
       const data = await requestJson<StatusResponse>(`${AE_API_BASE}/status`);
-      const expiresAt = getExpiresAt(data);
-      setConnection((current) => ({
-        connected: data.connected,
-        expiresAt: data.connected ? (expiresAt ?? current.expiresAt) : null,
-      }));
+      setConnection((current) => connectionFromStatus(data, current));
     } catch (err) {
       const message =
         err instanceof Error
@@ -246,10 +514,7 @@ function AliExpressCard() {
         const data = await requestJson<ConnectResponse>(
           `${AE_API_BASE}/connect?code=${encodeURIComponent(code)}`
         );
-        setConnection({
-          connected: true,
-          expiresAt: getExpiresAt(data),
-        });
+        setConnection((current) => connectionFromMutateResponse(data, current));
         cleanOAuthParams();
         toast.success(data.message || 'AliExpress connected successfully.');
         await loadStatus();
@@ -271,11 +536,7 @@ function AliExpressCard() {
     setError(null);
     try {
       const data = await requestJson<RefreshResponse>(`${AE_API_BASE}/refresh`);
-      const expiresAt = getExpiresAt(data);
-      setConnection((current) => ({
-        connected: true,
-        expiresAt: expiresAt ?? current.expiresAt,
-      }));
+      setConnection((current) => connectionFromMutateResponse(data, current));
       toast.success(data.message || 'AliExpress token refreshed.');
       await loadStatus();
     } catch (err) {
@@ -285,6 +546,7 @@ function AliExpressCard() {
           : 'Failed to refresh AliExpress token.';
       setError(message);
       toast.error(message);
+      await loadStatus();
     } finally {
       setAction(null);
     }
@@ -295,7 +557,7 @@ function AliExpressCard() {
     setError(null);
     try {
       await requestJson(`${AE_API_BASE}/disconnect`);
-      setConnection({ connected: false, expiresAt: null });
+      setConnection({ ...EMPTY_CONNECTION });
       toast.success('AliExpress disconnected.');
     } catch (err) {
       const message =
@@ -314,6 +576,8 @@ function AliExpressCard() {
 
   useEffect(() => {
     if (!connection.connected || !connection.expiresAt) return;
+    if (!connection.canRefresh) return;
+
     const refreshDelay = Math.max(
       0,
       connection.expiresAt - Date.now() - 4 * 60_000
@@ -323,7 +587,12 @@ function AliExpressCard() {
     }, refreshDelay);
 
     return () => window.clearTimeout(timer);
-  }, [connection.connected, connection.expiresAt, loadStatus]);
+  }, [
+    connection.connected,
+    connection.expiresAt,
+    connection.canRefresh,
+    loadStatus,
+  ]);
 
   useEffect(() => {
     if (handledCodeRef.current) return;
@@ -341,23 +610,17 @@ function AliExpressCard() {
       return;
     }
 
-    if (oauthError && state !== 'google_ads') {
-      // Only treat as AE error when not a Google callback
-      if (!state || state !== 'google_ads') {
-        // If there's an error without google state, could be AE or unknown
-      }
+    if (oauthError && state && state !== 'google_ads') {
+      const message = oauthErrorDescription || oauthError;
+      setError(message);
+      toast.error(message);
+      cleanOAuthParams();
+      setLoading(false);
+      void loadStatus();
+      return;
     }
 
-    // AE callbacks typically have code without google_ads state
     if (oauthError && (!state || state !== 'google_ads')) {
-      // Might be Google error without state — handled by Google card too.
-      // Only surface AE errors when clearly not Google.
-      if (state && state !== 'google_ads') {
-        const message = oauthErrorDescription || oauthError;
-        setError(message);
-        toast.error(message);
-        cleanOAuthParams();
-      }
       setLoading(false);
       void loadStatus();
       return;
@@ -384,12 +647,9 @@ function AliExpressCard() {
           />
 
           {connection.connected ? (
-            <Badge
-              variant={isExpired ? 'destructive' : 'default'}
-              className="gap-1"
-            >
+            <Badge variant={badgeVariant} className="gap-1">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {isExpired ? 'Expired' : 'Connected'}
+              {badgeLabel}
             </Badge>
           ) : (
             <Badge variant="secondary">Not connected</Badge>
@@ -413,21 +673,34 @@ function AliExpressCard() {
           </div>
         ) : connection.connected ? (
           <>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Clock className="h-4 w-4" />
-                Token expiry
-              </div>
-              <div className="text-sm text-muted-foreground">
-                <p>{formatDate(connection.expiresAt)}</p>
-                <p>{formatRemaining(connection.expiresAt)}</p>
-              </div>
+            <div className="space-y-3">
+              <TokenExpiryBlock
+                title="Access token expiry"
+                expiresAt={connection.expiresAt}
+                now={now}
+                tone={isExpired ? 'danger' : 'default'}
+                helperText={
+                  isExpired && connection.canRefresh
+                    ? 'Expired — click Refresh to renew without reconnecting.'
+                    : undefined
+                }
+              />
+
+              <RefreshTokenBlock connection={connection} now={now} />
             </div>
 
             <Separator />
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={refreshToken} disabled={isBusy}>
+              <Button
+                onClick={refreshToken}
+                disabled={isBusy || !connection.canRefresh}
+                title={
+                  !connection.canRefresh
+                    ? 'Refresh token expired — reconnect required'
+                    : undefined
+                }
+              >
                 {action === 'refresh' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -448,6 +721,15 @@ function AliExpressCard() {
                 )}
                 Disconnect
               </Button>
+
+              {connection.isRefreshExpired ? (
+                <Button asChild variant="outline" disabled={isBusy}>
+                  <a href={ALIEXPRESS_AUTH_URL}>
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Reconnect
+                  </a>
+                </Button>
+              ) : null}
             </div>
           </>
         ) : (
@@ -470,10 +752,8 @@ const GOOGLE_API_BASE = '/api/google';
 function GoogleAdsCard() {
   const handledCodeRef = useRef(false);
 
-  const [connection, setConnection] = useState<ConnectionState>({
-    connected: false,
-    expiresAt: null,
-  });
+  const [connection, setConnection] =
+    useState<ConnectionState>(EMPTY_CONNECTION);
 
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<ProviderAction>(null);
@@ -487,17 +767,22 @@ function GoogleAdsCard() {
     return connection.expiresAt !== null && connection.expiresAt <= now;
   }, [connection.expiresAt, now]);
 
+  const badgeLabel = connection.isRefreshExpired
+    ? 'Reconnect required'
+    : isExpired
+      ? 'Access expired'
+      : 'Connected';
+
+  const badgeVariant =
+    connection.isRefreshExpired || isExpired ? 'destructive' : 'default';
+
   const loadStatus = useCallback(async () => {
     setError(null);
     try {
       const data = await requestJson<StatusResponse>(
         `${GOOGLE_API_BASE}/status`
       );
-      const expiresAt = getExpiresAt(data);
-      setConnection((current) => ({
-        connected: data.connected,
-        expiresAt: data.connected ? (expiresAt ?? current.expiresAt) : null,
-      }));
+      setConnection((current) => connectionFromStatus(data, current));
     } catch (err) {
       const message =
         err instanceof Error
@@ -517,10 +802,7 @@ function GoogleAdsCard() {
         const data = await requestJson<ConnectResponse>(
           `${GOOGLE_API_BASE}/connect?code=${encodeURIComponent(code)}`
         );
-        setConnection({
-          connected: true,
-          expiresAt: getExpiresAt(data),
-        });
+        setConnection((current) => connectionFromMutateResponse(data, current));
         cleanOAuthParams();
         toast.success(data.message || 'Google Ads connected successfully.');
         await loadStatus();
@@ -567,11 +849,7 @@ function GoogleAdsCard() {
       const data = await requestJson<RefreshResponse>(
         `${GOOGLE_API_BASE}/refresh`
       );
-      const expiresAt = getExpiresAt(data);
-      setConnection((current) => ({
-        connected: true,
-        expiresAt: expiresAt ?? current.expiresAt,
-      }));
+      setConnection((current) => connectionFromMutateResponse(data, current));
       toast.success(data.message || 'Google Ads token refreshed.');
       await loadStatus();
     } catch (err) {
@@ -581,6 +859,7 @@ function GoogleAdsCard() {
           : 'Failed to refresh Google Ads token.';
       setError(message);
       toast.error(message);
+      await loadStatus();
     } finally {
       setAction(null);
     }
@@ -591,7 +870,7 @@ function GoogleAdsCard() {
     setError(null);
     try {
       await requestJson(`${GOOGLE_API_BASE}/disconnect`);
-      setConnection({ connected: false, expiresAt: null });
+      setConnection({ ...EMPTY_CONNECTION });
       toast.success('Google Ads disconnected.');
     } catch (err) {
       const message =
@@ -610,6 +889,8 @@ function GoogleAdsCard() {
 
   useEffect(() => {
     if (!connection.connected || !connection.expiresAt) return;
+    if (!connection.canRefresh) return;
+
     const refreshDelay = Math.max(
       0,
       connection.expiresAt - Date.now() - 4 * 60_000
@@ -619,7 +900,12 @@ function GoogleAdsCard() {
     }, refreshDelay);
 
     return () => window.clearTimeout(timer);
-  }, [connection.connected, connection.expiresAt, loadStatus]);
+  }, [
+    connection.connected,
+    connection.expiresAt,
+    connection.canRefresh,
+    loadStatus,
+  ]);
 
   useEffect(() => {
     if (handledCodeRef.current) return;
@@ -689,12 +975,9 @@ function GoogleAdsCard() {
           </div>
 
           {connection.connected ? (
-            <Badge
-              variant={isExpired ? 'destructive' : 'default'}
-              className="gap-1"
-            >
+            <Badge variant={badgeVariant} className="gap-1">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {isExpired ? 'Expired' : 'Connected'}
+              {badgeLabel}
             </Badge>
           ) : (
             <Badge variant="secondary">Not connected</Badge>
@@ -718,21 +1001,38 @@ function GoogleAdsCard() {
           </div>
         ) : connection.connected ? (
           <>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Clock className="h-4 w-4" />
-                Access token expiry
-              </div>
-              <div className="text-sm text-muted-foreground">
-                <p>{formatDate(connection.expiresAt)}</p>
-                <p>{formatRemaining(connection.expiresAt)}</p>
-              </div>
+            <div className="space-y-3">
+              <TokenExpiryBlock
+                title="Access token expiry"
+                expiresAt={connection.expiresAt}
+                now={now}
+                tone={isExpired ? 'danger' : 'default'}
+                helperText={
+                  isExpired && connection.canRefresh
+                    ? 'Expired — click Refresh to renew without reconnecting.'
+                    : undefined
+                }
+              />
+
+              <RefreshTokenBlock
+                connection={connection}
+                now={now}
+                noFixedExpiryNote="Google refresh tokens have no fixed expiry. Reconnect if refresh starts failing."
+              />
             </div>
 
             <Separator />
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={refreshToken} disabled={isBusy}>
+              <Button
+                onClick={refreshToken}
+                disabled={isBusy || !connection.canRefresh}
+                title={
+                  !connection.canRefresh
+                    ? 'Refresh token unavailable — reconnect required'
+                    : undefined
+                }
+              >
                 {action === 'refresh' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -753,6 +1053,21 @@ function GoogleAdsCard() {
                 )}
                 Disconnect
               </Button>
+
+              {connection.isRefreshExpired ? (
+                <Button
+                  onClick={startConnect}
+                  variant="outline"
+                  disabled={isBusy}
+                >
+                  {connectingRedirect ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                  )}
+                  Reconnect
+                </Button>
+              ) : null}
             </div>
           </>
         ) : (
