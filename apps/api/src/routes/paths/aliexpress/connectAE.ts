@@ -226,25 +226,48 @@ aeAuth.get(
     }
 
     try {
+      // Reconnect is intentional: exchange the new auth code and overwrite KV
+      // tokens in place so callers never hit an empty-token window.
+      const before = await getAliExpressConnectionStatus(c.env);
+      const wasConnected = before.connected;
       const tokens = await connectAliExpress(c.env, code.trim());
 
       recordAliExpressAudit(c, {
         action: AUDIT_ACTIONS.AE_CONNECT,
-        description: 'AliExpress connected successfully',
+        description: wasConnected
+          ? 'AliExpress reconnected successfully (tokens replaced)'
+          : 'AliExpress connected successfully',
         status: 'success',
         severity: 'info',
-        changes: { connected: { from: false, to: true } },
+        changes: wasConnected
+          ? {
+              expiresAt: {
+                from: before.expires_at,
+                to: tokens.expires_at,
+              },
+              refreshExpiresAt: {
+                from: before.refresh_expires_at,
+                to: tokens.refresh_expires_at,
+              },
+            }
+          : { connected: { from: false, to: true } },
         metadata: {
+          reconnected: wasConnected,
           expiresAt: tokens.expires_at,
           refreshExpiresAt: tokens.refresh_expires_at,
+          previousExpiresAt: before.expires_at,
+          previousRefreshExpiresAt: before.refresh_expires_at,
         },
       });
 
       // Never return raw tokens to the browser.
       return c.json({
         success: true,
-        message: 'AliExpress connected successfully',
+        message: wasConnected
+          ? 'AliExpress reconnected successfully'
+          : 'AliExpress connected successfully',
         connected: true,
+        reconnected: wasConnected,
         expires_at: tokens.expires_at,
         refresh_expires_at: tokens.refresh_expires_at,
       });
