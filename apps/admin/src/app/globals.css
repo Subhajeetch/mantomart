@@ -9,6 +9,18 @@ html {
 	font-family: "Roboto", sans-serif, Arial, Helvetica, system-ui;
 }
 
+/*
+ * Align native form controls / scrollbars with the resolved theme.
+ * ThemeInitScript + next-themes also set style.colorScheme on <html>.
+ */
+html.dark {
+	color-scheme: dark;
+}
+
+html:not(.dark) {
+	color-scheme: light;
+}
+
 ::-webkit-scrollbar {
 	width: 10px;
 }

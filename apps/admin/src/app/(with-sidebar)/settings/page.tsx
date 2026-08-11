@@ -44,11 +44,7 @@ import {
   type SettingDefinition,
 } from './settings';
 import { useSettings } from './use-settings';
-
-/** Matches ThemeProvider defaultTheme. */
-const DEFAULT_THEME = 'dark' as const;
-
-type ThemeValue = 'light' | 'dark' | 'system';
+import { DEFAULT_THEME, isThemeValue, type ThemeValue } from '@/lib/theme';
 
 const THEME_OPTIONS: Array<{
   value: ThemeValue;
@@ -75,10 +71,6 @@ const THEME_OPTIONS: Array<{
     icon: Laptop,
   },
 ];
-
-function isThemeValue(value: string | undefined): value is ThemeValue {
-  return value === 'light' || value === 'dark' || value === 'system';
-}
 
 function themeLabel(value: string | undefined): string {
   if (!isThemeValue(value)) return 'Theme';

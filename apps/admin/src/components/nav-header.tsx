@@ -89,8 +89,11 @@ export function NavHeader() {
               <ToggleGroup
                   type="single"
                   size="sm"
-                  value={theme}
-                  onValueChange={setTheme}
+                  // ToggleGroup is single-select; ignore empty value (re-click deselect).
+                  value={theme === "light" || theme === "dark" ? theme : "dark"}
+                  onValueChange={(value) => {
+                    if (value === "light" || value === "dark") setTheme(value)
+                  }}
                   variant="outline"
                   className="my-2 flex w-full items-center justify-center rounded-md bg-popover p-1"
                   spacing={2}
