@@ -69,6 +69,7 @@ import {
   validateStep,
   WIZARD_STEPS,
 } from './import-wizard-utils';
+import { ImportWizardMedia } from './import-wizard-media';
 import { ImportWizardVariants } from './import-wizard-variants';
 import AiSeoSheet, { type AiSeoApplyPayload } from './ai-seo-sheet';
 import KeywordResearchSheet from './keyword-research-sheet';
@@ -405,6 +406,10 @@ export default function ImportWizard({
         titleSnapshot:
           form.name.trim() || listItem?.normalized.title || 'Untitled draft',
         imageSnapshot:
+          // Prefer the ordered thumbnail (index 0) when selected, else first selected.
+          (form.productImages[0]?.selected !== false
+            ? form.productImages[0]?.url
+            : undefined) ??
           form.productImages.find((i) => i.selected !== false)?.url ??
           listItem?.normalized.imageUrl ??
           null,
@@ -531,7 +536,7 @@ export default function ImportWizard({
       return;
     }
 
-    // When entering Images step, stamp product title onto empty image alt texts
+    // When entering Media step, stamp product title onto empty image alt texts
     if (nextStep === 2) {
       setForm((prev) => (prev ? applyTitleToImageAlts(prev) : prev));
     }
@@ -1029,164 +1034,13 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 2: Images & Videos ── */}
+                {/* ── Step 2: Media ── */}
                 {step === 2 ? (
-                  <div className="space-y-6">
-                    <section className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <h3 className="text-sm font-semibold">
-                            Product images ({selectedImageCount} selected)
-                          </h3>
-                          <p className="text-xs text-muted-foreground">
-                            Gallery, variant, video posters, and
-                            detail/description images from AliExpress. Toggle
-                            and set alt text for SEO.
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              updateForm((prev) => ({
-                                ...prev,
-                                productImages: prev.productImages.map(
-                                  (img) => ({
-                                    ...img,
-                                    selected: true,
-                                  })
-                                ),
-                              }))
-                            }
-                          >
-                            Select all
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              updateForm((prev) => ({
-                                ...prev,
-                                productImages: prev.productImages.map(
-                                  (img) => ({
-                                    ...img,
-                                    selected: false,
-                                  })
-                                ),
-                              }))
-                            }
-                          >
-                            Clear
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                        {form.productImages.map((img, index) => {
-                          const selected = img.selected !== false;
-                          return (
-                            <Card
-                              key={`${img.url}-${index}`}
-                              className={cn(
-                                'overflow-hidden transition p-0',
-                                selected
-                                  ? 'border-primary ring-1 ring-primary/30'
-                                  : 'opacity-70'
-                              )}
-                            >
-                              <div className="relative aspect-square bg-muted">
-                                <ProxiedImg
-                                  src={img.url}
-                                  alt={img.alt || form.name}
-                                  className="h-full w-full object-contain"
-                                  loading="lazy"
-                                  referrerPolicy="no-referrer"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateForm((prev) => ({
-                                      ...prev,
-                                      productImages: prev.productImages.map(
-                                        (p, i) =>
-                                          i === index
-                                            ? {
-                                                ...p,
-                                                selected: p.selected === false,
-                                              }
-                                            : p
-                                      ),
-                                    }))
-                                  }
-                                  className={cn(
-                                    'absolute right-2 top-2 rounded-full p-1.5 shadow',
-                                    selected
-                                      ? 'bg-primary text-primary-foreground'
-                                      : 'bg-background text-muted-foreground'
-                                  )}
-                                >
-                                  {selected ? (
-                                    <Check className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <Plus className="h-3.5 w-3.5" />
-                                  )}
-                                </button>
-                              </div>
-                              <CardContent className="space-y-2 p-3">
-                                <Label className="text-xs">Alt text</Label>
-                                <Input
-                                  value={img.alt}
-                                  onChange={(e) =>
-                                    updateForm((prev) => ({
-                                      ...prev,
-                                      productImages: prev.productImages.map(
-                                        (p, i) =>
-                                          i === index
-                                            ? { ...p, alt: e.target.value }
-                                            : p
-                                      ),
-                                    }))
-                                  }
-                                  placeholder="Describe the image for SEO"
-                                  className="h-8 text-xs"
-                                />
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
-                        {form.productImages.length === 0 ? (
-                          <div className="col-span-full flex h-32 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-                            <ImageOff className="mr-2 h-4 w-4" />
-                            No images available from AliExpress
-                          </div>
-                        ) : null}
-                      </div>
-                    </section>
-
-                    {form.videos.length > 0 ? (
-                      <section className="space-y-2">
-                        <h3 className="text-sm font-semibold">
-                          Videos ({form.videos.length})
-                        </h3>
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {form.videos.map((video) => (
-                            <video
-                              key={video.url}
-                              controls
-                              preload="metadata"
-                              poster={video.poster ?? undefined}
-                              className="max-h-56 w-full rounded-lg border bg-muted"
-                            >
-                              <source src={video.url} />
-                            </video>
-                          ))}
-                        </div>
-                      </section>
-                    ) : null}
-                  </div>
+                  <ImportWizardMedia
+                    form={form}
+                    selectedImageCount={selectedImageCount}
+                    updateForm={updateForm}
+                  />
                 ) : null}
 
                 {/* ── Step 3: Product Attributes ── */}
@@ -1816,10 +1670,12 @@ export default function ImportWizard({
                           </div>
                           <div className="rounded-lg border bg-muted/20 p-3">
                             <dt className="text-xs text-muted-foreground">
-                              Images
+                              Media
                             </dt>
                             <dd className="font-medium">
-                              {selectedImageCount}
+                              {selectedImageCount} image
+                              {selectedImageCount === 1 ? '' : 's'}
+                              {form.mainVideo ? ' · video on' : form.videos.length > 0 ? ' · video off' : ''}
                             </dd>
                           </div>
                           <div className="rounded-lg border bg-muted/20 p-3">

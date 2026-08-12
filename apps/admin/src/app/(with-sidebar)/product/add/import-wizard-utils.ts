@@ -674,7 +674,7 @@ export function shouldDefaultToGroupedView(skus: SkuDraft[]): boolean {
 export const WIZARD_STEPS = [
   { id: 0, key: 'basics', label: 'Title & Description' },
   { id: 1, key: 'variants', label: 'Variants' },
-  { id: 2, key: 'images', label: 'Images' },
+  { id: 2, key: 'media', label: 'Media' },
   { id: 3, key: 'attributes', label: 'Attributes' },
   { id: 4, key: 'categories', label: 'Categories & Size' },
   { id: 5, key: 'seo', label: 'SEO & Tags' },
@@ -771,7 +771,19 @@ export function validateStep(
   }
   if (step === 2) {
     const images = form.productImages.filter((i) => i.selected !== false);
-    if (images.length === 0) return 'Select at least one product image.';
+    if (images.length === 0) {
+      return 'Select at least one product image. Drag your preferred thumbnail to the top.';
+    }
+    // mainVideo without a resolvable source should not proceed to publish
+    if (form.mainVideo) {
+      if (form.videos.length === 0) {
+        return 'A video is selected but none are available. Turn off Include video.';
+      }
+      const hasMatch = form.videos.some((v) => v.url === form.mainVideo);
+      if (!hasMatch) {
+        return 'Selected product video is invalid. Turn Include video off, or pick another clip.';
+      }
+    }
   }
   if (step === 3) {
     const selectedAttributes = form.attributes.filter(
@@ -882,14 +894,32 @@ export function extractAliExpressMedia(
 
 export function buildPublishPayload(form: ImportFormState) {
   const selectedSkus = form.skus.filter((s) => s.selected && s.stock > 0);
+  // Preserve admin drag order; reindex positions after selection filter.
   const selectedImages = dedupeProductImages(form.productImages)
     .filter((i) => i.selected !== false)
     .map((img, index) => ({
       url: img.url,
       alt: img.alt || form.name.slice(0, 120),
       variantKeys: img.variantKeys,
-      position: img.position ?? index,
+      position: index,
     }));
+
+  // Only attach video when the admin explicitly kept mainVideo set.
+  const mainVideo = form.mainVideo?.trim() || null;
+  const videos = mainVideo
+    ? form.videos
+        .filter((v) => v.url === mainVideo)
+        .map((v) => ({
+          url: v.url,
+          poster: v.poster ?? null,
+          alt: v.alt?.trim() || form.name.slice(0, 120),
+        }))
+    : [];
+  // If mainVideo was set to a URL not in videos[], still publish the URL alone.
+  const resolvedVideos =
+    mainVideo && videos.length === 0
+      ? [{ url: mainVideo, poster: null as string | null, alt: form.name.slice(0, 120) }]
+      : videos;
 
   // Slug always derived from the product title.
   const slug = slugify(form.name.trim());
@@ -907,8 +937,8 @@ export function buildPublishPayload(form: ImportFormState) {
     aeSalesCount: form.aeSalesCount,
     aeStatus: form.aeStatus,
     images: selectedImages,
-    videos: form.videos,
-    mainVideo: form.mainVideo,
+    videos: resolvedVideos,
+    mainVideo,
     categoryIds: form.categoryIds,
     hasSizeChart: form.hasSizeChart,
     sizeChartImage: form.sizeChartImage,
