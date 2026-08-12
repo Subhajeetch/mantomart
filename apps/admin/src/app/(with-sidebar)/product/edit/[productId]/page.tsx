@@ -3,6 +3,7 @@
 import '@uiw/react-md-editor/markdown-editor.css';
 import dynamic from 'next/dynamic';
 import CustomImage from '@/components/custom-image';
+import { ProxiedImg } from '@/util/proxied-image';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1283,8 +1284,7 @@ export default function ProductEditPage() {
                         <div className="space-y-2">
                           <Label>Size chart image</Label>
                           {form.sizeChartImage ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
+                            <ProxiedImg
                               src={form.sizeChartImage}
                               alt="Size chart"
                               className="max-h-48 w-full rounded-md border object-contain bg-muted"

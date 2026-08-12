@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { ProxiedNextImage } from '@/app/(with-sidebar)/settings/proxied-image';
+import { ProxiedNextImage } from '@/util/proxied-image';
 
 import ImportWizard from './import-wizard';
 import {

@@ -30,7 +30,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { ProxiedNextImage } from "@/app/(with-sidebar)/settings/proxied-image";
+import { ProxiedNextImage } from "@/util/proxied-image";
 import ProductDetailDialog, {
   fetchAliExpressProductDetail,
   type AliExpressProductDetailResponse,

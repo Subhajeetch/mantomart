@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ProxiedImg } from "@/app/(with-sidebar)/settings/proxied-image";
+import { ProxiedImg } from "@/util/proxied-image";
 import { useProxiedImageSrc } from "@/app/(with-sidebar)/settings/use-settings";
 
 export type AliExpressSearchProduct = {

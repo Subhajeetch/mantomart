@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
+import { ProxiedImg } from '@/util/proxied-image';
 import { cn } from '@/lib/utils';
 
 import {

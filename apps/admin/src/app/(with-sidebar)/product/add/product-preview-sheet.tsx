@@ -24,7 +24,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
+import { ProxiedImg } from '@/util/proxied-image';
 import { useProxiedImageSrc } from '@/app/(with-sidebar)/settings/use-settings';
 import type { SavedAliExpressProduct } from './storage';
 import {

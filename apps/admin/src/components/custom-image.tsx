@@ -1,5 +1,7 @@
-"use client";
-import { useState, useRef, useEffect, ImgHTMLAttributes } from "react";
+'use client';
+
+import { useState, useRef, useEffect, ImgHTMLAttributes } from 'react';
+import { useProxiedImageSrc } from '@/app/(with-sidebar)/settings/use-settings';
 
 interface CustomImageProps extends ImgHTMLAttributes<HTMLImageElement> {
   src: string;
@@ -15,22 +17,31 @@ interface CustomImageProps extends ImgHTMLAttributes<HTMLImageElement> {
   caption?: string;
 }
 
+/**
+ * Product image with blur-in loading.
+ * AliExpress CDN URLs are routed through the admin image proxy when that
+ * setting is enabled; all other URLs are left unchanged.
+ */
 export default function CustomImage({
   src,
   alt,
-  className = "",
-  placeholderSrc = "",
+  className = '',
+  placeholderSrc = '',
   width,
   height,
   priority = false,
   caption,
   ...props
 }: CustomImageProps) {
+  const resolvedSrc = useProxiedImageSrc(src);
+  const resolvedPlaceholder = useProxiedImageSrc(placeholderSrc || null);
   const [isLoaded, setIsLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
-    if (imgRef.current?.complete) {
+    setIsLoaded(false);
+
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
       setIsLoaded(true);
       return;
     }
@@ -40,34 +51,34 @@ export default function CustomImage({
     }, 2500);
 
     return () => clearTimeout(t);
-  }, [src]);
+  }, [resolvedSrc]);
 
   const img = (
     <div className={`relative overflow-hidden ${className}`}>
       {/* Blur placeholder — hidden from assistive tech, no alt needed */}
-      {!isLoaded && placeholderSrc && (
+      {!isLoaded && resolvedPlaceholder && (
         <img
-          src={placeholderSrc}
+          src={resolvedPlaceholder}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover blur-lg scale-105"
+          className="absolute inset-0 h-full w-full scale-105 object-cover blur-lg"
         />
       )}
 
       {/* Real image */}
       <img
         ref={imgRef}
-        src={src}
+        src={resolvedSrc || undefined}
         alt={alt}
         width={width}
         height={height}
-        loading={priority ? "eager" : "lazy"}
-        decoding={priority ? "sync" : "async"}
-        fetchPriority={priority ? "high" : "auto"}
+        loading={priority ? 'eager' : 'lazy'}
+        decoding={priority ? 'sync' : 'async'}
+        fetchPriority={priority ? 'high' : 'auto'}
         onLoad={() => setIsLoaded(true)}
         onError={() => setIsLoaded(true)}
-        className={`w-full h-full object-cover transition-opacity duration-500 ${
-          isLoaded ? "opacity-100" : "opacity-0"
+        className={`h-full w-full object-cover transition-opacity duration-500 ${
+          isLoaded ? 'opacity-100' : 'opacity-0'
         }`}
         {...props}
       />
@@ -78,7 +89,7 @@ export default function CustomImage({
     return (
       <figure className="m-0 p-0">
         {img}
-        <figcaption className="text-sm text-gray-500 mt-1">{caption}</figcaption>
+        <figcaption className="mt-1 text-sm text-gray-500">{caption}</figcaption>
       </figure>
     );
   }

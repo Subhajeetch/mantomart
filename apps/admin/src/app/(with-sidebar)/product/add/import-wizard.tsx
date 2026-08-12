@@ -42,7 +42,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
+import { ProxiedImg } from '@/util/proxied-image';
 import {
   FullscreenDialog,
   FullscreenDialogBody,

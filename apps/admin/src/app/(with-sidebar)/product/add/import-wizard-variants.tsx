@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { ProxiedImg } from '@/app/(with-sidebar)/settings/proxied-image';
+import { ProxiedImg } from '@/util/proxied-image';
 import { centsToDisplay, type SkuDraft } from './storage';
 import {
   canUseGroupedVariants,
