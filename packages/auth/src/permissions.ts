@@ -45,6 +45,14 @@ export const PERMISSIONS = {
    * Intentionally NOT on the default admin role — grant via override or owner.
    */
   HEADER_UPDATE: 'header:update',
+
+  /** View the admin contribution leaderboard. Default on the admin role. */
+  ADMIN_STATS_READ: 'admin_stats:read',
+  /**
+   * Rebuild / sync denormalized admin stats from source tables.
+   * Intentionally NOT on the default admin role — grant via override or owner.
+   */
+  ADMIN_STATS_MANAGE: 'admin_stats:manage',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -100,6 +108,9 @@ export const AUDIT_ACTIONS = {
   HEADER_UPDATE: 'header.update',
   HEADER_DELETE: 'header.delete',
 
+  // Admin stats
+  ADMIN_STATS_SYNC: 'admin_stats.sync',
+
   // System
   SYSTEM: 'system.event',
 } as const;
@@ -141,6 +152,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.GOOGLE_KEYWORD_RESEARCH,
     PERMISSIONS.AI_SEO_GENERATE,
     PERMISSIONS.AUDIT_LOG_READ,
+    PERMISSIONS.ADMIN_STATS_READ,
   ],
   owner: Object.values(PERMISSIONS) as Permission[],
 };

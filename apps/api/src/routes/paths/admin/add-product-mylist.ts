@@ -26,6 +26,7 @@ import {
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
 } from '@/utils/auditLog';
+import { incrementAdminProductsAdded } from '@/utils/adminStats';
 
 // ─── Limits ───────────────────────────────────────────────────────────────────
 
@@ -1210,6 +1211,10 @@ addProductMyList.post(
         createdAt: now,
         updatedAt: now,
       });
+
+      // Keep the denormalized leaderboard in sync. Fail-soft: a missed
+      // increment is recoverable via POST /api/admin-stats/sync.
+      await incrementAdminProductsAdded(db, actor.id, now);
 
       // Product ↔ categories
       if (categoryIds.length > 0) {

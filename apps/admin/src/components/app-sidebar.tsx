@@ -12,6 +12,7 @@ import {
   Store,
   FolderTree,
   type LucideIcon,
+  ChartColumn,
 } from "lucide-react"
 
 import type { Session } from "@repo/types/session-client";
@@ -57,6 +58,12 @@ const sidebarLinks: {
     type: "link",
     url: "/manage/categories",
     icon: FolderTree,
+  },
+  {
+    title: "Admin Stats",
+    type: "link",
+    url: "/stats",
+    icon: ChartColumn,
   },
   {
     title: "Products",

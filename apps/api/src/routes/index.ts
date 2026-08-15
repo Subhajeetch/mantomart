@@ -19,6 +19,7 @@ import security from "./paths/admin/security";
 import imageUpload from "./paths/admin/image-upload-api";
 import imageProxy from "./paths/admin/image-proxy";
 import getAdminAccount from "./paths/admin/get-admin-account";
+import adminStats from "./paths/admin/admin-stats";
 
 // from store (public)
 import storeHeader from "./paths/store/header";
@@ -41,6 +42,7 @@ export {
   imageUpload,
   imageProxy,
   getAdminAccount,
+  adminStats,
   storeHeader,
   storeImages,
 };

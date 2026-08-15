@@ -9,6 +9,10 @@ import type {
 } from "./schema/products";
 import type { categories } from "./schema/categories";
 import type { auditLogs } from "./schema/audit-logs";
+import type {
+  adminStats,
+  adminStatsSync,
+} from "./schema/admin-stats";
 
 export type { ProductImage, ProductVideo };
 
@@ -34,6 +38,12 @@ export type NewCategory = typeof categories.$inferInsert;
 
 export type AuditLog    = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
+
+export type AdminStat     = typeof adminStats.$inferSelect;
+export type NewAdminStat  = typeof adminStats.$inferInsert;
+
+export type AdminStatsSyncJob    = typeof adminStatsSync.$inferSelect;
+export type NewAdminStatsSyncJob = typeof adminStatsSync.$inferInsert;
 
 // ─── Composite types (with relations) ────────────────────────────────────────
 // Use these when you query with .with() in drizzle

@@ -91,11 +91,23 @@ export const products = sqliteTable("products", {
   tags: text("tags", { mode: "json" }).$type<string[]>().default([]),
 
   // analytics
+  /**
+   * Times this product has been ordered.
+   * UPDATE this while completing an order on the API.
+   * ALSO increment `admin_stats.orders_count` for `product_added_by`
+   * (see `applyAdminStatsDelta` in apps/api/src/utils/adminStats.ts).
+   */
   orderCount: integer("order_count").notNull().default(0),
+  /**
+   * Gross revenue in cents from completed orders of this product.
+   * UPDATE this while completing an order on the API.
+   * ALSO add the same cents to `admin_stats.revenue_cents` for `product_added_by`.
+   */
   totalRevenue: integer("total_revenue").notNull().default(0),
   /**
    * Cumulative estimated profit from completed orders (cents).
-   * Updated when an order is placed/fulfilled — not set at product create time.
+   * UPDATE this while completing an order on the API — not set at product create time.
+   * ALSO add the same cents to `admin_stats.profit_cents` for `product_added_by`.
    */
   revenueInProfit: integer("revenue_in_profit").notNull().default(0),
 

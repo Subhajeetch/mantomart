@@ -43,6 +43,7 @@ import {
   buildChanges,
   logAuditFromContext,
 } from '@/utils/auditLog';
+import { decrementAdminProductContribution } from '@/utils/adminStats';
 
 const MAX_ID_LENGTH = 128;
 const MAX_PAGE_SIZE = 100;
@@ -1346,6 +1347,14 @@ manageProducts.delete(
       await db.delete(productAttributes).where(eq(productAttributes.productId, id));
       await db.delete(productCategories).where(eq(productCategories.productId, id));
       await db.delete(products).where(eq(products.id, id));
+
+      // Reverse this product's contribution on the admin leaderboard.
+      // Fail-soft: drift is recoverable via POST /api/admin-stats/sync.
+      await decrementAdminProductContribution(db, product.productAddedBy, {
+        orderCount: product.orderCount,
+        totalRevenue: product.totalRevenue,
+        revenueInProfit: product.revenueInProfit,
+      });
 
       c.executionCtx.waitUntil(
         logAuditFromContext(c, {
