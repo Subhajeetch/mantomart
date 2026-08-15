@@ -1,8 +1,8 @@
 /**
  * Product catalog todo + celebration timings.
  *
- * Counts live in localStorage only (admin UX). Tweak the numbers here —
- * no backend and no settings-page rewrite required.
+ * Counts live in localStorage only (admin UX) and reset at local midnight
+ * so each day starts at 0. Tweak the numbers here — no backend rewrite.
  */
 
 /** How many products complete the first catalog todo. */
