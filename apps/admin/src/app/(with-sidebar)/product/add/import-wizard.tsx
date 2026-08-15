@@ -55,6 +55,7 @@ import {
 import { useSession } from '@/lib/auth-client';
 import config from '@/mine.config';
 import { cn } from '@/lib/utils';
+import { recordProductAdded } from '@/components/todo-progress';
 
 import {
   fetchAliExpressProductDetail,
@@ -723,6 +724,7 @@ export default function ImportWizard({
       removeSavedProduct(listItemId);
       onPublished(listItemId);
       onOpenChange(false);
+      recordProductAdded();
       toast.success(res.message || `Product "${res.data.name}" published.`);
     } catch (err) {
       const message =

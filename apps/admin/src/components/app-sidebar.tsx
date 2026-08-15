@@ -21,6 +21,7 @@ import { useSession } from "@/lib/auth-client";
 import { NavUser } from "@/components/nav-user"
 import { NavHeader } from "@/components/nav-header"
 import { SidebarLinks } from "@/components/sidebar-links"
+import { SidebarTodoProgress } from "@/components/todo-progress"
 import {
   Sidebar,
   SidebarContent,
@@ -168,6 +169,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavHeader />
       </SidebarHeader>
       <SidebarContent>
+        <SidebarTodoProgress />
         <SidebarLinks items={sidebarLinks} />
       </SidebarContent>
       <SidebarFooter>

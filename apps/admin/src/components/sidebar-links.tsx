@@ -46,7 +46,6 @@ export function SidebarLinks({
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Important</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => {
           if (item.type === "link") {

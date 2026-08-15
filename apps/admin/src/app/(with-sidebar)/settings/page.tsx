@@ -9,6 +9,7 @@ import {
   MoonStar,
   RotateCcw,
   Settings2,
+  Sparkles,
   Sun,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -92,6 +93,9 @@ function ThemeIcon({
 function SettingIcon({ id }: { id: string }) {
   if (id === 'image-proxy') {
     return <ImageIcon className="size-4 text-primary" />;
+  }
+  if (id === 'todo-animations') {
+    return <Sparkles className="size-4 text-primary" />;
   }
   return <Settings2 className="size-4 text-muted-foreground" />;
 }

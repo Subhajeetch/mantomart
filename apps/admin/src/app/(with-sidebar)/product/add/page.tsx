@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import SearchProduct from "./search-product";
 import MyList from "./my-list";
+import { ProductTodoHost } from "./product-todo-host";
 
 const VALID_TABS = ["search-product", "my-list"] as const;
 type TabValue = (typeof VALID_TABS)[number];
@@ -90,6 +91,7 @@ function ProductAddContent() {
           </TabsContent>
         </Tabs>
       </main>
+      <ProductTodoHost />
     </>
   );
 }

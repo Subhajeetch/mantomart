@@ -61,9 +61,18 @@ export const SETTINGS: SettingDefinition[] = [
     defaultValue: false,
     category: 'media',
   },
+  {
+    id: 'todo-animations',
+    name: 'Todo Animations',
+    description: 'eg: Todo animation when adding a product',
+    type: 'toggle',
+    defaultValue: true,
+    category: 'general',
+  },
 ];
 
 export const IMAGE_PROXY_SETTING_ID = 'image-proxy' as const;
+export const TODO_ANIMATIONS_SETTING_ID = 'todo-animations' as const;
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
