@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
   requireAdminMiddleware,
@@ -8,7 +9,7 @@ import {
   GEMINI_SEO_MODELS,
   GeminiApiError,
   GeminiConfigError,
-  generateProductSeoCopy,
+  generateProductSeoCopyStream,
   getDefaultGeminiModel,
   isAllowedGeminiModel,
   type SeoGenerateInput,
@@ -229,8 +230,14 @@ aiEndpoints.get('/models', seoPermissions, (c) => {
 });
 
 /**
- * Generate SEO product copy (title, descriptions, meta, tags) via Gemini.
+ * Stream SEO product copy (title, descriptions, meta, tags) via Gemini.
  * POST /api/ai/seo/generate
+ *
+ * Validation / auth errors are JSON. A successful start is text/event-stream:
+ *   event: start  { model }
+ *   event: field  { field, value, done }
+ *   event: done   { title, description, mobileDetailMarkdown, metaTitle, metaDescription, tags, model }
+ *   event: error  { code, message }
  *
  * Body:
  * {
@@ -258,17 +265,82 @@ aiEndpoints.post('/seo/generate', seoPermissions, async (c) => {
     return errorJson(c, 400, parsed.code, parsed.message);
   }
 
-  try {
-    const result = await generateProductSeoCopy(c.env, parsed.input);
-    return c.json({
-      success: true,
-      data: result,
-    });
-  } catch (error) {
-    console.error('AI SEO generate error:', error);
-    const mapped = mapUpstreamError(error);
-    return errorJson(c, mapped.status, mapped.code, mapped.message);
+  if (!(c.env.GOOGLE_AI_STUDIO_API_KEY || '').trim()) {
+    return errorJson(
+      c,
+      503,
+      'GEMINI_CONFIG_MISSING',
+      'Google AI Studio is not configured. Set GOOGLE_AI_STUDIO_API_KEY.'
+    );
   }
+
+  // Cloudflare / proxies: do not buffer the event stream.
+  c.header('Cache-Control', 'no-cache, no-store, no-transform');
+  c.header('X-Accel-Buffering', 'no');
+  c.header('X-Content-Type-Options', 'nosniff');
+
+  const clientSignal = c.req.raw.signal;
+
+  return streamSSE(c, async (stream) => {
+    const ac = new AbortController();
+    const abort = () => {
+      if (!ac.signal.aborted) ac.abort();
+    };
+
+    stream.onAbort(abort);
+    if (clientSignal.aborted) {
+      abort();
+      return;
+    }
+    clientSignal.addEventListener('abort', abort, { once: true });
+
+    const writeEvent = async (event: string, data: unknown) => {
+      if (ac.signal.aborted) return;
+      await stream.writeSSE({
+        event,
+        data: JSON.stringify(data),
+      });
+    };
+
+    try {
+      for await (const event of generateProductSeoCopyStream(
+        c.env,
+        parsed.input,
+        ac.signal
+      )) {
+        if (ac.signal.aborted) return;
+
+        if (event.type === 'start') {
+          await writeEvent('start', { model: event.model });
+        } else if (event.type === 'field') {
+          await writeEvent('field', {
+            field: event.field,
+            value: event.value,
+            done: event.done,
+          });
+        } else if (event.type === 'done') {
+          await writeEvent('done', event.data);
+        } else if (event.type === 'error') {
+          await writeEvent('error', {
+            code: event.code,
+            message: event.message,
+          });
+        }
+      }
+    } catch (error) {
+      if (ac.signal.aborted) return;
+      console.error('AI SEO stream error:', error);
+      const mapped = mapUpstreamError(error);
+      try {
+        await writeEvent('error', {
+          code: mapped.code,
+          message: mapped.message,
+        });
+      } catch {
+        // Client already gone.
+      }
+    }
+  });
 });
 
 export default aiEndpoints;

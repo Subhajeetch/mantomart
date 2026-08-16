@@ -355,8 +355,8 @@ export function ImportWizardMedia({
   return (
     <div className="space-y-5 sm:space-y-6">
       {/* Images */}
-      <Card>
-        <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-5">
+      <Card className="p-0">
+        <CardContent className="space-y-3 p-2 sm:space-y-4 sm:p-4 md:p-5">
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
             <div className="min-w-0 space-y-1">
               <h3 className="text-sm font-semibold">

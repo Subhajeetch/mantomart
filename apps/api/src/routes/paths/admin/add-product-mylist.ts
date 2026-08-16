@@ -76,6 +76,28 @@ function truncate(value: string, max: number): string {
   return value.slice(0, max);
 }
 
+const TOAST_NAME_MAX_WORDS = 5;
+const TOAST_NAME_MAX_CHARS = 48;
+
+/** Short label for toast copy. Full product name stays on `data.name`. */
+function truncateNameForMessage(name: string): string {
+  const normalized = name.trim().replace(/\s+/g, ' ');
+  if (!normalized) return name;
+
+  const words = normalized.split(' ');
+  const overWordLimit = words.length > TOAST_NAME_MAX_WORDS;
+  let short = overWordLimit
+    ? words.slice(0, TOAST_NAME_MAX_WORDS).join(' ')
+    : normalized;
+
+  if (short.length > TOAST_NAME_MAX_CHARS) {
+    short = short.slice(0, TOAST_NAME_MAX_CHARS).trimEnd();
+    return `${short}...`;
+  }
+
+  return overWordLimit ? `${short}...` : short;
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -1321,8 +1343,8 @@ addProductMyList.post(
         {
           success: true,
           message: published
-            ? `Product "${name}" published successfully.`
-            : `Product "${name}" saved as draft.`,
+            ? `Product "${truncateNameForMessage(name)}" published successfully.`
+            : `Product "${truncateNameForMessage(name)}" saved as draft.`,
           data: {
             id: productId,
             slug,

@@ -118,6 +118,22 @@ type ImportWizardProps = {
   onDraftSaved: () => void;
 };
 
+function truncateNameForToast(name: string): string {
+  const normalized = name.trim().replace(/\s+/g, ' ');
+  if (!normalized) return name;
+
+  const words = normalized.split(' ');
+  const overWordLimit = words.length > 5;
+  let short = overWordLimit ? words.slice(0, 5).join(' ') : normalized;
+
+  if (short.length > 48) {
+    short = short.slice(0, 48).trimEnd();
+    return `${short}...`;
+  }
+
+  return overWordLimit ? `${short}...` : short;
+}
+
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 class ApiError extends Error {
@@ -725,7 +741,10 @@ export default function ImportWizard({
       onPublished(listItemId);
       onOpenChange(false);
       recordProductAdded();
-      toast.success(res.message || `Product "${res.data.name}" published.`);
+      toast.success(
+        res.message ||
+          `Product "${truncateNameForToast(res.data.name)}" published.`
+      );
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to publish product.';
@@ -893,7 +912,7 @@ export default function ImportWizard({
             </div>
           </FullscreenDialogHeader>
 
-          <FullscreenDialogBody className="px-4 py-4 sm:px-6 sm:py-6">
+          <FullscreenDialogBody className="md:p-3">
             {loadingDetail ? (
               <div className="flex h-64 flex-col items-center justify-center gap-2 text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin" />
@@ -945,7 +964,7 @@ export default function ImportWizard({
               <div className="mx-auto max-w-5xl space-y-6">
                 {/* ── Step 0: Title & Description ── */}
                 {step === 0 ? (
-                  <div className="space-y-5">
+                  <div className="space-y-5 p-2 md:p-0">
                     <div className="space-y-2">
                       <Label htmlFor="product-name">Product title</Label>
                       <Input
@@ -1022,7 +1041,7 @@ export default function ImportWizard({
 
                 {/* ── Step 1: Variants ── */}
                 {step === 1 ? (
-                  <div className="space-y-6">
+                  <div className="space-y-6 p-2 md:p-0">
                     <ImportWizardVariants
                       skus={form.skus}
                       selectedSkuCount={selectedSkuCount}
@@ -1047,7 +1066,7 @@ export default function ImportWizard({
 
                 {/* ── Step 3: Product Attributes ── */}
                 {step === 3 ? (
-                  <div className="space-y-5">
+                  <div className="space-y-5 p-2 md:p-0">
                     <section className="space-y-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
@@ -1308,7 +1327,7 @@ export default function ImportWizard({
 
                 {/* ── Step 4: Categories & Size chart ── */}
                 {step === 4 ? (
-                  <div className="space-y-6">
+                  <div className="space-y-6 p-2 md:p-0">
                     <section className="space-y-3">
                       <div>
                         <h3 className="text-sm font-semibold">Categories</h3>
@@ -1539,7 +1558,7 @@ export default function ImportWizard({
 
                 {/* ── Step 5: SEO & Tags ── */}
                 {step === 5 ? (
-                  <div className="space-y-6">
+                  <div className="space-y-6 p-2 md:p-0">
                     <GooglePreview
                       title={form.metaTitle}
                       description={form.metaDescription}

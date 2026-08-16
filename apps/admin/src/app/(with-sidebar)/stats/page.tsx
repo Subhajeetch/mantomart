@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChartColumn,
+  Info,
   Package,
   RefreshCw,
   Search,
@@ -21,6 +22,13 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
@@ -41,7 +49,6 @@ import {
   SORT_OPTIONS,
   formatMoney,
   formatNumber,
-  formatRelative,
   metricValue,
   requestJson,
 } from './utils';
@@ -50,13 +57,11 @@ function SummaryCard({
   icon,
   label,
   value,
-  hint,
   iconClassName,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  hint?: string;
   iconClassName?: string;
 }) {
   return (
@@ -73,9 +78,6 @@ function SummaryCard({
         <div className="min-w-0">
           <p className="text-muted-foreground text-xs">{label}</p>
           <p className="truncate text-lg font-semibold tabular-nums">{value}</p>
-          {hint && (
-            <p className="text-muted-foreground truncate text-[11px]">{hint}</p>
-          )}
         </div>
       </CardContent>
     </Card>
@@ -93,6 +95,7 @@ export default function AdminStatsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -192,75 +195,47 @@ export default function AdminStatsPage() {
               Rank admins by products they added, orders those products
               received, or revenue from those orders.
             </p>
-            {meta?.lastSync.lastSuccessAt && (
-              <p className="text-muted-foreground text-xs">
-                Last synced {formatRelative(meta.lastSync.lastSuccessAt)}
-                {meta.lastSync.triggeredByName
-                  ? ` by ${meta.lastSync.triggeredByName}`
-                  : ''}
-              </p>
-            )}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-            <div className="flex items-center gap-1 rounded-lg border bg-muted/40 p-0.5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <div className="flex flex-wrap items-center gap-2">
               {SORT_OPTIONS.map((option) => (
                 <Button
                   key={option.value}
-                  size="xs"
-                  variant={sort === option.value ? 'default' : 'ghost'}
+                  size="sm"
+                  variant={sort === option.value ? 'default' : 'outline'}
                   onClick={() => setSort(option.value)}
-                  className="px-2.5"
+                  aria-pressed={sort === option.value}
                 >
                   {option.shortLabel}
                 </Button>
               ))}
             </div>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void loadStats(true)}
-              disabled={loading || refreshing}
-              className="gap-1.5"
-            >
-              <RefreshCw
-                className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`}
-              />
-              Refresh
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadStats(true)}
+                disabled={loading || refreshing}
+                className="gap-1.5"
+              >
+                <RefreshCw
+                  className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`}
+                />
+                Refresh
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setInfoOpen(true)}
+                className="gap-1.5"
+              >
+                <Info className="size-3.5" />
+                Info
+              </Button>
+            </div>
           </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard
-            icon={<ChartColumn className="size-4" />}
-            label="Contributors"
-            value={loading ? '—' : formatNumber(totals?.contributors ?? 0)}
-          />
-          <SummaryCard
-            icon={<Package className="size-4" />}
-            label="Products added"
-            value={loading ? '—' : formatNumber(totals?.productsAdded ?? 0)}
-            iconClassName="bg-sky-500/10 text-sky-600 dark:text-sky-400"
-          />
-          <SummaryCard
-            icon={<ShoppingBag className="size-4" />}
-            label="Orders"
-            value={loading ? '—' : formatNumber(totals?.ordersCount ?? 0)}
-            iconClassName="bg-violet-500/10 text-violet-600 dark:text-violet-400"
-          />
-          <SummaryCard
-            icon={<Wallet className="size-4" />}
-            label="Revenue"
-            value={loading ? '—' : formatMoney(totals?.revenueCents ?? 0)}
-            hint={
-              loading
-                ? undefined
-                : `${formatMoney(totals?.profitCents ?? 0)} est. profit`
-            }
-            iconClassName="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-          />
         </div>
 
         <div className="relative max-w-md">
@@ -341,6 +316,42 @@ export default function AdminStatsPage() {
           </div>
         )}
       </main>
+
+      <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Info</DialogTitle>
+            <DialogDescription>
+              Totals across contributors on this leaderboard.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SummaryCard
+              icon={<ChartColumn className="size-4" />}
+              label="Contributors"
+              value={totals ? formatNumber(totals.contributors) : '—'}
+            />
+            <SummaryCard
+              icon={<Package className="size-4" />}
+              label="Products added"
+              value={totals ? formatNumber(totals.productsAdded) : '—'}
+              iconClassName="bg-sky-500/10 text-sky-600 dark:text-sky-400"
+            />
+            <SummaryCard
+              icon={<ShoppingBag className="size-4" />}
+              label="Orders"
+              value={totals ? formatNumber(totals.ordersCount) : '—'}
+              iconClassName="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+            />
+            <SummaryCard
+              icon={<Wallet className="size-4" />}
+              label="Revenue"
+              value={totals ? formatMoney(totals.revenueCents) : '—'}
+              iconClassName="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {canManage && (
         <SyncSettingsDialog

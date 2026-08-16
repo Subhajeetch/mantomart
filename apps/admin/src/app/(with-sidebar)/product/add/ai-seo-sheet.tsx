@@ -80,11 +80,6 @@ type ModelsResponse = {
   };
 };
 
-type GenerateResponse = {
-  success: true;
-  data: AiSeoResult;
-};
-
 type ApiErrorBody = {
   success?: false;
   error?: string;
@@ -94,6 +89,30 @@ type ApiErrorBody = {
 
 type Step = 'input' | 'result';
 type Phase = 'idle' | 'exit' | 'enter-init' | 'enter';
+type FieldStatus = 'pending' | 'streaming' | 'done';
+type StringFieldKey =
+  | 'title'
+  | 'description'
+  | 'mobileDetailMarkdown'
+  | 'metaTitle'
+  | 'metaDescription';
+type FieldKey = StringFieldKey | 'tags';
+
+type StringFieldState = { value: string; status: FieldStatus };
+type TagsFieldState = { value: string[]; status: FieldStatus };
+
+type FieldsState = {
+  title: StringFieldState;
+  description: StringFieldState;
+  mobileDetailMarkdown: StringFieldState;
+  metaTitle: StringFieldState;
+  metaDescription: StringFieldState;
+  tags: TagsFieldState;
+};
+
+type StreamFieldName = FieldKey;
+
+type SseEvent = { event: string; data: string };
 
 // ─── Fallback models (used if /models fails) ──────────────────────────────────
 
@@ -143,6 +162,149 @@ const FALLBACK_MODELS: GeminiModelOption[] = [
   },
 ];
 
+const FIELD_ORDER: readonly FieldKey[] = [
+  'title',
+  'description',
+  'mobileDetailMarkdown',
+  'metaTitle',
+  'metaDescription',
+  'tags',
+] as const;
+
+const FIELD_LABELS: Record<FieldKey, string> = {
+  title: 'Product title',
+  description: 'Product description',
+  mobileDetailMarkdown: 'Mobile description (Markdown)',
+  metaTitle: 'Meta title',
+  metaDescription: 'Meta description',
+  tags: 'Tags',
+};
+
+const EMPTY_FIELDS: FieldsState = {
+  title: { value: '', status: 'pending' },
+  description: { value: '', status: 'pending' },
+  mobileDetailMarkdown: { value: '', status: 'pending' },
+  metaTitle: { value: '', status: 'pending' },
+  metaDescription: { value: '', status: 'pending' },
+  tags: { value: [], status: 'pending' },
+};
+
+type ShownState = {
+  title: string;
+  description: string;
+  mobileDetailMarkdown: string;
+  metaTitle: string;
+  metaDescription: string;
+  tags: string[];
+  tagDraft: string;
+};
+
+function emptyShown(): ShownState {
+  return {
+    title: '',
+    description: '',
+    mobileDetailMarkdown: '',
+    metaTitle: '',
+    metaDescription: '',
+    tags: [],
+    tagDraft: '',
+  };
+}
+
+function isStringCaughtUp(
+  key: StringFieldKey,
+  shown: ShownState,
+  fields: FieldsState
+): boolean {
+  return shown[key] === fields[key].value;
+}
+
+function areTagsCaughtUp(shown: ShownState, fields: FieldsState): boolean {
+  if (shown.tagDraft) return false;
+  if (shown.tags.length !== fields.tags.value.length) return false;
+  return shown.tags.every((tag, i) => tag === fields.tags.value[i]);
+}
+
+function isFieldCaughtUp(
+  key: FieldKey,
+  shown: ShownState,
+  fields: FieldsState
+): boolean {
+  return key === 'tags'
+    ? areTagsCaughtUp(shown, fields)
+    : isStringCaughtUp(key, shown, fields);
+}
+
+/** Advance exactly one visible character (or commit one finished tag). */
+function advanceShown(
+  shown: ShownState,
+  fields: FieldsState
+): ShownState | null {
+  for (const key of FIELD_ORDER) {
+    if (key === 'tags') {
+      const targets = fields.tags.value;
+      if (shown.tags.length < targets.length) {
+        const target = targets[shown.tags.length] ?? '';
+        if (shown.tagDraft.length < target.length) {
+          return {
+            ...shown,
+            tagDraft: target.slice(0, shown.tagDraft.length + 1),
+          };
+        }
+        return {
+          ...shown,
+          tags: [...shown.tags, target],
+          tagDraft: '',
+        };
+      }
+      if (fields.tags.status !== 'done') return null;
+      continue;
+    }
+
+    const target = fields[key].value;
+    const current = shown[key];
+    if (current.length < target.length) {
+      return {
+        ...shown,
+        [key]: target.slice(0, current.length + 1),
+      };
+    }
+    if (fields[key].status !== 'done') return null;
+  }
+
+  return null;
+}
+
+function displayStatusFor(
+  key: FieldKey,
+  shown: ShownState,
+  fields: FieldsState,
+  activeKey: FieldKey | null
+): FieldStatus {
+  if (isFieldCaughtUp(key, shown, fields) && fields[key].status === 'done') {
+    return 'done';
+  }
+  if (activeKey === key) return 'streaming';
+  if (key === 'tags') {
+    if (shown.tags.length > 0 || shown.tagDraft) return 'streaming';
+  } else if (shown[key].length > 0) {
+    return 'streaming';
+  }
+  return 'pending';
+}
+
+function activeRevealField(
+  shown: ShownState,
+  fields: FieldsState
+): FieldKey | null {
+  for (const key of FIELD_ORDER) {
+    if (!isFieldCaughtUp(key, shown, fields) || fields[key].status !== 'done') {
+      return key;
+    }
+  }
+  return null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 class ApiError extends Error {
@@ -152,6 +314,146 @@ class ApiError extends Error {
     super(message);
     this.code = opts.code;
     this.status = opts.status ?? 500;
+  }
+}
+
+function emptyFields(): FieldsState {
+  return {
+    title: { value: '', status: 'pending' },
+    description: { value: '', status: 'pending' },
+    mobileDetailMarkdown: { value: '', status: 'pending' },
+    metaTitle: { value: '', status: 'pending' },
+    metaDescription: { value: '', status: 'pending' },
+    tags: { value: [], status: 'pending' },
+  };
+}
+
+function fieldsFromResult(result: AiSeoResult): FieldsState {
+  return {
+    title: { value: result.title, status: 'done' },
+    description: { value: result.description, status: 'done' },
+    mobileDetailMarkdown: { value: result.mobileDetailMarkdown, status: 'done' },
+    metaTitle: { value: result.metaTitle, status: 'done' },
+    metaDescription: { value: result.metaDescription, status: 'done' },
+    tags: { value: result.tags, status: 'done' },
+  };
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof DOMException && err.name === 'AbortError') return true;
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+function isStreamFieldName(value: unknown): value is StreamFieldName {
+  return (
+    value === 'title' ||
+    value === 'description' ||
+    value === 'mobileDetailMarkdown' ||
+    value === 'metaTitle' ||
+    value === 'metaDescription' ||
+    value === 'tags'
+  );
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const tag = item.trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
+}
+
+function parseAiSeoResult(raw: unknown): AiSeoResult | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.title !== 'string') return null;
+  if (typeof obj.description !== 'string') return null;
+  if (typeof obj.mobileDetailMarkdown !== 'string') return null;
+  return {
+    title: obj.title.trim(),
+    description: obj.description.trim(),
+    mobileDetailMarkdown: obj.mobileDetailMarkdown.trim(),
+    metaTitle:
+      typeof obj.metaTitle === 'string' ? obj.metaTitle.trim() : '',
+    metaDescription:
+      typeof obj.metaDescription === 'string'
+        ? obj.metaDescription.trim()
+        : '',
+    tags: asStringArray(obj.tags),
+    model: typeof obj.model === 'string' ? obj.model : '',
+  };
+}
+
+function salvageResult(
+  fields: FieldsState,
+  model: string
+): AiSeoResult | null {
+  if (
+    fields.title.status !== 'done' ||
+    !fields.title.value.trim() ||
+    fields.description.status !== 'done' ||
+    !fields.description.value.trim() ||
+    fields.mobileDetailMarkdown.status !== 'done' ||
+    !fields.mobileDetailMarkdown.value.trim()
+  ) {
+    return null;
+  }
+
+  return {
+    title: fields.title.value,
+    description: fields.description.value,
+    mobileDetailMarkdown: fields.mobileDetailMarkdown.value,
+    metaTitle: fields.metaTitle.value || fields.title.value,
+    metaDescription:
+      fields.metaDescription.value || fields.description.value.slice(0, 160),
+    tags: fields.tags.value,
+    model,
+  };
+}
+
+function consumeSseBlocks(buffer: string): { events: SseEvent[]; rest: string } {
+  const normalized = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const parts = normalized.split('\n\n');
+  const rest = parts.pop() ?? '';
+  const events: SseEvent[] = [];
+
+  for (const block of parts) {
+    const trimmed = block.trim();
+    if (!trimmed || trimmed.startsWith(':')) continue;
+
+    let event = 'message';
+    const dataLines: string[] = [];
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) {
+        event = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).replace(/^\s/, ''));
+      }
+    }
+    if (dataLines.length > 0) {
+      events.push({ event, data: dataLines.join('\n') });
+    }
+  }
+
+  return { events, rest };
+}
+
+function throwIfApiErrorPayload(data: unknown, status: number): void {
+  const body = (data ?? {}) as ApiErrorBody;
+  if (body.success === false || status >= 400) {
+    throw new ApiError(
+      body.error || body.message || `Request failed (${status}).`,
+      { code: body.code, status }
+    );
   }
 }
 
@@ -171,7 +473,8 @@ async function requestJson<T>(
       },
       cache: 'no-store',
     });
-  } catch {
+  } catch (err) {
+    if (isAbortError(err)) throw err;
     throw new ApiError('Unable to reach the server. Please try again.', {
       status: 0,
       code: 'NETWORK_ERROR',
@@ -190,15 +493,202 @@ async function requestJson<T>(
     );
   }
 
-  const body = data as ApiErrorBody;
-  if (!response.ok || body.success === false) {
-    throw new ApiError(
-      body.error || body.message || `Request failed (${response.status}).`,
-      { code: body.code, status: response.status }
-    );
+  throwIfApiErrorPayload(data, response.status);
+  return data as T;
+}
+
+type StreamHandlers = {
+  onStart: (model: string) => void;
+  onField: (field: StreamFieldName, value: string | string[], done: boolean) => void;
+  onDone: (result: AiSeoResult) => void;
+};
+
+async function streamSeoGenerate(
+  payload: Record<string, unknown>,
+  signal: AbortSignal,
+  handlers: StreamHandlers
+): Promise<AiSeoResult> {
+  let response: Response;
+  try {
+    response = await fetch('/api/ai/seo/generate', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'text/event-stream',
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      signal,
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    throw new ApiError('Unable to reach the server. Please try again.', {
+      status: 0,
+      code: 'NETWORK_ERROR',
+    });
   }
 
-  return data as T;
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!response.ok) {
+    let data: unknown = null;
+    try {
+      data = await response.json();
+    } catch {
+      throw new ApiError(`Request failed with status ${response.status}.`, {
+        status: response.status,
+      });
+    }
+    throwIfApiErrorPayload(data, response.status);
+    throw new ApiError(`Request failed (${response.status}).`, {
+      status: response.status,
+    });
+  }
+
+  // Compatibility: a non-streaming worker still returns JSON.
+  if (contentType.includes('application/json')) {
+    let data: unknown = null;
+    try {
+      data = await response.json();
+    } catch {
+      throw new ApiError('Server returned an invalid response.', {
+        status: response.status,
+      });
+    }
+    throwIfApiErrorPayload(data, response.status);
+    const parsed = parseAiSeoResult(
+      data && typeof data === 'object'
+        ? (data as { data?: unknown }).data
+        : null
+    );
+    if (!parsed) {
+      throw new ApiError('Server returned an invalid response.', {
+        status: response.status,
+        code: 'INVALID_RESPONSE',
+      });
+    }
+    handlers.onStart(parsed.model);
+    for (const key of FIELD_ORDER) {
+      handlers.onField(key, parsed[key], true);
+    }
+    handlers.onDone(parsed);
+    return parsed;
+  }
+
+  if (!response.body) {
+    throw new ApiError('The server closed the stream unexpectedly.', {
+      status: response.status,
+      code: 'STREAM_EMPTY',
+    });
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result: AiSeoResult | null = null;
+  let streamError: ApiError | null = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const consumed = consumeSseBlocks(buffer);
+      buffer = consumed.rest;
+
+      for (const event of consumed.events) {
+        if (event.event === 'ping') continue;
+
+        let parsed: unknown = null;
+        if (event.data) {
+          try {
+            parsed = JSON.parse(event.data);
+          } catch {
+            continue;
+          }
+        }
+
+        if (event.event === 'start') {
+          const model =
+            parsed &&
+            typeof parsed === 'object' &&
+            typeof (parsed as { model?: unknown }).model === 'string'
+              ? (parsed as { model: string }).model
+              : '';
+          handlers.onStart(model);
+          continue;
+        }
+
+        if (event.event === 'field') {
+          if (!parsed || typeof parsed !== 'object') continue;
+          const rec = parsed as {
+            field?: unknown;
+            value?: unknown;
+            done?: unknown;
+          };
+          if (!isStreamFieldName(rec.field)) continue;
+          const doneField = rec.done === true;
+          if (rec.field === 'tags') {
+            handlers.onField(rec.field, asStringArray(rec.value), doneField);
+          } else if (typeof rec.value === 'string') {
+            handlers.onField(rec.field, rec.value, doneField);
+          }
+          continue;
+        }
+
+        if (event.event === 'done') {
+          const parsedResult = parseAiSeoResult(parsed);
+          if (!parsedResult) {
+            streamError = new ApiError(
+              'The AI response could not be parsed. Please try again.',
+              { code: 'GEMINI_INVALID_JSON', status: 502 }
+            );
+            continue;
+          }
+          result = parsedResult;
+          handlers.onDone(parsedResult);
+          continue;
+        }
+
+        if (event.event === 'error') {
+          const rec =
+            parsed && typeof parsed === 'object'
+              ? (parsed as { code?: unknown; message?: unknown })
+              : {};
+          streamError = new ApiError(
+            typeof rec.message === 'string'
+              ? rec.message
+              : 'SEO generation failed.',
+            {
+              code: typeof rec.code === 'string' ? rec.code : 'GEMINI_API_ERROR',
+              status: 502,
+            }
+          );
+        }
+      }
+
+      if (streamError) break;
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // already released
+    }
+  }
+
+  if (signal.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
+  if (streamError) throw streamError;
+  if (result) return result;
+
+  throw new ApiError('Connection closed before generation finished.', {
+    status: 0,
+    code: 'STREAM_INTERRUPTED',
+  });
 }
 
 function tierBadgeVariant(
@@ -219,66 +709,151 @@ function tierLabel(tier: string) {
   return tier;
 }
 
+function applyPayloadFor(
+  field: StringFieldKey,
+  value: string
+): AiSeoApplyPayload {
+  switch (field) {
+    case 'title':
+      return { name: value };
+    case 'description':
+      return { description: value };
+    case 'mobileDetailMarkdown':
+      return { mobileDetailMarkdown: value };
+    case 'metaTitle':
+      return { metaTitle: value.slice(0, 120) };
+    case 'metaDescription':
+      return { metaDescription: value.slice(0, 320) };
+  }
+}
+
 // ─── Result field card ────────────────────────────────────────────────────────
 
+function FieldActions({
+  ready,
+  used,
+  onCopy,
+  onUse,
+}: {
+  ready: boolean;
+  used?: boolean;
+  onCopy: () => void;
+  onUse: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 gap-1.5">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-8 px-2"
+        disabled={!ready}
+        onClick={onCopy}
+        title={ready ? 'Copy' : 'Wait until this field finishes writing'}
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={used ? 'secondary' : 'default'}
+        className="h-8"
+        disabled={!ready}
+        onClick={onUse}
+        title={ready ? 'Use this field' : 'Wait until this field finishes writing'}
+      >
+        {used ? (
+          <>
+            <Check className="mr-1 h-3.5 w-3.5" />
+            Used
+          </>
+        ) : (
+          'Use'
+        )}
+      </Button>
+    </div>
+  );
+}
+
+function StreamingCaret() {
+  return (
+    <span
+      aria-hidden
+      className="ml-0.5 inline-block h-3 w-px translate-y-px animate-pulse bg-foreground align-text-bottom"
+    />
+  );
+}
+
+function PendingPlaceholder({ lines = 1 }: { lines?: number }) {
+  return (
+    <div className="space-y-2 py-0.5">
+      <div className="h-3 w-[78%] rounded bg-muted" />
+      {lines > 1 ? <div className="h-3 w-[52%] rounded bg-muted/70" /> : null}
+    </div>
+  );
+}
+
 function ResultField({
+  id,
   label,
   hint,
   value,
+  status,
   multiline,
   markdown,
   onUse,
   onCopy,
   used,
 }: {
+  id: string;
   label: string;
   hint?: string;
   value: string;
+  status: FieldStatus;
   multiline?: boolean;
   markdown?: boolean;
   onUse: () => void;
   onCopy: () => void;
   used?: boolean;
 }) {
+  const ready = status === 'done' && value.trim().length > 0;
+
   return (
-    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+    <div
+      id={id}
+      className={cn(
+        'space-y-2 rounded-lg border p-3 transition-colors',
+        status === 'pending' && 'border-dashed bg-muted/10',
+        status === 'streaming' && 'border-primary/25 bg-primary/[0.04]',
+        status === 'done' && 'bg-muted/20'
+      )}
+      aria-busy={status === 'streaming'}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-medium">{label}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium">{label}</p>
+            {status === 'streaming' ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary">
+                <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                Writing
+              </span>
+            ) : null}
+          </div>
           {hint ? (
             <p className="text-xs text-muted-foreground">{hint}</p>
           ) : null}
         </div>
-        <div className="flex shrink-0 gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2"
-            onClick={onCopy}
-            title="Copy"
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={used ? 'secondary' : 'default'}
-            className="h-8"
-            onClick={onUse}
-          >
-            {used ? (
-              <>
-                <Check className="mr-1 h-3.5 w-3.5" />
-                Used
-              </>
-            ) : (
-              'Use'
-            )}
-          </Button>
-        </div>
+        <FieldActions
+          ready={ready}
+          used={used}
+          onCopy={onCopy}
+          onUse={onUse}
+        />
       </div>
-      {multiline || markdown ? (
+      {status === 'pending' ? (
+        <PendingPlaceholder lines={multiline || markdown ? 2 : 1} />
+      ) : multiline || markdown ? (
         <pre
           className={cn(
             'max-h-56 overflow-auto whitespace-pre-wrap rounded-md border bg-background p-2.5 text-xs leading-relaxed',
@@ -286,11 +861,93 @@ function ResultField({
           )}
         >
           {value}
+          {status === 'streaming' ? <StreamingCaret /> : null}
         </pre>
       ) : (
         <p className="rounded-md border bg-background p-2.5 text-sm leading-relaxed">
           {value}
+          {status === 'streaming' ? <StreamingCaret /> : null}
         </p>
+      )}
+    </div>
+  );
+}
+
+function ResultTags({
+  tags,
+  draft,
+  status,
+  used,
+  onUse,
+  onCopy,
+}: {
+  tags: string[];
+  draft: string;
+  status: FieldStatus;
+  used?: boolean;
+  onUse: () => void;
+  onCopy: () => void;
+}) {
+  const ready = status === 'done';
+
+  return (
+    <div
+      id="ai-seo-field-tags"
+      className={cn(
+        'space-y-2 rounded-lg border p-3 transition-colors',
+        status === 'pending' && 'border-dashed bg-muted/10',
+        status === 'streaming' && 'border-primary/25 bg-primary/[0.04]',
+        status === 'done' && 'bg-muted/20'
+      )}
+      aria-busy={status === 'streaming'}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium">Tags</p>
+            {status === 'streaming' ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary">
+                <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                Writing
+              </span>
+            ) : null}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {status === 'pending'
+              ? 'Step 5 SEO'
+              : status === 'streaming'
+                ? `${tags.length} so far · Step 5 SEO`
+                : `${tags.length} tags · Step 5 SEO`}
+          </p>
+        </div>
+        <FieldActions ready={ready} used={used} onCopy={onCopy} onUse={onUse} />
+      </div>
+      {status === 'pending' ? (
+        <div className="flex flex-wrap gap-1.5">
+          <span className="h-5 w-16 rounded-full bg-muted" />
+          <span className="h-5 w-20 rounded-full bg-muted/80" />
+          <span className="h-5 w-12 rounded-full bg-muted/60" />
+        </div>
+      ) : tags.length > 0 || draft || status === 'streaming' ? (
+        <div className="flex flex-wrap gap-1.5">
+          {tags.map((tag) => (
+            <Badge key={tag} variant="secondary" className="text-xs">
+              {tag}
+            </Badge>
+          ))}
+          {draft ? (
+            <Badge variant="outline" className="text-xs">
+              {draft}
+              <StreamingCaret />
+            </Badge>
+          ) : status === 'streaming' ? (
+            <span className="inline-flex items-center text-xs text-muted-foreground">
+              <StreamingCaret />
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No tags returned.</p>
       )}
     </div>
   );
@@ -332,16 +989,34 @@ export default function AiSeoSheet({
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [result, setResult] = useState<AiSeoResult | null>(null);
+  const [fields, setFields] = useState<FieldsState>(EMPTY_FIELDS);
   const [usedFields, setUsedFields] = useState<Set<string>>(new Set());
   const [step, setStep] = useState<Step>('input');
   const [phase, setPhase] = useState<Phase>('idle');
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
+  const [shown, setShown] = useState<ShownState>(() => emptyShown());
 
   const modelsLoadedRef = useRef(false);
   const lastProductKeyRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const rafRef = useRef<number | null>(null);
+  const fieldRafRef = useRef<number | null>(null);
+  const revealTimerRef = useRef<number | null>(null);
+  const pendingFieldsRef = useRef<Partial<{
+    [K in FieldKey]: { value: FieldsState[K]['value']; done: boolean };
+  }>>({});
+  const fieldsRef = useRef<FieldsState>(EMPTY_FIELDS);
+  const streamModelRef = useRef(model);
   const timeoutsRef = useRef<number[]>([]);
+
+  fieldsRef.current = fields;
+
+  const clearRevealTimer = useCallback(() => {
+    if (revealTimerRef.current !== null) {
+      window.clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+  }, []);
 
   const clearTransitionTimers = useCallback(() => {
     timeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
@@ -352,6 +1027,62 @@ export default function AiSeoSheet({
       rafRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    if (!advanceShown(shown, fields)) return;
+
+    clearRevealTimer();
+    revealTimerRef.current = window.setTimeout(() => {
+      revealTimerRef.current = null;
+      setShown((prev) => advanceShown(prev, fieldsRef.current) ?? prev);
+    }, 10);
+
+    return clearRevealTimer;
+  }, [clearRevealTimer, fields, shown]);
+
+  const flushFieldUpdates = useCallback(() => {
+    if (fieldRafRef.current !== null) {
+      cancelAnimationFrame(fieldRafRef.current);
+      fieldRafRef.current = null;
+    }
+
+    const pending = pendingFieldsRef.current;
+    pendingFieldsRef.current = {};
+    const keys = Object.keys(pending) as FieldKey[];
+    if (keys.length === 0) return fieldsRef.current;
+
+    const next: FieldsState = { ...fieldsRef.current };
+    for (const key of keys) {
+      const update = pending[key];
+      if (!update) continue;
+      if (key === 'tags') {
+        next.tags = {
+          value: Array.isArray(update.value) ? update.value : [],
+          status: update.done ? 'done' : 'streaming',
+        };
+      } else {
+        next[key] = {
+          value: typeof update.value === 'string' ? update.value : '',
+          status: update.done ? 'done' : 'streaming',
+        };
+      }
+    }
+    fieldsRef.current = next;
+    setFields(next);
+    return next;
+  }, []);
+
+  const queueFieldUpdate = useCallback(
+    (field: FieldKey, value: string | string[], done: boolean) => {
+      pendingFieldsRef.current[field] = { value, done } as never;
+      if (fieldRafRef.current !== null) return;
+      fieldRafRef.current = requestAnimationFrame(() => {
+        fieldRafRef.current = null;
+        flushFieldUpdates();
+      });
+    },
+    [flushFieldUpdates]
+  );
 
   const transitionTo = useCallback(
     (nextStep: Step, dir: 'forward' | 'back', onMidpoint?: () => void) => {
@@ -441,8 +1172,12 @@ export default function AiSeoSheet({
     return () => {
       abortRef.current?.abort();
       clearTransitionTimers();
+      clearRevealTimer();
+      if (fieldRafRef.current !== null) {
+        cancelAnimationFrame(fieldRafRef.current);
+      }
     };
-  }, [clearTransitionTimers]);
+  }, [clearRevealTimer, clearTransitionTimers]);
 
   useEffect(() => {
     if (open) return;
@@ -454,6 +1189,45 @@ export default function AiSeoSheet({
     () => models.find((m) => m.id === model) ?? null,
     [models, model]
   );
+
+  const activeField = useMemo(
+    () => activeRevealField(shown, fields),
+    [fields, shown]
+  );
+
+  const fieldStatuses = useMemo(() => {
+    const active = activeRevealField(shown, fields);
+    return FIELD_ORDER.reduce(
+      (acc, key) => {
+        acc[key] = displayStatusFor(key, shown, fields, active);
+        return acc;
+      },
+      {} as Record<FieldKey, FieldStatus>
+    );
+  }, [fields, shown]);
+
+  const doneCount = useMemo(
+    () => FIELD_ORDER.filter((key) => fieldStatuses[key] === 'done').length,
+    [fieldStatuses]
+  );
+
+  const allFieldsReady = doneCount === FIELD_ORDER.length;
+
+  const hasViewableResult =
+    result !== null ||
+    FIELD_ORDER.some(
+      (key) =>
+        fields[key].status === 'done' || fields[key].status === 'streaming'
+    );
+
+  const writingVisibleResult =
+    loading || (hasViewableResult && !allFieldsReady && !error);
+
+  useEffect(() => {
+    if (!writingVisibleResult || !activeField) return;
+    const el = document.getElementById(`ai-seo-field-${activeField}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [activeField, writingVisibleResult]);
 
   const getStyle = (): CSSProperties => {
     const exitX = direction === 'forward' ? '-60px' : '60px';
@@ -504,15 +1278,27 @@ export default function AiSeoSheet({
     const controller = new AbortController();
     abortRef.current = controller;
 
+    pendingFieldsRef.current = {};
+    if (fieldRafRef.current !== null) {
+      cancelAnimationFrame(fieldRafRef.current);
+      fieldRafRef.current = null;
+    }
+
+    const nextFields = emptyFields();
+    fieldsRef.current = nextFields;
+    streamModelRef.current = model;
+    setFields(nextFields);
+    setShown(emptyShown());
+    setResult(null);
+    setUsedFields(new Set());
     setLoading(true);
     setError(null);
     setErrorCode(null);
+    transitionTo('result', 'forward');
 
     try {
-      const res = await requestJson<GenerateResponse>('/api/ai/seo/generate', {
-        method: 'POST',
-        signal: controller.signal,
-        body: JSON.stringify({
+      const generated = await streamSeoGenerate(
+        {
           keyword: seed,
           secondaryKeywords: secondaryKeywords.trim() || undefined,
           notes: notes.trim() || undefined,
@@ -523,16 +1309,50 @@ export default function AiSeoSheet({
             productContext.mobileDetailMarkdown || undefined,
           existingTags:
             productContext.tags.length > 0 ? productContext.tags : undefined,
-        }),
-      });
+        },
+        controller.signal,
+        {
+          onStart: (streamModel) => {
+            if (streamModel) streamModelRef.current = streamModel;
+          },
+          onField: queueFieldUpdate,
+          onDone: (data) => {
+            flushFieldUpdates();
+            const complete = fieldsFromResult(data);
+            fieldsRef.current = complete;
+            setFields(complete);
+            setResult(data);
+          },
+        }
+      );
 
-      setResult(res.data);
-      setUsedFields(new Set());
+      if (controller.signal.aborted) return;
+
+      flushFieldUpdates();
+      const complete = fieldsFromResult(generated);
+      fieldsRef.current = complete;
+      setFields(complete);
+      setResult(generated);
       setConfigured(true);
-      transitionTo('result', 'forward');
       toast.success('SEO copy generated.');
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (isAbortError(err) || controller.signal.aborted) return;
+
+      flushFieldUpdates();
+
+      if (err instanceof ApiError && err.code === 'STREAM_INTERRUPTED') {
+        const salvaged = salvageResult(
+          fieldsRef.current,
+          streamModelRef.current || model
+        );
+        if (salvaged) {
+          setFields(fieldsFromResult(salvaged));
+          setResult(salvaged);
+          setConfigured(true);
+          toast.success('SEO copy generated.');
+          return;
+        }
+      }
 
       const message =
         err instanceof Error ? err.message : 'SEO generation failed.';
@@ -545,7 +1365,9 @@ export default function AiSeoSheet({
         setConfigured(false);
       }
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -569,14 +1391,14 @@ export default function AiSeoSheet({
   };
 
   const applyAll = () => {
-    if (!result) return;
+    if (!allFieldsReady) return;
     onApply({
-      name: result.title,
-      description: result.description,
-      mobileDetailMarkdown: result.mobileDetailMarkdown,
-      metaTitle: result.metaTitle,
-      metaDescription: result.metaDescription,
-      tags: result.tags,
+      name: fields.title.value,
+      description: fields.description.value,
+      mobileDetailMarkdown: fields.mobileDetailMarkdown.value,
+      metaTitle: fields.metaTitle.value,
+      metaDescription: fields.metaDescription.value,
+      tags: fields.tags.value,
     });
     setUsedFields(
       new Set([
@@ -592,12 +1414,29 @@ export default function AiSeoSheet({
     toast.success('All generated fields applied to the product.');
   };
 
+  const goBackToInput = () => {
+    if (loading) {
+      abortRef.current?.abort();
+      setLoading(false);
+    }
+    transitionTo('input', 'back');
+  };
+
   const configMissing =
     configured === false ||
     errorCode === 'GEMINI_CONFIG_MISSING' ||
     errorCode === 'GEMINI_AUTH_ERROR';
 
   const permissionDenied = errorCode === 'INSUFFICIENT_PERMISSION';
+
+  const resultModel = result?.model || model;
+  const statusLine = writingVisibleResult
+    ? activeField
+      ? `Writing ${FIELD_LABELS[activeField].toLowerCase()}…`
+      : 'Starting generation…'
+    : error
+      ? 'Generation stopped'
+      : `Model: ${resultModel}. Results stay when you close this sheet or edit inputs.`;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -760,9 +1599,9 @@ export default function AiSeoSheet({
                       ) : (
                         <Wand2 className="mr-2 h-4 w-4" />
                       )}
-                      {result ? 'Regenerate' : 'Generate'}
+                      {hasViewableResult ? 'Regenerate' : 'Generate'}
                     </Button>
-                    {result ? (
+                    {hasViewableResult ? (
                       <Button
                         type="button"
                         variant="secondary"
@@ -791,7 +1630,10 @@ export default function AiSeoSheet({
                   </Alert>
                 ) : null}
 
-                {!result && !loading && !error && !permissionDenied ? (
+                {!hasViewableResult &&
+                !loading &&
+                !error &&
+                !permissionDenied ? (
                   <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
                     Enter a focus keyword, choose a Gemini model, then generate
                     organised product title, description, mobile markdown, and
@@ -802,175 +1644,234 @@ export default function AiSeoSheet({
               </div>
             ) : null}
 
-            {step === 'result' && result ? (
+            {step === 'result' ? (
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="flex shrink-0 items-center gap-3 border-b p-4">
                   <Button
                     type="button"
                     variant="secondary"
                     size="icon"
-                    onClick={() => transitionTo('input', 'back')}
-                    disabled={phase !== 'idle' || loading}
+                    onClick={goBackToInput}
+                    disabled={phase !== 'idle'}
                     aria-label="Back to AI SEO inputs"
                     className="h-8 w-8 rounded-full"
                   >
                     <ArrowLeft className="h-4 w-4" />
                   </Button>
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-semibold">Generated copy</h3>
-                    <p className="truncate text-xs text-muted-foreground">
-                      Model: {result.model}. Results stay when you close this
-                      sheet or edit inputs.
+                    <h3 className="text-sm font-semibold">
+                      {writingVisibleResult
+                        ? 'Generating copy'
+                        : 'Generated copy'}
+                    </h3>
+                    <p
+                      className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+                      aria-live="polite"
+                    >
+                      <span className="truncate">{statusLine}</span>
+                      {writingVisibleResult ? (
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                      ) : null}
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={loading}
-                    onClick={applyAll}
-                    className="shrink-0"
-                  >
-                    <Check className="mr-2 h-4 w-4" />
-                    Use all
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                      {doneCount}/6
+                    </span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={loading || !allFieldsReady}
+                      onClick={applyAll}
+                      className="shrink-0"
+                      title={
+                        allFieldsReady
+                          ? 'Apply every field to the product'
+                          : 'Wait until every field finishes writing'
+                      }
+                    >
+                      <Check className="mr-2 h-4 w-4" />
+                      Use all
+                    </Button>
+                  </div>
+                </div>
+                <div
+                  className="h-0.5 w-full bg-muted"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={6}
+                  aria-valuenow={doneCount}
+                  aria-label="SEO fields ready"
+                >
+                  <div
+                    className="h-full bg-primary transition-[width] duration-300 ease-out"
+                    style={{ width: `${(doneCount / 6) * 100}%` }}
+                  />
                 </div>
 
                 <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                  {error && !configMissing && !permissionDenied ? (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Generation failed</AlertTitle>
+                      <AlertDescription className="space-y-2">
+                        <p>{error}</p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={goBackToInput}
+                        >
+                          Try again
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+
                   <ResultField
+                    id="ai-seo-field-title"
                     label="Product title"
-                    hint={`${result.title.length} chars · Step 1`}
-                    value={result.title}
+                    hint={
+                      fieldStatuses.title === 'done'
+                        ? `${shown.title.length} chars · Step 1`
+                        : fieldStatuses.title === 'streaming'
+                          ? `${shown.title.length} chars · writing`
+                          : 'Step 1'
+                    }
+                    value={shown.title}
+                    status={fieldStatuses.title}
                     used={usedFields.has('title')}
-                    onUse={() => applyField('title', { name: result.title })}
-                    onCopy={() => void copyText(result.title, 'Title')}
+                    onUse={() =>
+                      applyField(
+                        'title',
+                        applyPayloadFor('title', fields.title.value)
+                      )
+                    }
+                    onCopy={() => void copyText(fields.title.value, 'Title')}
                   />
 
                   <ResultField
+                    id="ai-seo-field-description"
                     label="Product description"
-                    hint={`${result.description.length} chars · Step 1`}
-                    value={result.description}
+                    hint={
+                      fieldStatuses.description === 'done'
+                        ? `${shown.description.length} chars · Step 2`
+                        : fieldStatuses.description === 'streaming'
+                          ? `${shown.description.length} chars · writing`
+                          : 'Step 2'
+                    }
+                    value={shown.description}
+                    status={fieldStatuses.description}
                     multiline
                     used={usedFields.has('description')}
                     onUse={() =>
-                      applyField('description', {
-                        description: result.description,
-                      })
+                      applyField(
+                        'description',
+                        applyPayloadFor(
+                          'description',
+                          fields.description.value
+                        )
+                      )
                     }
                     onCopy={() =>
-                      void copyText(result.description, 'Description')
+                      void copyText(fields.description.value, 'Description')
                     }
                   />
 
                   <ResultField
+                    id="ai-seo-field-mobileDetailMarkdown"
                     label="Mobile description (Markdown)"
-                    hint="Step 1 · markdown editor"
-                    value={result.mobileDetailMarkdown}
+                    hint={
+                      fieldStatuses.mobileDetailMarkdown === 'streaming'
+                        ? 'Writing markdown · Step 3'
+                        : 'Step 3 · markdown editor'
+                    }
+                    value={shown.mobileDetailMarkdown}
+                    status={fieldStatuses.mobileDetailMarkdown}
                     multiline
                     markdown
                     used={usedFields.has('mobile')}
                     onUse={() =>
-                      applyField('mobile', {
-                        mobileDetailMarkdown: result.mobileDetailMarkdown,
-                      })
+                      applyField(
+                        'mobile',
+                        applyPayloadFor(
+                          'mobileDetailMarkdown',
+                          fields.mobileDetailMarkdown.value
+                        )
+                      )
                     }
                     onCopy={() =>
                       void copyText(
-                        result.mobileDetailMarkdown,
+                        fields.mobileDetailMarkdown.value,
                         'Mobile description'
                       )
                     }
                   />
 
                   <ResultField
+                    id="ai-seo-field-metaTitle"
                     label="Meta title"
-                    hint={`${result.metaTitle.length}/70 recommended · Step 5 SEO`}
-                    value={result.metaTitle}
+                    hint={
+                      fieldStatuses.metaTitle === 'pending'
+                        ? 'Step 5 SEO'
+                        : `${shown.metaTitle.length}/70 recommended · Step 5 SEO`
+                    }
+                    value={shown.metaTitle}
+                    status={fieldStatuses.metaTitle}
                     used={usedFields.has('metaTitle')}
                     onUse={() =>
-                      applyField('metaTitle', {
-                        metaTitle: result.metaTitle.slice(0, 120),
-                      })
+                      applyField(
+                        'metaTitle',
+                        applyPayloadFor('metaTitle', fields.metaTitle.value)
+                      )
                     }
-                    onCopy={() => void copyText(result.metaTitle, 'Meta title')}
+                    onCopy={() =>
+                      void copyText(fields.metaTitle.value, 'Meta title')
+                    }
                   />
 
                   <ResultField
+                    id="ai-seo-field-metaDescription"
                     label="Meta description"
-                    hint={`${result.metaDescription.length}/160 recommended · Step 5 SEO`}
-                    value={result.metaDescription}
+                    hint={
+                      fieldStatuses.metaDescription === 'pending'
+                        ? 'Step 5 SEO'
+                        : `${shown.metaDescription.length}/160 recommended · Step 5 SEO`
+                    }
+                    value={shown.metaDescription}
+                    status={fieldStatuses.metaDescription}
                     multiline
                     used={usedFields.has('metaDescription')}
                     onUse={() =>
-                      applyField('metaDescription', {
-                        metaDescription: result.metaDescription.slice(0, 320),
-                      })
+                      applyField(
+                        'metaDescription',
+                        applyPayloadFor(
+                          'metaDescription',
+                          fields.metaDescription.value
+                        )
+                      )
                     }
                     onCopy={() =>
-                      void copyText(result.metaDescription, 'Meta description')
+                      void copyText(
+                        fields.metaDescription.value,
+                        'Meta description'
+                      )
                     }
                   />
 
-                  <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium">Tags</p>
-                        <p className="text-xs text-muted-foreground">
-                          {result.tags.length} tags · Step 5 SEO
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-1.5">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2"
-                          onClick={() =>
-                            void copyText(result.tags.join(', '), 'Tags')
-                          }
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={
-                            usedFields.has('tags') ? 'secondary' : 'default'
-                          }
-                          className="h-8"
-                          onClick={() =>
-                            applyField('tags', { tags: result.tags })
-                          }
-                        >
-                          {usedFields.has('tags') ? (
-                            <>
-                              <Check className="mr-1 h-3.5 w-3.5" />
-                              Used
-                            </>
-                          ) : (
-                            'Use'
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                    {result.tags.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {result.tags.map((tag) => (
-                          <Badge
-                            key={tag}
-                            variant="secondary"
-                            className="text-xs"
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No tags returned.
-                      </p>
-                    )}
-                  </div>
+                  <ResultTags
+                    tags={shown.tags}
+                    draft={shown.tagDraft}
+                    status={fieldStatuses.tags}
+                    used={usedFields.has('tags')}
+                    onUse={() =>
+                      applyField('tags', { tags: fields.tags.value })
+                    }
+                    onCopy={() =>
+                      void copyText(fields.tags.value.join(', '), 'Tags')
+                    }
+                  />
                 </div>
               </div>
             ) : null}
