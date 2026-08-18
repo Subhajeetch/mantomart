@@ -114,6 +114,23 @@ type StreamFieldName = FieldKey;
 
 type SseEvent = { event: string; data: string };
 
+function getAiApiBase(): string {
+  const origin = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+  // Same-origin `/api` is rewritten by Next.js, which buffers SSE until the
+  // Worker closes the stream. Talk to the API origin directly so chunks land live.
+  return origin ? `${origin}/api/ai` : '/api/ai';
+}
+
+function waitAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 16);
+    }
+  });
+}
+
 // ─── Fallback models (used if /models fails) ──────────────────────────────────
 
 const FALLBACK_MODELS: GeminiModelOption[] = [
@@ -189,119 +206,20 @@ const EMPTY_FIELDS: FieldsState = {
   tags: { value: [], status: 'pending' },
 };
 
-type ShownState = {
-  title: string;
-  description: string;
-  mobileDetailMarkdown: string;
-  metaTitle: string;
-  metaDescription: string;
-  tags: string[];
-  tagDraft: string;
-};
-
-function emptyShown(): ShownState {
-  return {
-    title: '',
-    description: '',
-    mobileDetailMarkdown: '',
-    metaTitle: '',
-    metaDescription: '',
-    tags: [],
-    tagDraft: '',
-  };
-}
-
-function isStringCaughtUp(
-  key: StringFieldKey,
-  shown: ShownState,
-  fields: FieldsState
-): boolean {
-  return shown[key] === fields[key].value;
-}
-
-function areTagsCaughtUp(shown: ShownState, fields: FieldsState): boolean {
-  if (shown.tagDraft) return false;
-  if (shown.tags.length !== fields.tags.value.length) return false;
-  return shown.tags.every((tag, i) => tag === fields.tags.value[i]);
-}
-
-function isFieldCaughtUp(
-  key: FieldKey,
-  shown: ShownState,
-  fields: FieldsState
-): boolean {
-  return key === 'tags'
-    ? areTagsCaughtUp(shown, fields)
-    : isStringCaughtUp(key, shown, fields);
-}
-
-/** Advance exactly one visible character (or commit one finished tag). */
-function advanceShown(
-  shown: ShownState,
-  fields: FieldsState
-): ShownState | null {
-  for (const key of FIELD_ORDER) {
-    if (key === 'tags') {
-      const targets = fields.tags.value;
-      if (shown.tags.length < targets.length) {
-        const target = targets[shown.tags.length] ?? '';
-        if (shown.tagDraft.length < target.length) {
-          return {
-            ...shown,
-            tagDraft: target.slice(0, shown.tagDraft.length + 1),
-          };
-        }
-        return {
-          ...shown,
-          tags: [...shown.tags, target],
-          tagDraft: '',
-        };
-      }
-      if (fields.tags.status !== 'done') return null;
-      continue;
-    }
-
-    const target = fields[key].value;
-    const current = shown[key];
-    if (current.length < target.length) {
-      return {
-        ...shown,
-        [key]: target.slice(0, current.length + 1),
-      };
-    }
-    if (fields[key].status !== 'done') return null;
-  }
-
-  return null;
-}
-
-function displayStatusFor(
-  key: FieldKey,
-  shown: ShownState,
+function activeStreamField(
   fields: FieldsState,
-  activeKey: FieldKey | null
-): FieldStatus {
-  if (isFieldCaughtUp(key, shown, fields) && fields[key].status === 'done') {
-    return 'done';
-  }
-  if (activeKey === key) return 'streaming';
-  if (key === 'tags') {
-    if (shown.tags.length > 0 || shown.tagDraft) return 'streaming';
-  } else if (shown[key].length > 0) {
-    return 'streaming';
-  }
-  return 'pending';
-}
-
-function activeRevealField(
-  shown: ShownState,
-  fields: FieldsState
+  loading: boolean
 ): FieldKey | null {
   for (const key of FIELD_ORDER) {
-    if (!isFieldCaughtUp(key, shown, fields) || fields[key].status !== 'done') {
-      return key;
-    }
+    if (fields[key].status === 'streaming') return key;
   }
+
+  if (!loading) return null;
+
+  for (const key of FIELD_ORDER) {
+    if (fields[key].status !== 'done') return key;
+  }
+
   return null;
 }
 
@@ -497,11 +415,40 @@ async function requestJson<T>(
   return data as T;
 }
 
+type StreamFieldUpdate = {
+  field: StreamFieldName;
+  delta?: string;
+  value?: string | string[];
+  done: boolean;
+};
+
 type StreamHandlers = {
   onStart: (model: string) => void;
-  onField: (field: StreamFieldName, value: string | string[], done: boolean) => void;
+  onField: (update: StreamFieldUpdate) => void;
   onDone: (result: AiSeoResult) => void;
 };
+
+type PendingFieldUpdate = {
+  append?: string;
+  tags?: string[];
+  replace?: string | string[];
+  done: boolean;
+};
+
+function appendUniqueTags(existing: string[], incoming: string[]): string[] {
+  if (incoming.length === 0) return existing;
+  const seen = new Set(existing.map((tag) => tag.toLowerCase()));
+  const out = [...existing];
+  for (const tag of incoming) {
+    const normalized = tag.trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
+}
 
 async function streamSeoGenerate(
   payload: Record<string, unknown>,
@@ -510,7 +457,7 @@ async function streamSeoGenerate(
 ): Promise<AiSeoResult> {
   let response: Response;
   try {
-    response = await fetch('/api/ai/seo/generate', {
+    response = await fetch(`${getAiApiBase()}/seo/generate`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -570,7 +517,7 @@ async function streamSeoGenerate(
     }
     handlers.onStart(parsed.model);
     for (const key of FIELD_ORDER) {
-      handlers.onField(key, parsed[key], true);
+      handlers.onField({ field: key, value: parsed[key], done: true });
     }
     handlers.onDone(parsed);
     return parsed;
@@ -624,15 +571,32 @@ async function streamSeoGenerate(
           if (!parsed || typeof parsed !== 'object') continue;
           const rec = parsed as {
             field?: unknown;
+            delta?: unknown;
             value?: unknown;
             done?: unknown;
           };
           if (!isStreamFieldName(rec.field)) continue;
           const doneField = rec.done === true;
-          if (rec.field === 'tags') {
-            handlers.onField(rec.field, asStringArray(rec.value), doneField);
+          if (typeof rec.delta === 'string') {
+            handlers.onField({
+              field: rec.field,
+              delta: rec.delta,
+              done: doneField,
+            });
+          } else if (rec.field === 'tags') {
+            handlers.onField({
+              field: rec.field,
+              value: asStringArray(rec.value),
+              done: doneField,
+            });
           } else if (typeof rec.value === 'string') {
-            handlers.onField(rec.field, rec.value, doneField);
+            handlers.onField({
+              field: rec.field,
+              value: rec.value,
+              done: doneField,
+            });
+          } else if (doneField) {
+            handlers.onField({ field: rec.field, delta: '', done: true });
           }
           continue;
         }
@@ -665,6 +629,16 @@ async function streamSeoGenerate(
               status: 502,
             }
           );
+        }
+
+        // Yield so React can paint this event before the next one in the same
+        // TCP read is applied. Otherwise a burst looks like one dump.
+        if (
+          event.event === 'start' ||
+          event.event === 'field' ||
+          event.event === 'done'
+        ) {
+          await waitAnimationFrame();
         }
       }
 
@@ -784,6 +758,17 @@ function StreamingCaret() {
   );
 }
 
+function WritingIndicator() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary">
+      <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+      <span className="ai-seo-writing-text" data-text="Writing">
+        Writing
+      </span>
+    </span>
+  );
+}
+
 function PendingPlaceholder({ lines = 1 }: { lines?: number }) {
   return (
     <div className="space-y-2 py-0.5">
@@ -817,6 +802,14 @@ function ResultField({
   used?: boolean;
 }) {
   const ready = status === 'done' && value.trim().length > 0;
+  const bodyRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (status !== 'streaming') return;
+    const el = bodyRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [status, value]);
 
   return (
     <div
@@ -833,12 +826,7 @@ function ResultField({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium">{label}</p>
-            {status === 'streaming' ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary">
-                <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                Writing
-              </span>
-            ) : null}
+            {status === 'streaming' ? <WritingIndicator /> : null}
           </div>
           {hint ? (
             <p className="text-xs text-muted-foreground">{hint}</p>
@@ -855,6 +843,9 @@ function ResultField({
         <PendingPlaceholder lines={multiline || markdown ? 2 : 1} />
       ) : multiline || markdown ? (
         <pre
+          ref={(el) => {
+            bodyRef.current = el;
+          }}
           className={cn(
             'max-h-56 overflow-auto whitespace-pre-wrap rounded-md border bg-background p-2.5 text-xs leading-relaxed',
             markdown && 'font-mono'
@@ -864,7 +855,12 @@ function ResultField({
           {status === 'streaming' ? <StreamingCaret /> : null}
         </pre>
       ) : (
-        <p className="rounded-md border bg-background p-2.5 text-sm leading-relaxed">
+        <p
+          ref={(el) => {
+            bodyRef.current = el;
+          }}
+          className="rounded-md border bg-background p-2.5 text-sm leading-relaxed"
+        >
           {value}
           {status === 'streaming' ? <StreamingCaret /> : null}
         </p>
@@ -875,14 +871,12 @@ function ResultField({
 
 function ResultTags({
   tags,
-  draft,
   status,
   used,
   onUse,
   onCopy,
 }: {
   tags: string[];
-  draft: string;
   status: FieldStatus;
   used?: boolean;
   onUse: () => void;
@@ -905,12 +899,7 @@ function ResultTags({
         <div>
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium">Tags</p>
-            {status === 'streaming' ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary">
-                <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                Writing
-              </span>
-            ) : null}
+            {status === 'streaming' ? <WritingIndicator /> : null}
           </div>
           <p className="text-xs text-muted-foreground">
             {status === 'pending'
@@ -928,19 +917,14 @@ function ResultTags({
           <span className="h-5 w-20 rounded-full bg-muted/80" />
           <span className="h-5 w-12 rounded-full bg-muted/60" />
         </div>
-      ) : tags.length > 0 || draft || status === 'streaming' ? (
+      ) : tags.length > 0 || status === 'streaming' ? (
         <div className="flex flex-wrap gap-1.5">
           {tags.map((tag) => (
             <Badge key={tag} variant="secondary" className="text-xs">
               {tag}
             </Badge>
           ))}
-          {draft ? (
-            <Badge variant="outline" className="text-xs">
-              {draft}
-              <StreamingCaret />
-            </Badge>
-          ) : status === 'streaming' ? (
+          {status === 'streaming' ? (
             <span className="inline-flex items-center text-xs text-muted-foreground">
               <StreamingCaret />
             </span>
@@ -994,29 +978,20 @@ export default function AiSeoSheet({
   const [step, setStep] = useState<Step>('input');
   const [phase, setPhase] = useState<Phase>('idle');
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
-  const [shown, setShown] = useState<ShownState>(() => emptyShown());
 
   const modelsLoadedRef = useRef(false);
   const lastProductKeyRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const rafRef = useRef<number | null>(null);
   const fieldRafRef = useRef<number | null>(null);
-  const revealTimerRef = useRef<number | null>(null);
-  const pendingFieldsRef = useRef<Partial<{
-    [K in FieldKey]: { value: FieldsState[K]['value']; done: boolean };
-  }>>({});
+  const pendingFieldsRef = useRef<Partial<Record<FieldKey, PendingFieldUpdate>>>(
+    {}
+  );
   const fieldsRef = useRef<FieldsState>(EMPTY_FIELDS);
   const streamModelRef = useRef(model);
   const timeoutsRef = useRef<number[]>([]);
 
   fieldsRef.current = fields;
-
-  const clearRevealTimer = useCallback(() => {
-    if (revealTimerRef.current !== null) {
-      window.clearTimeout(revealTimerRef.current);
-      revealTimerRef.current = null;
-    }
-  }, []);
 
   const clearTransitionTimers = useCallback(() => {
     timeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
@@ -1027,18 +1002,6 @@ export default function AiSeoSheet({
       rafRef.current = null;
     }
   }, []);
-
-  useEffect(() => {
-    if (!advanceShown(shown, fields)) return;
-
-    clearRevealTimer();
-    revealTimerRef.current = window.setTimeout(() => {
-      revealTimerRef.current = null;
-      setShown((prev) => advanceShown(prev, fieldsRef.current) ?? prev);
-    }, 10);
-
-    return clearRevealTimer;
-  }, [clearRevealTimer, fields, shown]);
 
   const flushFieldUpdates = useCallback(() => {
     if (fieldRafRef.current !== null) {
@@ -1055,16 +1018,28 @@ export default function AiSeoSheet({
     for (const key of keys) {
       const update = pending[key];
       if (!update) continue;
+      const status: FieldStatus = update.done ? 'done' : 'streaming';
+
       if (key === 'tags') {
+        const replaced = Array.isArray(update.replace)
+          ? asStringArray(update.replace)
+          : null;
         next.tags = {
-          value: Array.isArray(update.value) ? update.value : [],
-          status: update.done ? 'done' : 'streaming',
+          value: appendUniqueTags(
+            replaced ?? next.tags.value,
+            update.tags ?? []
+          ),
+          status,
         };
       } else {
-        next[key] = {
-          value: typeof update.value === 'string' ? update.value : '',
-          status: update.done ? 'done' : 'streaming',
-        };
+        const replaced =
+          typeof update.replace === 'string' ? update.replace : null;
+        let value =
+          replaced !== null
+            ? replaced
+            : next[key].value + (update.append ?? '');
+        if (update.done) value = value.replace(/\s+$/, '');
+        next[key] = { value, status };
       }
     }
     fieldsRef.current = next;
@@ -1073,8 +1048,27 @@ export default function AiSeoSheet({
   }, []);
 
   const queueFieldUpdate = useCallback(
-    (field: FieldKey, value: string | string[], done: boolean) => {
-      pendingFieldsRef.current[field] = { value, done } as never;
+    (update: StreamFieldUpdate) => {
+      const field = update.field;
+      const prev = pendingFieldsRef.current[field] ?? { done: false };
+
+      if (update.value !== undefined) {
+        pendingFieldsRef.current[field] = {
+          replace: update.value,
+          done: prev.done || update.done,
+        };
+      } else if (field === 'tags') {
+        pendingFieldsRef.current.tags = {
+          tags: [...(prev.tags ?? []), ...(update.delta ? [update.delta] : [])],
+          done: prev.done || update.done,
+        };
+      } else {
+        pendingFieldsRef.current[field] = {
+          append: (prev.append ?? '') + (update.delta ?? ''),
+          done: prev.done || update.done,
+        };
+      }
+
       if (fieldRafRef.current !== null) return;
       fieldRafRef.current = requestAnimationFrame(() => {
         fieldRafRef.current = null;
@@ -1082,6 +1076,14 @@ export default function AiSeoSheet({
       });
     },
     [flushFieldUpdates]
+  );
+
+  const applyFieldUpdate = useCallback(
+    (update: StreamFieldUpdate) => {
+      queueFieldUpdate(update);
+      flushFieldUpdates();
+    },
+    [flushFieldUpdates, queueFieldUpdate]
   );
 
   const transitionTo = useCallback(
@@ -1135,7 +1137,7 @@ export default function AiSeoSheet({
   const loadModels = useCallback(async () => {
     setModelsLoading(true);
     try {
-      const res = await requestJson<ModelsResponse>('/api/ai/models');
+      const res = await requestJson<ModelsResponse>(`${getAiApiBase()}/models`);
       setModels(res.data.models?.length ? res.data.models : FALLBACK_MODELS);
       setConfigured(Boolean(res.data.configured));
       if (res.data.defaultModel) {
@@ -1172,12 +1174,11 @@ export default function AiSeoSheet({
     return () => {
       abortRef.current?.abort();
       clearTransitionTimers();
-      clearRevealTimer();
       if (fieldRafRef.current !== null) {
         cancelAnimationFrame(fieldRafRef.current);
       }
     };
-  }, [clearRevealTimer, clearTransitionTimers]);
+  }, [clearTransitionTimers]);
 
   useEffect(() => {
     if (open) return;
@@ -1191,20 +1192,22 @@ export default function AiSeoSheet({
   );
 
   const activeField = useMemo(
-    () => activeRevealField(shown, fields),
-    [fields, shown]
+    () => activeStreamField(fields, loading),
+    [fields, loading]
   );
 
   const fieldStatuses = useMemo(() => {
-    const active = activeRevealField(shown, fields);
     return FIELD_ORDER.reduce(
       (acc, key) => {
-        acc[key] = displayStatusFor(key, shown, fields, active);
+        acc[key] =
+          loading && activeField === key && fields[key].status === 'pending'
+            ? 'streaming'
+            : fields[key].status;
         return acc;
       },
       {} as Record<FieldKey, FieldStatus>
     );
-  }, [fields, shown]);
+  }, [activeField, fields, loading]);
 
   const doneCount = useMemo(
     () => FIELD_ORDER.filter((key) => fieldStatuses[key] === 'done').length,
@@ -1288,7 +1291,6 @@ export default function AiSeoSheet({
     fieldsRef.current = nextFields;
     streamModelRef.current = model;
     setFields(nextFields);
-    setShown(emptyShown());
     setResult(null);
     setUsedFields(new Set());
     setLoading(true);
@@ -1315,7 +1317,7 @@ export default function AiSeoSheet({
           onStart: (streamModel) => {
             if (streamModel) streamModelRef.current = streamModel;
           },
-          onField: queueFieldUpdate,
+          onField: applyFieldUpdate,
           onDone: (data) => {
             flushFieldUpdates();
             const complete = fieldsFromResult(data);
@@ -1734,12 +1736,12 @@ export default function AiSeoSheet({
                     label="Product title"
                     hint={
                       fieldStatuses.title === 'done'
-                        ? `${shown.title.length} chars · Step 1`
+                        ? `${fields.title.value.length} chars · Step 1`
                         : fieldStatuses.title === 'streaming'
-                          ? `${shown.title.length} chars · writing`
+                          ? `${fields.title.value.length} chars · writing`
                           : 'Step 1'
                     }
-                    value={shown.title}
+                    value={fields.title.value}
                     status={fieldStatuses.title}
                     used={usedFields.has('title')}
                     onUse={() =>
@@ -1756,12 +1758,12 @@ export default function AiSeoSheet({
                     label="Product description"
                     hint={
                       fieldStatuses.description === 'done'
-                        ? `${shown.description.length} chars · Step 2`
+                        ? `${fields.description.value.length} chars · Step 2`
                         : fieldStatuses.description === 'streaming'
-                          ? `${shown.description.length} chars · writing`
+                          ? `${fields.description.value.length} chars · writing`
                           : 'Step 2'
                     }
-                    value={shown.description}
+                    value={fields.description.value}
                     status={fieldStatuses.description}
                     multiline
                     used={usedFields.has('description')}
@@ -1787,7 +1789,7 @@ export default function AiSeoSheet({
                         ? 'Writing markdown · Step 3'
                         : 'Step 3 · markdown editor'
                     }
-                    value={shown.mobileDetailMarkdown}
+                    value={fields.mobileDetailMarkdown.value}
                     status={fieldStatuses.mobileDetailMarkdown}
                     multiline
                     markdown
@@ -1815,9 +1817,9 @@ export default function AiSeoSheet({
                     hint={
                       fieldStatuses.metaTitle === 'pending'
                         ? 'Step 5 SEO'
-                        : `${shown.metaTitle.length}/70 recommended · Step 5 SEO`
+                        : `${fields.metaTitle.value.length}/70 recommended · Step 5 SEO`
                     }
-                    value={shown.metaTitle}
+                    value={fields.metaTitle.value}
                     status={fieldStatuses.metaTitle}
                     used={usedFields.has('metaTitle')}
                     onUse={() =>
@@ -1837,9 +1839,9 @@ export default function AiSeoSheet({
                     hint={
                       fieldStatuses.metaDescription === 'pending'
                         ? 'Step 5 SEO'
-                        : `${shown.metaDescription.length}/160 recommended · Step 5 SEO`
+                        : `${fields.metaDescription.value.length}/160 recommended · Step 5 SEO`
                     }
-                    value={shown.metaDescription}
+                    value={fields.metaDescription.value}
                     status={fieldStatuses.metaDescription}
                     multiline
                     used={usedFields.has('metaDescription')}
@@ -1861,8 +1863,7 @@ export default function AiSeoSheet({
                   />
 
                   <ResultTags
-                    tags={shown.tags}
-                    draft={shown.tagDraft}
+                    tags={fields.tags.value}
                     status={fieldStatuses.tags}
                     used={usedFields.has('tags')}
                     onUse={() =>

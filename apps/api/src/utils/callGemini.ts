@@ -1,5 +1,17 @@
 import config from '@/base.config';
 import type Env from '@/types/env';
+import {
+  parseSeoCopyText,
+  SeoMarkerStreamParser,
+  SeoParseError,
+  SEO_STREAM_FIELD_ORDER,
+  type SeoStreamFieldName,
+} from '@/utils/seoMarkerStream';
+
+export {
+  SEO_STREAM_FIELD_ORDER,
+  type SeoStreamFieldName,
+} from '@/utils/seoMarkerStream';
 
 // ─── Models (text → text only; no image/audio models) ─────────────────────────
 
@@ -124,40 +136,18 @@ export type SeoGenerateResult = {
   model: string;
 };
 
-export type SeoStreamFieldName =
-  | 'title'
-  | 'description'
-  | 'mobileDetailMarkdown'
-  | 'metaTitle'
-  | 'metaDescription'
-  | 'tags';
-
-export type SeoStreamFieldSnapshot = {
-  value: string | string[];
-  done: boolean;
-};
-
 export type SeoStreamEvent =
   | { type: 'start'; model: string }
   | {
       type: 'field';
       field: SeoStreamFieldName;
-      value: string | string[];
+      delta: string;
       done: boolean;
     }
   | { type: 'done'; data: SeoGenerateResult }
   | { type: 'error'; code: string; message: string };
 
-export const SEO_STREAM_FIELD_ORDER: readonly SeoStreamFieldName[] = [
-  'title',
-  'description',
-  'mobileDetailMarkdown',
-  'metaTitle',
-  'metaDescription',
-  'tags',
-] as const;
-
-type GeminiPart = { text?: string };
+type GeminiPart = { text?: string; thought?: boolean };
 type GeminiCandidate = {
   content?: { parts?: GeminiPart[]; role?: string };
   finishReason?: string;
@@ -194,97 +184,15 @@ function truncate(text: string, max: number): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
-function stripCodeFences(raw: string): string {
-  let s = raw.trim();
-  if (s.startsWith('```')) {
-    s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  }
-  return s.trim();
-}
-
-function normalizeTags(tags: unknown): string[] {
-  if (!Array.isArray(tags)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of tags) {
-    if (typeof item !== 'string') continue;
-    const tag = item.trim().replace(/\s+/g, ' ').slice(0, 60);
-    if (!tag) continue;
-    const key = tag.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(tag);
-    if (out.length >= 20) break;
-  }
-  return out;
-}
-
-function parseSeoJson(raw: string): Omit<SeoGenerateResult, 'model'> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripCodeFences(raw));
-  } catch {
-    throw new GeminiApiError('AI returned invalid JSON.', {
+function throwGeminiParseError(err: unknown): never {
+  if (err instanceof SeoParseError) {
+    throw new GeminiApiError(err.message, {
       status: 502,
-      code: 'GEMINI_INVALID_JSON',
-      publicMessage:
-        'The AI response could not be parsed. Please try again or switch model.',
+      code: err.code,
+      publicMessage: err.publicMessage,
     });
   }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new GeminiApiError('AI returned unexpected JSON shape.', {
-      status: 502,
-      code: 'GEMINI_INVALID_SHAPE',
-      publicMessage:
-        'The AI response was incomplete. Please try again or switch model.',
-    });
-  }
-
-  const obj = parsed as Record<string, unknown>;
-  const title = typeof obj.title === 'string' ? obj.title.trim() : '';
-  const description =
-    typeof obj.description === 'string' ? obj.description.trim() : '';
-  const mobileDetailMarkdown =
-    typeof obj.mobileDetailMarkdown === 'string'
-      ? obj.mobileDetailMarkdown.trim()
-      : typeof obj.mobile_detail_markdown === 'string'
-        ? String(obj.mobile_detail_markdown).trim()
-        : '';
-  const metaTitle =
-    typeof obj.metaTitle === 'string'
-      ? obj.metaTitle.trim()
-      : typeof obj.meta_title === 'string'
-        ? String(obj.meta_title).trim()
-        : '';
-  const metaDescription =
-    typeof obj.metaDescription === 'string'
-      ? obj.metaDescription.trim()
-      : typeof obj.meta_description === 'string'
-        ? String(obj.meta_description).trim()
-        : '';
-  const tags = normalizeTags(obj.tags);
-
-  if (!title || !description || !mobileDetailMarkdown) {
-    throw new GeminiApiError('AI omitted required copy fields.', {
-      status: 502,
-      code: 'GEMINI_INCOMPLETE',
-      publicMessage:
-        'The AI left required fields empty. Please try again or switch model.',
-    });
-  }
-
-  return {
-    title: title.slice(0, 300),
-    description: description.slice(0, 12_000),
-    mobileDetailMarkdown: mobileDetailMarkdown.slice(0, 20_000),
-    metaTitle: (metaTitle || title).slice(0, 120),
-    metaDescription: (metaDescription || description.slice(0, 160)).slice(
-      0,
-      320
-    ),
-    tags,
-  };
+  throw err;
 }
 
 function mapHttpError(
@@ -352,8 +260,28 @@ Before returning, silently check:
 2. The title, metaTitle, and metaDescription describe this exact product, not a generic category.
 3. The description and mobile markdown are consistent with each other and with the source facts.
 4. The wording is natural enough that a shopper would not identify it as AI-generated.
-5. The response is valid JSON only, with exactly the requested schema keys. No markdown fences, commentary, explanations, citations, or extra keys.
-6. Emit keys in this exact order so the client can stream them: title, description, mobileDetailMarkdown, metaTitle, metaDescription, tags.`;
+
+OUTPUT FORMAT (mandatory, no exceptions):
+- Reply with field markers and field content only.
+- Do not output JSON, markdown fences, commentary, citations, or any text before the first marker or after <<<end>>>.
+- Each marker must be alone on its own line, written exactly as shown, including the angle brackets.
+- Never put <<< or >>> inside field content.
+- Write the six fields in this exact order, then close with <<<end>>>.
+
+<<<title>>>
+product title text
+<<<description>>>
+plain description paragraphs
+<<<mobileDetailMarkdown>>>
+markdown mobile description
+<<<metaTitle>>>
+meta title text
+<<<metaDescription>>>
+meta description text
+<<<tags>>>
+- short tag one
+- short tag two
+<<<end>>>`;
 
 function buildUserPrompt(input: SeoGenerateInput): string {
   const parts: string[] = [
@@ -405,328 +333,10 @@ function buildUserPrompt(input: SeoGenerateInput): string {
 
   parts.push('');
   parts.push(
-    'Return JSON only. Emit keys in this exact order: title, description, mobileDetailMarkdown, metaTitle, metaDescription, tags.'
+    'Emit the six fields using the exact <<<field>>> markers in this order: title, description, mobileDetailMarkdown, metaTitle, metaDescription, tags. Then <<<end>>>. No JSON. No extra text. Tags must be one hyphenated line each.'
   );
 
   return parts.join('\n');
-}
-
-const RESPONSE_SCHEMA = {
-  type: 'object',
-  properties: {
-    title: {
-      type: 'string',
-      description:
-        'SEO product title, primary keyword near front, ~60–120 chars, max 300.',
-    },
-    description: {
-      type: 'string',
-      description:
-        'Plain-text product description, human-written tone, 120–280 words.',
-    },
-    mobileDetailMarkdown: {
-      type: 'string',
-      description:
-        'Markdown mobile product description with bold labels and bullets.',
-    },
-    metaTitle: {
-      type: 'string',
-      description: 'HTML meta title, ideally 50–60 characters, max 70.',
-    },
-    metaDescription: {
-      type: 'string',
-      description:
-        'HTML meta description, ideally 140–160 characters, max 160.',
-    },
-    tags: {
-      type: 'array',
-      items: { type: 'string' },
-      description: '8–15 relevant product tags / search phrases.',
-    },
-  },
-  required: [
-    'title',
-    'description',
-    'mobileDetailMarkdown',
-    'metaTitle',
-    'metaDescription',
-    'tags',
-  ],
-} as const;
-
-// ─── Incremental JSON (streaming) ─────────────────────────────────────────────
-
-const STRING_FIELD_MAP: Record<
-  string,
-  { field: Exclude<SeoStreamFieldName, 'tags'>; max: number }
-> = {
-  title: { field: 'title', max: 300 },
-  description: { field: 'description', max: 12_000 },
-  mobileDetailMarkdown: { field: 'mobileDetailMarkdown', max: 20_000 },
-  mobile_detail_markdown: { field: 'mobileDetailMarkdown', max: 20_000 },
-  metaTitle: { field: 'metaTitle', max: 120 },
-  meta_title: { field: 'metaTitle', max: 120 },
-  metaDescription: { field: 'metaDescription', max: 320 },
-  meta_description: { field: 'metaDescription', max: 320 },
-};
-
-function stripLeadingFence(raw: string): string {
-  let s = raw.replace(/^\uFEFF/, '');
-  const lead = s.match(/^\s*/)?.[0].length ?? 0;
-  s = s.slice(lead);
-  if (!s.startsWith('```')) return s;
-  const nl = s.indexOf('\n');
-  if (nl === -1) return '';
-  return s.slice(nl + 1);
-}
-
-function scanJsonString(
-  buf: string,
-  start: number
-): { value: string; done: boolean; next: number } | null {
-  if (start >= buf.length || buf[start] !== '"') return null;
-
-  let i = start + 1;
-  let out = '';
-
-  while (i < buf.length) {
-    const ch = buf.charCodeAt(i);
-    if (ch === 92) {
-      if (i + 1 >= buf.length) {
-        return { value: out, done: false, next: buf.length };
-      }
-      const next = buf[i + 1];
-      if (next === 'u') {
-        if (i + 5 >= buf.length) {
-          return { value: out, done: false, next: buf.length };
-        }
-        const hex = buf.slice(i + 2, i + 6);
-        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
-          out += String.fromCharCode(parseInt(hex, 16));
-        }
-        i += 6;
-        continue;
-      }
-      switch (next) {
-        case '"':
-        case '\\':
-        case '/':
-          out += next;
-          break;
-        case 'b':
-          out += '\b';
-          break;
-        case 'f':
-          out += '\f';
-          break;
-        case 'n':
-          out += '\n';
-          break;
-        case 'r':
-          out += '\r';
-          break;
-        case 't':
-          out += '\t';
-          break;
-        default:
-          out += next;
-      }
-      i += 2;
-      continue;
-    }
-    if (ch === 34) {
-      return { value: out, done: true, next: i + 1 };
-    }
-    out += buf[i];
-    i += 1;
-  }
-
-  return { value: out, done: false, next: buf.length };
-}
-
-function scanJsonStringArray(
-  buf: string,
-  start: number
-): { value: string[]; done: boolean; next: number } | null {
-  if (start >= buf.length || buf[start] !== '[') return null;
-
-  let i = start + 1;
-  const items: string[] = [];
-
-  while (i < buf.length) {
-    while (i < buf.length && /[\s,]/.test(buf[i])) i += 1;
-    if (i >= buf.length) return { value: items, done: false, next: buf.length };
-    if (buf[i] === ']') return { value: items, done: true, next: i + 1 };
-    if (buf[i] !== '"') {
-      return { value: items, done: false, next: buf.length };
-    }
-    const scanned = scanJsonString(buf, i);
-    if (!scanned) return { value: items, done: false, next: buf.length };
-    if (!scanned.done) return { value: items, done: false, next: buf.length };
-    items.push(scanned.value);
-    i = scanned.next;
-  }
-
-  return { value: items, done: false, next: buf.length };
-}
-
-function skipJsonValue(buf: string, start: number): number {
-  let i = start;
-  while (i < buf.length && /\s/.test(buf[i])) i += 1;
-  if (i >= buf.length) return -1;
-
-  const c = buf[i];
-  if (c === '"') {
-    const scanned = scanJsonString(buf, i);
-    return scanned?.done ? scanned.next : -1;
-  }
-
-  if (c === '{') {
-    i += 1;
-    while (i < buf.length) {
-      while (i < buf.length && /[\s,]/.test(buf[i])) i += 1;
-      if (i >= buf.length) return -1;
-      if (buf[i] === '}') return i + 1;
-      if (buf[i] !== '"') return -1;
-      const key = scanJsonString(buf, i);
-      if (!key?.done) return -1;
-      i = key.next;
-      while (i < buf.length && /\s/.test(buf[i])) i += 1;
-      if (i >= buf.length || buf[i] !== ':') return -1;
-      i += 1;
-      const next = skipJsonValue(buf, i);
-      if (next < 0) return -1;
-      i = next;
-    }
-    return -1;
-  }
-
-  if (c === '[') {
-    i += 1;
-    while (i < buf.length) {
-      while (i < buf.length && /[\s,]/.test(buf[i])) i += 1;
-      if (i >= buf.length) return -1;
-      if (buf[i] === ']') return i + 1;
-      const next = skipJsonValue(buf, i);
-      if (next < 0) return -1;
-      i = next;
-    }
-    return -1;
-  }
-
-  const from = i;
-  while (i < buf.length && !/[\s,}\]]/.test(buf[i])) i += 1;
-  return i > from ? i : -1;
-}
-
-/**
- * Walk a (possibly incomplete) JSON object and surface SEO fields as they
- * become visible. Safe to call on every streamed delta.
- */
-export function extractPartialSeoFields(
-  raw: string
-): Partial<Record<SeoStreamFieldName, SeoStreamFieldSnapshot>> {
-  const buf = stripLeadingFence(raw);
-  const start = buf.indexOf('{');
-  if (start === -1) return {};
-
-  let i = start + 1;
-  const out: Partial<Record<SeoStreamFieldName, SeoStreamFieldSnapshot>> = {};
-
-  while (i < buf.length) {
-    while (i < buf.length && /[\s,]/.test(buf[i])) i += 1;
-    if (i >= buf.length || buf[i] === '}') break;
-    if (buf[i] !== '"') break;
-
-    const keyScan = scanJsonString(buf, i);
-    if (!keyScan?.done) break;
-    const key = keyScan.value;
-    i = keyScan.next;
-
-    while (i < buf.length && /\s/.test(buf[i])) i += 1;
-    if (i >= buf.length) break;
-    if (buf[i] !== ':') break;
-    i += 1;
-    while (i < buf.length && /\s/.test(buf[i])) i += 1;
-    if (i >= buf.length) break;
-
-    if (key === 'tags') {
-      const arr = scanJsonStringArray(buf, i);
-      if (!arr) break;
-      out.tags = {
-        value: normalizeTags(arr.value),
-        done: arr.done,
-      };
-      if (!arr.done) break;
-      i = arr.next;
-      continue;
-    }
-
-    const mapped = STRING_FIELD_MAP[key];
-    if (mapped) {
-      const scanned = scanJsonString(buf, i);
-      if (!scanned) break;
-      out[mapped.field] = {
-        value: scanned.value.slice(0, mapped.max),
-        done: scanned.done,
-      };
-      if (!scanned.done) break;
-      i = scanned.next;
-      continue;
-    }
-
-    const skipped = skipJsonValue(buf, i);
-    if (skipped < 0) break;
-    i = skipped;
-  }
-
-  return out;
-}
-
-function fieldValuesEqual(a: string | string[], b: string | string[]): boolean {
-  if (typeof a === 'string' || typeof b === 'string') return a === b;
-  if (a.length !== b.length) return false;
-  return a.every((item, idx) => item === b[idx]);
-}
-
-function assembleFromPartial(
-  snapshot: Partial<Record<SeoStreamFieldName, SeoStreamFieldSnapshot>>,
-  model: string
-): SeoGenerateResult {
-  const title =
-    typeof snapshot.title?.value === 'string' ? snapshot.title.value : '';
-  const description =
-    typeof snapshot.description?.value === 'string'
-      ? snapshot.description.value
-      : '';
-  const mobileDetailMarkdown =
-    typeof snapshot.mobileDetailMarkdown?.value === 'string'
-      ? snapshot.mobileDetailMarkdown.value
-      : '';
-  const metaTitle =
-    typeof snapshot.metaTitle?.value === 'string'
-      ? snapshot.metaTitle.value
-      : '';
-  const metaDescription =
-    typeof snapshot.metaDescription?.value === 'string'
-      ? snapshot.metaDescription.value
-      : '';
-  const tags = Array.isArray(snapshot.tags?.value)
-    ? normalizeTags(snapshot.tags.value)
-    : [];
-
-  return {
-    title: title.slice(0, 300),
-    description: description.slice(0, 12_000),
-    mobileDetailMarkdown: mobileDetailMarkdown.slice(0, 20_000),
-    metaTitle: (metaTitle || title).slice(0, 120),
-    metaDescription: (metaDescription || description.slice(0, 160)).slice(
-      0,
-      320
-    ),
-    tags,
-    model,
-  };
 }
 
 function extractSseData(block: string): string | null {
@@ -786,6 +396,12 @@ async function* readSseDataLines(
   }
 }
 
+type GeminiThinkingConfig = {
+  includeThoughts: false;
+  thinkingBudget?: number;
+  thinkingLevel?: 'minimal';
+};
+
 type GeminiRequest = {
   apiKey: string;
   model: string;
@@ -797,11 +413,22 @@ type GeminiRequest = {
       topP: number;
       topK: number;
       maxOutputTokens: number;
-      responseMimeType: string;
-      responseSchema: typeof RESPONSE_SCHEMA;
+      thinkingConfig: GeminiThinkingConfig;
     };
   };
 };
+
+/**
+ * Gemini 2.5/3 think before they emit visible tokens. That delay is what
+ * makes the SEO sheet sit idle, then dump the whole answer. Turn thinking
+ * down so copy starts streaming immediately.
+ */
+function thinkingConfigFor(model: string): GeminiThinkingConfig {
+  if (model.includes('gemini-2.5')) {
+    return { includeThoughts: false, thinkingBudget: 0 };
+  }
+  return { includeThoughts: false, thinkingLevel: 'minimal' };
+}
 
 function buildSeoGenerationRequest(
   env: Env,
@@ -847,8 +474,7 @@ function buildSeoGenerationRequest(
         topP: 0.95,
         topK: 40,
         maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
+        thinkingConfig: thinkingConfigFor(model),
       },
     },
   };
@@ -892,37 +518,56 @@ function inspectGeminiPayload(payload: GeminiResponse): void {
   }
 }
 
+function extractVisibleText(payload: GeminiResponse): string {
+  return (payload.candidates?.[0]?.content?.parts ?? [])
+    .filter((p) => p.text && !p.thought)
+    .map((p) => p.text || '')
+    .join('');
+}
+
 function finalizeSeoResult(
   accumulated: string,
   model: string
 ): SeoGenerateResult {
-  const trimmed = accumulated.trim();
-  if (!trimmed) {
-    throw new GeminiApiError('Empty AI response.', {
-      status: 502,
-      code: 'GEMINI_EMPTY',
-      publicMessage:
-        'The AI returned no content. Try again or switch to another model.',
-    });
-  }
-
   try {
-    return { ...parseSeoJson(trimmed), model };
+    return { ...parseSeoCopyText(accumulated), model };
   } catch (err) {
-    const snapshot = extractPartialSeoFields(trimmed);
-    const hasRequired =
-      snapshot.title?.done &&
-      Boolean(snapshot.title.value) &&
-      snapshot.description?.done &&
-      Boolean(snapshot.description.value) &&
-      snapshot.mobileDetailMarkdown?.done &&
-      Boolean(snapshot.mobileDetailMarkdown.value);
+    throwGeminiParseError(err);
+  }
+}
 
-    if (hasRequired) {
-      return assembleFromPartial(snapshot, model);
+function* emitParserEvents(
+  events: { field: SeoStreamFieldName; delta: string; done: boolean }[]
+): Generator<SeoStreamEvent> {
+  for (const event of events) {
+    yield {
+      type: 'field',
+      field: event.field,
+      delta: event.delta,
+      done: event.done,
+    };
+  }
+}
+
+function* emitFallbackFields(
+  result: SeoGenerateResult,
+  alreadyClosed: Set<SeoStreamFieldName>
+): Generator<SeoStreamEvent> {
+  for (const field of SEO_STREAM_FIELD_ORDER) {
+    if (alreadyClosed.has(field)) continue;
+    if (field === 'tags') {
+      for (const tag of result.tags) {
+        yield { type: 'field', field: 'tags', delta: tag, done: false };
+      }
+      yield { type: 'field', field: 'tags', delta: '', done: true };
+      continue;
     }
-
-    throw err;
+    yield {
+      type: 'field',
+      field,
+      delta: result[field],
+      done: true,
+    };
   }
 }
 
@@ -971,16 +616,12 @@ export async function generateProductSeoCopy(
 
   inspectGeminiPayload(payload);
 
-  const text = (payload.candidates?.[0]?.content?.parts ?? [])
-    .map((p) => p.text || '')
-    .join('');
-
-  return finalizeSeoResult(text, model);
+  return finalizeSeoResult(extractVisibleText(payload), model);
 }
 
 /**
- * Stream SEO copy as fields become available in Gemini's JSON output.
- * Yields `start`, incremental `field`, then a final `done` or `error`.
+ * Stream SEO copy as marked text arrives from Gemini.
+ * Yields `start`, incremental `{ field, delta, done }`, then `done` or `error`.
  */
 export async function* generateProductSeoCopyStream(
   env: Env,
@@ -1066,31 +707,8 @@ export async function* generateProductSeoCopyStream(
     return;
   }
 
+  const parser = new SeoMarkerStreamParser();
   let accumulated = '';
-  const lastEmitted = new Map<SeoStreamFieldName, SeoStreamFieldSnapshot>();
-
-  const emitChanged = function* (): Generator<SeoStreamEvent> {
-    const snapshot = extractPartialSeoFields(accumulated);
-    for (const field of SEO_STREAM_FIELD_ORDER) {
-      const current = snapshot[field];
-      if (!current) continue;
-      const prev = lastEmitted.get(field);
-      if (
-        prev &&
-        prev.done === current.done &&
-        fieldValuesEqual(prev.value, current.value)
-      ) {
-        continue;
-      }
-      lastEmitted.set(field, current);
-      yield {
-        type: 'field',
-        field,
-        value: current.value,
-        done: current.done,
-      };
-    }
-  };
 
   try {
     for await (const data of readSseDataLines(response.body, signal)) {
@@ -1130,12 +748,10 @@ export async function* generateProductSeoCopyStream(
         throw err;
       }
 
-      const text = (payload.candidates?.[0]?.content?.parts ?? [])
-        .map((p) => p.text || '')
-        .join('');
+      const text = extractVisibleText(payload);
       if (text) {
         accumulated += text;
-        yield* emitChanged();
+        yield* emitParserEvents(parser.push(text));
       }
     }
   } catch (err) {
@@ -1159,22 +775,34 @@ export async function* generateProductSeoCopyStream(
 
   if (signal?.aborted) return;
 
+  yield* emitParserEvents(parser.finish());
+
   try {
     const result = finalizeSeoResult(accumulated, model);
-    for (const field of SEO_STREAM_FIELD_ORDER) {
-      const value = result[field];
-      const prev = lastEmitted.get(field);
-      if (
-        !prev ||
-        !prev.done ||
-        !fieldValuesEqual(prev.value, value)
-      ) {
-        yield { type: 'field', field, value, done: true };
+    const closed = new Set<SeoStreamFieldName>(
+      SEO_STREAM_FIELD_ORDER.filter((field) => parser.isClosed(field))
+    );
+    // JSON fallback (no markers) still needs to surface fields once.
+    if (!parser.sawMarker) {
+      yield* emitFallbackFields(result, closed);
+    } else {
+      for (const field of SEO_STREAM_FIELD_ORDER) {
+        if (!closed.has(field)) {
+          yield { type: 'field', field, delta: '', done: true };
+        }
       }
     }
     yield { type: 'done', data: result };
   } catch (err) {
     if (err instanceof GeminiApiError) {
+      yield {
+        type: 'error',
+        code: err.code,
+        message: err.publicMessage,
+      };
+      return;
+    }
+    if (err instanceof SeoParseError) {
       yield {
         type: 'error',
         code: err.code,

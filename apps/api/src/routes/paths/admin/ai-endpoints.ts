@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
   requireAdminMiddleware,
@@ -235,7 +234,7 @@ aiEndpoints.get('/models', seoPermissions, (c) => {
  *
  * Validation / auth errors are JSON. A successful start is text/event-stream:
  *   event: start  { model }
- *   event: field  { field, value, done }
+ *   event: field  { field, delta, done }
  *   event: done   { title, description, mobileDetailMarkdown, metaTitle, metaDescription, tags, model }
  *   event: error  { code, message }
  *
@@ -274,72 +273,99 @@ aiEndpoints.post('/seo/generate', seoPermissions, async (c) => {
     );
   }
 
-  // Cloudflare / proxies: do not buffer the event stream.
-  c.header('Cache-Control', 'no-cache, no-store, no-transform');
-  c.header('X-Accel-Buffering', 'no');
-  c.header('X-Content-Type-Options', 'nosniff');
-
+  const encoder = new TextEncoder();
   const clientSignal = c.req.raw.signal;
+  const ac = new AbortController();
+  const abort = () => {
+    if (!ac.signal.aborted) ac.abort();
+  };
 
-  return streamSSE(c, async (stream) => {
-    const ac = new AbortController();
-    const abort = () => {
-      if (!ac.signal.aborted) ac.abort();
-    };
-
-    stream.onAbort(abort);
-    if (clientSignal.aborted) {
-      abort();
-      return;
-    }
+  if (clientSignal.aborted) {
+    abort();
+  } else {
     clientSignal.addEventListener('abort', abort, { once: true });
+  }
 
-    const writeEvent = async (event: string, data: unknown) => {
-      if (ac.signal.aborted) return;
-      await stream.writeSSE({
-        event,
-        data: JSON.stringify(data),
-      });
-    };
+  const encodeSse = (event: string, data: unknown): Uint8Array =>
+    encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-    try {
-      for await (const event of generateProductSeoCopyStream(
-        c.env,
-        parsed.input,
-        ac.signal
-      )) {
+  // Native ReadableStream (not Hono streamSSE): Hono sets Transfer-Encoding:
+  // chunked, which Cloudflare / wrangler often buffer until the stream ends.
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (event: string, data: unknown) => {
         if (ac.signal.aborted) return;
+        try {
+          controller.enqueue(encodeSse(event, data));
+        } catch {
+          abort();
+        }
+      };
 
-        if (event.type === 'start') {
-          await writeEvent('start', { model: event.model });
-        } else if (event.type === 'field') {
-          await writeEvent('field', {
-            field: event.field,
-            value: event.value,
-            done: event.done,
-          });
-        } else if (event.type === 'done') {
-          await writeEvent('done', event.data);
-        } else if (event.type === 'error') {
-          await writeEvent('error', {
-            code: event.code,
-            message: event.message,
+      try {
+        // Comment frame so the client gets headers + first bytes immediately.
+        controller.enqueue(encoder.encode(': connected\n\n'));
+      } catch {
+        abort();
+        return;
+      }
+
+      try {
+        for await (const event of generateProductSeoCopyStream(
+          c.env,
+          parsed.input,
+          ac.signal
+        )) {
+          if (ac.signal.aborted) break;
+
+          if (event.type === 'start') {
+            write('start', { model: event.model });
+          } else if (event.type === 'field') {
+            write('field', {
+              field: event.field,
+              delta: event.delta,
+              done: event.done,
+            });
+          } else if (event.type === 'done') {
+            write('done', event.data);
+          } else if (event.type === 'error') {
+            write('error', {
+              code: event.code,
+              message: event.message,
+            });
+          }
+        }
+      } catch (error) {
+        if (!ac.signal.aborted) {
+          console.error('AI SEO stream error:', error);
+          const mapped = mapUpstreamError(error);
+          write('error', {
+            code: mapped.code,
+            message: mapped.message,
           });
         }
+      } finally {
+        clientSignal.removeEventListener('abort', abort);
+        try {
+          controller.close();
+        } catch {
+          // already closed / cancelled
+        }
       }
-    } catch (error) {
-      if (ac.signal.aborted) return;
-      console.error('AI SEO stream error:', error);
-      const mapped = mapUpstreamError(error);
-      try {
-        await writeEvent('error', {
-          code: mapped.code,
-          message: mapped.message,
-        });
-      } catch {
-        // Client already gone.
-      }
-    }
+    },
+    cancel() {
+      abort();
+    },
+  });
+
+  return c.newResponse(stream, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, no-transform',
+      'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff',
+    },
   });
 });
 

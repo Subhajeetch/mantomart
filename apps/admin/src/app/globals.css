@@ -44,6 +44,49 @@ button:hover {
 	cursor: pointer;
 }
 
+@keyframes ai-seo-writing-sweep {
+	0% {
+		background-position: 200% 50%;
+	}
+	100% {
+		background-position: -200% 50%;
+	}
+}
+
+.ai-seo-writing-text {
+	position: relative;
+	display: inline-block;
+	color: var(--primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	@supports (-webkit-background-clip: text) or (background-clip: text) {
+		.ai-seo-writing-text::after {
+			content: attr(data-text);
+			position: absolute;
+			inset: 0;
+			background-image: linear-gradient(
+				90deg,
+				transparent 0%,
+				transparent 28%,
+				oklch(0.7 0.18 250) 42%,
+				oklch(0.72 0.16 160) 50%,
+				oklch(0.7 0.18 330) 58%,
+				transparent 72%,
+				transparent 100%
+			);
+			background-repeat: no-repeat;
+			background-size: 220% 100%;
+			-webkit-background-clip: text;
+			background-clip: text;
+			color: transparent;
+			-webkit-text-fill-color: transparent;
+			animation: ai-seo-writing-sweep 1.2s linear infinite;
+			pointer-events: none;
+		}
+	}
+}
+
 @theme inline {
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
