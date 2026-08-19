@@ -5,6 +5,11 @@ type SessionUser = {
   emailVerified: boolean;
   image?: string | null;
   role?: "customer" | "admin" | "owner";
+  /**
+   * Denormalized completed-order count. `0` means a first-time shopper
+   * (used to show `audience: 'new_user'` homepage promo slides).
+   */
+  totalOrders?: number;
   createdAt: Date;
   updatedAt: Date;
 };

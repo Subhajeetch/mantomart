@@ -23,12 +23,14 @@ import {
   manageProducts,
   aiEndpoints,
   editHeader,
+  homepage,
   security,
   imageUpload,
   imageProxy,
   getAdminAccount,
   adminStats,
   storeHeader,
+  storeHomepage,
   storeImages,
 } from "./routes";
 
@@ -109,12 +111,14 @@ app.route("/api/products/mylist", addProductMyList);
 app.route("/api/products/manage", manageProducts);
 app.route("/api/ai", aiEndpoints);
 app.route("/api/admin/header", editHeader);
+app.route("/api/admin/homepage", homepage);
 app.route("/api/admin/security", security);
 app.route("/api/admin/images", imageUpload);
 app.route("/api/admin/image-proxy", imageProxy);
 app.route("/api/admin/account", getAdminAccount);
 app.route("/api/admin-stats", adminStats);
 app.route("/api/store/header", storeHeader);
+app.route("/api/store/homepage", storeHomepage);
 /** Public R2 object serve — used when R2_PUBLIC_URL is unset (local + default prod). */
 app.route("/api/images", storeImages);
 

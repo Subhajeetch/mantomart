@@ -46,6 +46,12 @@ export const PERMISSIONS = {
    */
   HEADER_UPDATE: 'header:update',
 
+  /**
+   * Edit storefront homepage blocks (promo slider, grids, CTAs, feed).
+   * Intentionally NOT on the default admin role — grant via override or owner.
+   */
+  HOMEPAGE_UPDATE: 'homepage:update',
+
   /** View the admin contribution leaderboard. Default on the admin role. */
   ADMIN_STATS_READ: 'admin_stats:read',
   /**
@@ -107,6 +113,12 @@ export const AUDIT_ACTIONS = {
   HEADER_CREATE: 'header.create',
   HEADER_UPDATE: 'header.update',
   HEADER_DELETE: 'header.delete',
+
+  // Store homepage
+  HOMEPAGE_CREATE: 'homepage.create',
+  HOMEPAGE_UPDATE: 'homepage.update',
+  HOMEPAGE_DELETE: 'homepage.delete',
+  HOMEPAGE_REORDER: 'homepage.reorder',
 
   // Admin stats
   ADMIN_STATS_SYNC: 'admin_stats.sync',

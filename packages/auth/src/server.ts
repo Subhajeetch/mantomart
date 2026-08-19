@@ -224,6 +224,17 @@ export function createAuth(
           input: false,
           defaultValue: "customer",
         },
+        /**
+         * Denormalized order count. Used by the storefront to hide/show
+         * `audience: 'new_user'` homepage slides (totalOrders === 0).
+         * Not user-writable.
+         */
+        totalOrders: {
+          type: "number",
+          required: false,
+          input: false,
+          defaultValue: 0,
+        },
       },
     },
 
