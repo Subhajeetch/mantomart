@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import "./custom.css";
 
 import type { PublicPromoSlide, PublicPromoSlideProduct } from "../types";
 import {
@@ -219,7 +220,7 @@ export function SplitProductsSlide({
               product={product}
               variant="card"
               priority={priority && i === 0}
-              className="w-28 shrink-0 xl:w-36"
+              className="w-28 shrink-0 xl:w-50"
             />
           ))}
         </div>
@@ -234,7 +235,7 @@ export function SplitProductsSlide({
                 product={product}
                 variant="card"
                 priority={priority && i === 0}
-                className="w-[7.25rem] shrink-0"
+                className="w-[10rem] shrink-0"
               />
             ))}
           </div>
@@ -258,7 +259,7 @@ export function SplitProductsSlide({
               key={product.id}
               product={product}
               variant="card"
-              className="w-28 shrink-0 xl:w-36"
+              className="w-28 shrink-0 xl:w-50"
             />
           ))}
         </div>
@@ -281,18 +282,18 @@ export function FlashRowSlide({
       <div
         className={cn(
           SLIDE_PAD,
-          "flex flex-col-reverse md:flex-col justify-center gap-4 lg:flex-row lg:items-center lg:gap-8"
+          "flex flex-col-reverse md:flex-col gap-4 lg:flex-row lg:items-center lg:gap-10 justify-between"
         )}
       >
-        <div className="min-w-0 lg:w-72 lg:shrink-0 xl:w-80">
+        <div className="min-w-0 lg:w-72 lg:shrink-0 xl:w-100">
           <CopyBlock slide={slide} align="center" />
         </div>
         {products.length > 0 ? (
           <div
             className={cn(
-              "grid w-full gap-2 lg:flex lg:flex-1 lg:gap-3",
+              "grid w-full gap-2 lg:flex lg:flex-1 lg:gap-8",
               products.length >= 4
-                ? "grid-cols-2 sm:grid-cols-4"
+                ? "grid-cols-2 sm:grid-cols-4 justify-end"
                 : "grid-cols-2 "
             )}
           >
@@ -302,7 +303,8 @@ export function FlashRowSlide({
                 product={product}
                 variant="card"
                 priority={priority && i === 0}
-                className={cn("lg:flex-1", i >= 2 && "hidden md:block")}
+                className={cn("justify-self-center lg:w-46 lg:max-w-none lg:flex-none xl:w-60",
+                          i >= 2 && "hidden flash-row-slide-product-card",)}
               />
             ))}
           </div>
@@ -330,7 +332,7 @@ export function StackShowcaseSlide({
         )}
       >
         {products.length > 0 ? (
-          <div className="relative h-[13.5rem] w-[min(100%,19rem)] shrink-0 sm:h-[15rem] sm:w-[20rem] md:h-[15.5rem] md:w-[22.5rem] lg:h-[16.5rem] lg:w-[26rem]">
+          <div className="relative h-[13.5rem] w-[min(100%,19rem)] shrink-0 sm:h-[16rem] sm:w-[22rem] md:h-[17.5rem] md:w-[25rem] lg:h-[19rem] lg:w-[29rem] xl:h-[20.5rem] xl:w-[32rem] lg:mr-14 xl:mr-30">
             {products.length === 1 && products[0] ? (
               <ProductTile
                 product={products[0]}
@@ -341,32 +343,32 @@ export function StackShowcaseSlide({
             ) : (
               <>
                 {products[0] ? (
-                  <ProductTile
-                    product={products[0]}
-                    variant="polaroid"
-                    priority={priority}
-                    className="absolute top-[18%] left-0 z-20 w-[42%] -rotate-12"
-                  />
+  <ProductTile
+    product={products[0]}
+    variant="polaroid"
+    priority={priority}
+    className="absolute top-[18%] left-0 z-20 w-[47%] -rotate-12 sm:-left-[3%] sm:w-[46%] md:-left-[6%] md:w-[48%] lg:-left-[9%] lg:w-[50%] xl:-left-[12%] xl:w-[52%]"
+  />
                 ) : null}
                 {products[1] ? (
                   <ProductTile
                     product={products[1]}
                     variant="polaroid"
-                    className="absolute top-0 left-1/2 z-30 w-[50%] -translate-x-1/2 rotate-2"
+                    className="absolute top-0 left-1/2 z-30 w-[55%] -translate-x-1/2 rotate-2 sm:w-[54%] md:w-[56%] lg:w-[58%] xl:w-[60%]"
                   />
                 ) : null}
                 {products[2] ? (
                   <ProductTile
                     product={products[2]}
                     variant="polaroid"
-                    className="absolute top-[18%] right-0 z-10 w-[42%] rotate-12"
+                    className="absolute top-[18%] right-0 z-10 w-[47%] rotate-12 sm:-right-[3%] sm:w-[46%] md:-right-[6%] md:w-[48%] lg:-right-[9%] lg:w-[50%] xl:-right-[12%] xl:w-[52%]"
                   />
                 ) : null}
               </>
             )}
           </div>
         ) : null}
-        <div className="min-w-0 w-full flex-1">
+        <div className="min-w-0 w-full max-w-[400px] lg:ml-14 xl:ml-30">
           <CopyBlock slide={slide} align="center" />
         </div>
       </div>

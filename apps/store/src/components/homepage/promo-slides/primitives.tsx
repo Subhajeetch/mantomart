@@ -254,7 +254,7 @@ export function SlideCta({
     <PromoHref
       href={href}
       className={cn(
-        "inline-flex w-fit shrink-0 items-center justify-center bg-[var(--slide-accent)] px-4 py-2 text-sm font-semibold text-[var(--slide-cta-fg)] shadow-sm transition-opacity hover:opacity-90",
+        "inline-flex w-fit shrink-0 items-center justify-center bg-[var(--slide-accent)] px-4 py-2 text-sm lg:text-[18px] lg:text-xl font-semibold text-[var(--slide-cta-fg)] shadow-sm transition-opacity hover:opacity-90",
         !href && "pointer-events-none",
         className
       )}
