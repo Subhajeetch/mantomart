@@ -3,12 +3,19 @@ import type {
   HomepageAdminBlock,
   HomepageBlockConfig,
   HomepageBlockType,
+  PromoSlideConfigItem,
+  PromoSlideLayout,
+  PromoSlideProductSlot,
   PromoSliderConfig,
   ProductGridConfig,
   CategoryCtaConfig,
   ProductFeedConfig,
 } from "./types";
-import { BLOCK_TYPE_LABELS } from "./types";
+import {
+  BLOCK_TYPE_LABELS,
+  PROMO_SLIDE_LAYOUTS,
+  PROMO_SLIDE_THEMES,
+} from "./types";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -58,11 +65,141 @@ export function defaultConfig(type: HomepageBlockType): HomepageBlockConfig {
   }
 }
 
+function isPromoLayout(value: unknown): value is PromoSlideLayout {
+  return (
+    typeof value === "string" &&
+    (PROMO_SLIDE_LAYOUTS as readonly string[]).includes(value)
+  );
+}
+
+export function emptyPromoSlide(id: string): PromoSlideConfigItem {
+  return {
+    id,
+    layout: "deals_banner",
+    audience: "all",
+    theme: "primary",
+    products: [],
+    offers: [],
+  };
+}
+
+export function normalizeAdminSlide(
+  raw: unknown,
+  fallbackId: string
+): PromoSlideConfigItem {
+  if (!isRecord(raw)) return emptyPromoSlide(fallbackId);
+  const id =
+    typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : fallbackId;
+  const imageUrl =
+    typeof raw.imageUrl === "string" && raw.imageUrl.trim()
+      ? raw.imageUrl.trim()
+      : undefined;
+  const audience = raw.audience === "new_user" ? "new_user" : "all";
+
+  if (raw.layout === "legacy" || (!isPromoLayout(raw.layout) && imageUrl)) {
+    const slide: PromoSlideConfigItem = {
+      id,
+      layout: "legacy",
+      audience,
+      imageUrl,
+    };
+    if (typeof raw.mobileImageUrl === "string" && raw.mobileImageUrl.trim()) {
+      slide.mobileImageUrl = raw.mobileImageUrl.trim();
+    }
+    if (typeof raw.title === "string") slide.title = raw.title;
+    if (typeof raw.subtitle === "string") slide.subtitle = raw.subtitle;
+    if (typeof raw.ctaLabel === "string") slide.ctaLabel = raw.ctaLabel;
+    if (typeof raw.ctaHref === "string") slide.ctaHref = raw.ctaHref;
+    if (typeof raw.discountLabel === "string") {
+      slide.discountLabel = raw.discountLabel;
+    }
+    return slide;
+  }
+
+  const products = Array.isArray(raw.products)
+    ? (raw.products.filter(isRecord) as PromoSlideProductSlot[])
+    : [];
+
+  const slide: PromoSlideConfigItem = {
+    id,
+    layout: isPromoLayout(raw.layout) ? raw.layout : "deals_banner",
+    audience,
+    theme:
+      typeof raw.theme === "string" &&
+      (PROMO_SLIDE_THEMES as readonly string[]).includes(raw.theme)
+        ? (raw.theme as PromoSlideConfigItem["theme"])
+        : "primary",
+    products,
+    offers: Array.isArray(raw.offers)
+      ? (raw.offers.filter(isRecord) as PromoSlideConfigItem["offers"])
+      : [],
+  };
+  if (typeof raw.kicker === "string") slide.kicker = raw.kicker;
+  if (typeof raw.title === "string") slide.title = raw.title;
+  if (typeof raw.subtitle === "string") slide.subtitle = raw.subtitle;
+  if (typeof raw.ctaLabel === "string") slide.ctaLabel = raw.ctaLabel;
+  if (typeof raw.endsAt === "string") slide.endsAt = raw.endsAt;
+  if (typeof raw.graphicTitle === "string") slide.graphicTitle = raw.graphicTitle;
+  if (typeof raw.graphicSubtitle === "string") {
+    slide.graphicSubtitle = raw.graphicSubtitle;
+  }
+  if (isRecord(raw.slideLink)) {
+    slide.slideLink = raw.slideLink as PromoSlideConfigItem["slideLink"];
+  }
+  if (isRecord(raw.titleLink)) {
+    slide.titleLink = raw.titleLink as PromoSlideConfigItem["titleLink"];
+  }
+  return slide;
+}
+
 export function asPromoConfig(raw: unknown): PromoSliderConfig {
   if (isRecord(raw) && raw.type === "promo_slider" && Array.isArray(raw.slides)) {
-    return raw as PromoSliderConfig;
+    return {
+      type: "promo_slider",
+      slides: raw.slides.map((slide, index) =>
+        normalizeAdminSlide(slide, `slide_${index}`)
+      ),
+    };
   }
   return defaultConfig("promo_slider") as PromoSliderConfig;
+}
+
+export function isoToDatetimeLocal(iso?: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+export function datetimeLocalToIso(value: string): string | undefined {
+  if (!value.trim()) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+}
+
+export function centsToInput(cents?: number): string {
+  if (cents === undefined || !Number.isFinite(cents)) return "";
+  return (cents / 100).toFixed(2);
+}
+
+export function inputToCents(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const n = Number.parseFloat(trimmed);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.round(n * 100);
+}
+
+export function formatCents(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined || !Number.isFinite(cents)) {
+    return "";
+  }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(cents / 100);
 }
 
 export function asGridConfig(raw: unknown): ProductGridConfig {

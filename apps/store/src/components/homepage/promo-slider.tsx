@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import Autoplay from "embla-carousel-autoplay";
+import useEmblaCarousel from "embla-carousel-react";
 import type { Session } from "@repo/types/session-client";
 
 import { useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { PromoSlideView } from "./promo-slides/layouts";
 import type { PublicPromoSlide, PublicPromoSliderBlock } from "./types";
 
 type PromoSliderProps = {
@@ -26,7 +28,6 @@ function visibleSlides(
   newUser: boolean
 ): PublicPromoSlide[] {
   return slides.filter((slide) => {
-    if (!slide.imageUrl) return false;
     if (slide.audience === "new_user") return newUser;
     return true;
   });
@@ -38,123 +39,137 @@ export function PromoSlider({ block }: PromoSliderProps) {
   const newUser = isNewUser(session?.user);
 
   const allSlides = Array.isArray(block.config.slides)
-    ? block.config.slides.filter((slide) => slide.imageUrl)
-    : [];
+    ? block.config.slides
+    : EMPTY_SLIDES;
 
-  // While session is unknown, treat as NOT a new user (hide new_user slides).
   const slides = useMemo(
     () => visibleSlides(allSlides, isPending ? false : newUser),
     [allSlides, isPending, newUser]
   );
 
+  const autoplay = useRef(
+    Autoplay({
+      delay: 6500,
+      stopOnInteraction: false,
+      stopOnMouseEnter: true,
+      playOnInit: false,
+    })
+  );
+
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduceMotion(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  const canLoop = slides.length > 1;
+
+  const [emblaRef, emblaApi] = useEmblaCarousel(
+    {
+      loop: canLoop,
+      align: "start",
+      duration: reduceMotion ? 0 : 22,
+      watchDrag: canLoop,
+    },
+    [autoplay.current]
+  );
+
   const [index, setIndex] = useState(0);
 
-  useEffect(() => {
-    setIndex(0);
-  }, [slides.length]);
+  const onSelect = useCallback(() => {
+    if (!emblaApi) return;
+    setIndex(emblaApi.selectedScrollSnap());
+  }, [emblaApi]);
 
   useEffect(() => {
-    if (index >= slides.length) setIndex(0);
-  }, [index, slides.length]);
+    if (!emblaApi) return;
+    emblaApi.on("select", onSelect);
+    onSelect();
+    return () => {
+      emblaApi.off("select", onSelect);
+    };
+  }, [emblaApi, onSelect]);
 
-  if (allSlides.length === 0) return null;
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.reInit({
+      loop: slides.length > 1,
+      align: "start",
+      duration: reduceMotion ? 0 : 22,
+      watchDrag: slides.length > 1,
+    });
+  }, [emblaApi, slides.length, reduceMotion]);
 
-  const safeIndex =
-    slides.length === 0 ? 0 : Math.max(0, Math.min(index, slides.length - 1));
-  const current = slides[safeIndex] ?? allSlides[0];
-  if (!current) return null;
+  const slideCount = slides.length;
+  const prevCount = useRef(slideCount);
+  useEffect(() => {
+    if (!emblaApi) return;
+    if (prevCount.current !== slideCount) {
+      emblaApi.scrollTo(0, true);
+      prevCount.current = slideCount;
+    }
+  }, [emblaApi, slideCount]);
 
-  const canPrev = slides.length > 1;
+  useEffect(() => {
+    const plugin = emblaApi?.plugins()?.autoplay;
+    if (!plugin) return;
+    if (reduceMotion || slides.length <= 1) plugin.stop();
+    else plugin.play();
+  }, [emblaApi, reduceMotion, slides.length]);
+
+  if (allSlides.length === 0 || slides.length === 0) return null;
+
+  const canNav = slides.length > 1;
   const go = (dir: -1 | 1) => {
-    if (slides.length <= 1) return;
-    setIndex((prev) => (prev + dir + slides.length) % slides.length);
+    if (!emblaApi) return;
+    if (dir < 0) emblaApi.scrollPrev();
+    else emblaApi.scrollNext();
   };
 
   return (
     <section
       aria-roledescription="carousel"
       aria-label="Promotions"
-      className="relative overflow-hidden bg-muted"
+      className="relative overflow-hidden select-none"
+      tabIndex={canNav ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (!canNav) return;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          go(-1);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          go(1);
+        }
+      }}
     >
-      {/*
-        No-JS fallback: first slide is in the HTML and visible. Client
-        hydration then filters audience:'new_user' slides.
-      */}
-      <div className="relative aspect-[16/7] min-h-48 w-full sm:aspect-[16/6]">
-        {allSlides.map((slide, i) => {
-          const hiddenByAudience =
-            slide.audience === "new_user" && !newUser && !isPending;
-          const isActive = slide.id === current.id;
-          const show = isActive && !hiddenByAudience;
-          // First slide stays in the layout for no-JS; others are inert.
-          const isFirst = i === 0;
-          return (
+      <div className="overflow-hidden" ref={emblaRef}>
+        <div className="flex items-stretch">
+          {slides.map((slide, i) => (
             <div
               key={slide.id}
-              className={cn(
-                "absolute inset-0",
-                show || (isFirst && slides.length === 0)
-                  ? "relative z-10"
-                  : "pointer-events-none invisible"
-              )}
-              aria-hidden={!show}
+              className="flex min-w-0 flex-[0_0_100%]"
+              role="group"
+              aria-roledescription="slide"
+              aria-label={`${i + 1} of ${slides.length}`}
             >
-              <picture>
-                {slide.mobileImageUrl ? (
-                  <source
-                    media="(max-width: 639px)"
-                    srcSet={slide.mobileImageUrl}
-                  />
-                ) : null}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={slide.imageUrl}
-                  alt={slide.title || "Promotion"}
-                  className="size-full object-cover"
-                  fetchPriority={i === 0 ? "high" : "low"}
-                />
-              </picture>
-              {(slide.title ||
-                slide.subtitle ||
-                slide.ctaLabel ||
-                slide.discountLabel) && (
-                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/10 to-transparent p-6 sm:p-10">
-                  {slide.discountLabel ? (
-                    <p className="mb-2 w-fit bg-primary px-2 py-0.5 text-xs font-semibold tracking-wide text-primary-foreground uppercase">
-                      {slide.discountLabel}
-                    </p>
-                  ) : null}
-                  {slide.title ? (
-                    <p className="max-w-xl text-2xl font-semibold text-white sm:text-4xl">
-                      {slide.title}
-                    </p>
-                  ) : null}
-                  {slide.subtitle ? (
-                    <p className="mt-1 max-w-xl text-sm text-white/85 sm:text-base">
-                      {slide.subtitle}
-                    </p>
-                  ) : null}
-                  {slide.ctaLabel && slide.ctaHref ? (
-                    <Link
-                      href={slide.ctaHref}
-                      className="mt-4 inline-flex w-fit items-center bg-white px-4 py-2 text-xs font-semibold tracking-wide text-foreground uppercase"
-                    >
-                      {slide.ctaLabel}
-                    </Link>
-                  ) : null}
-                </div>
-              )}
+              <div className="w-full">
+                <PromoSlideView slide={slide} priority={i === 0} />
+              </div>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
 
-      {canPrev ? (
+      {canNav ? (
         <>
           <Button
             variant="secondary"
             size="icon"
-            className="absolute top-1/2 left-3 z-20 -translate-y-1/2 bg-background/80"
+            className="absolute top-1/2 left-2 z-20 hidden size-8 -translate-y-1/2 bg-background/90 shadow-sm sm:inline-flex md:left-3"
             onClick={() => go(-1)}
             aria-label="Previous slide"
           >
@@ -163,14 +178,14 @@ export function PromoSlider({ block }: PromoSliderProps) {
           <Button
             variant="secondary"
             size="icon"
-            className="absolute top-1/2 right-3 z-20 -translate-y-1/2 bg-background/80"
+            className="absolute top-1/2 right-2 z-20 hidden size-8 -translate-y-1/2 bg-background/90 shadow-sm sm:inline-flex md:right-3"
             onClick={() => go(1)}
             aria-label="Next slide"
           >
             <ChevronRight className="size-4" />
           </Button>
           <div
-            className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1.5"
+            className="absolute bottom-2.5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/30 px-2 py-1 backdrop-blur-sm"
             role="tablist"
             aria-label="Slides"
           >
@@ -179,13 +194,15 @@ export function PromoSlider({ block }: PromoSliderProps) {
                 key={slide.id}
                 type="button"
                 role="tab"
-                aria-selected={i === safeIndex}
+                aria-selected={i === index}
                 aria-label={`Slide ${i + 1}`}
                 className={cn(
-                  "size-2 rounded-full",
-                  i === safeIndex ? "bg-white" : "bg-white/40"
+                  "h-1.5 rounded-full transition-all",
+                  i === index
+                    ? "w-5 bg-white"
+                    : "w-2 bg-white/50 hover:bg-white/80"
                 )}
-                onClick={() => setIndex(i)}
+                onClick={() => emblaApi?.scrollTo(i)}
               />
             ))}
           </div>
@@ -194,3 +211,5 @@ export function PromoSlider({ block }: PromoSliderProps) {
     </section>
   );
 }
+
+const EMPTY_SLIDES: PublicPromoSlide[] = [];

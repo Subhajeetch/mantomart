@@ -10,15 +10,61 @@ export type PublicProductCard = {
   href: string;
 };
 
+export type PromoSlideLayout =
+  | "deals_banner"
+  | "welcome_deal"
+  | "split_products"
+  | "flash_row"
+  | "stack_showcase"
+  | "legacy";
+
+export type PromoSlideTheme =
+  | "primary"
+  | "warm"
+  | "cool"
+  | "forest"
+  | "sunset"
+  | "slate";
+
+export type PublicPromoSlideProduct = {
+  id: string;
+  href: string;
+  name: string;
+  imageUrl: string | null;
+  imageAlt: string | null;
+  price: number | null;
+  compareAtPrice: number | null;
+  onSale: boolean;
+  discountLabel?: string;
+};
+
+export type PublicPromoSlideOffer = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  code?: string;
+  href?: string;
+};
+
 export type PublicPromoSlide = {
   id: string;
-  imageUrl: string;
-  mobileImageUrl?: string;
+  layout: PromoSlideLayout;
+  audience: "all" | "new_user";
+  theme: PromoSlideTheme;
+  kicker?: string;
   title?: string;
   subtitle?: string;
   ctaLabel?: string;
+  endsAt?: string;
+  graphicTitle?: string;
+  graphicSubtitle?: string;
+  slideHref?: string;
+  titleHref?: string;
+  products: PublicPromoSlideProduct[];
+  offers: PublicPromoSlideOffer[];
+  imageUrl?: string;
+  mobileImageUrl?: string;
   ctaHref?: string;
-  audience: "all" | "new_user";
   discountLabel?: string;
 };
 

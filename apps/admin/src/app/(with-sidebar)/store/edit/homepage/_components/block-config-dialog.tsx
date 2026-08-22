@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
-import { ImageUploadField } from "@/components/image-upload";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 
 import type {
   CategoryCtaButtonConfig,
@@ -30,9 +28,9 @@ import type {
   HomepageAdminBlock,
   HomepageBlockConfig,
   HomepageMeta,
-  PromoSlideConfigItem,
 } from "./types";
 import { BLOCK_TYPE_LABELS } from "./types";
+import { PromoEditor } from "./promo-editor";
 import {
   asCtaConfig,
   asFeedConfig,
@@ -115,7 +113,13 @@ export function BlockConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent
+        className={
+          block?.blockType === "promo_slider"
+            ? "max-h-[90vh] overflow-y-auto sm:max-w-3xl"
+            : "max-h-[90vh] overflow-y-auto sm:max-w-lg"
+        }
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -131,6 +135,7 @@ export function BlockConfigDialog({
                 config={config}
                 disabled={busy || !canUpdate}
                 maxSlides={meta?.maxSlidesPerSlider ?? 12}
+                categories={categories}
                 onChange={setConfig}
               />
             ) : null}
@@ -182,189 +187,6 @@ export function BlockConfigDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function PromoEditor({
-  config,
-  disabled,
-  maxSlides,
-  onChange,
-}: {
-  config: Extract<HomepageBlockConfig, { type: "promo_slider" }>;
-  disabled: boolean;
-  maxSlides: number;
-  onChange: (next: HomepageBlockConfig) => void;
-}) {
-  const slides = config.slides;
-
-  function updateSlide(id: string, patch: Partial<PromoSlideConfigItem>) {
-    onChange({
-      ...config,
-      slides: slides.map((slide) =>
-        slide.id === id ? { ...slide, ...patch } : slide
-      ),
-    });
-  }
-
-  function addSlide() {
-    if (slides.length >= maxSlides) return;
-    const next: PromoSlideConfigItem = {
-      id: localId(),
-      imageUrl: "",
-      audience: "all",
-    };
-    onChange({ ...config, slides: [...slides, next] });
-  }
-
-  function removeSlide(id: string) {
-    onChange({ ...config, slides: slides.filter((slide) => slide.id !== id) });
-  }
-
-  return (
-    <div className="grid gap-3">
-      {slides.map((slide, index) => (
-        <div key={slide.id} className="grid gap-3 rounded-lg border p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Slide {index + 1}</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={disabled}
-              onClick={() => removeSlide(slide.id)}
-              aria-label={`Remove slide ${index + 1}`}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </div>
-          <ImageUploadField
-            value={slide.imageUrl}
-            onChange={(url) => updateSlide(slide.id, { imageUrl: url })}
-            disabled={disabled}
-            folder="banner"
-            name={`homepage-slide-${slide.id}`}
-            purpose="banner"
-            label="Desktop image"
-            outputWidth={1600}
-            outputHeight={720}
-          />
-          <ImageUploadField
-            value={slide.mobileImageUrl ?? ""}
-            onChange={(url) =>
-              updateSlide(slide.id, { mobileImageUrl: url || undefined })
-            }
-            disabled={disabled}
-            folder="banner"
-            name={`homepage-slide-m-${slide.id}`}
-            purpose="banner"
-            label="Mobile image (optional)"
-            outputWidth={800}
-            outputHeight={1000}
-          />
-          <div className="grid gap-1.5">
-            <Label>Title</Label>
-            <Input
-              value={slide.title ?? ""}
-              disabled={disabled}
-              maxLength={120}
-              onChange={(e) =>
-                updateSlide(slide.id, { title: e.target.value || undefined })
-              }
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Subtitle</Label>
-            <Textarea
-              value={slide.subtitle ?? ""}
-              disabled={disabled}
-              maxLength={240}
-              onChange={(e) =>
-                updateSlide(slide.id, {
-                  subtitle: e.target.value || undefined,
-                })
-              }
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="grid gap-1.5">
-              <Label>CTA label</Label>
-              <Input
-                value={slide.ctaLabel ?? ""}
-                disabled={disabled}
-                maxLength={40}
-                onChange={(e) =>
-                  updateSlide(slide.id, {
-                    ctaLabel: e.target.value || undefined,
-                  })
-                }
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>CTA link</Label>
-              <Input
-                value={slide.ctaHref ?? ""}
-                disabled={disabled}
-                maxLength={2048}
-                placeholder="/category/…"
-                onChange={(e) =>
-                  updateSlide(slide.id, {
-                    ctaHref: e.target.value || undefined,
-                  })
-                }
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="grid gap-1.5">
-              <Label>Audience</Label>
-              <Select
-                value={slide.audience}
-                disabled={disabled}
-                onValueChange={(value) => {
-                  if (value === "all" || value === "new_user") {
-                    updateSlide(slide.id, { audience: value });
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Everyone</SelectItem>
-                  <SelectItem value="new_user">New users only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Discount label</Label>
-              <Input
-                value={slide.discountLabel ?? ""}
-                disabled={disabled}
-                maxLength={40}
-                placeholder="20% off first order"
-                onChange={(e) =>
-                  updateSlide(slide.id, {
-                    discountLabel: e.target.value || undefined,
-                  })
-                }
-              />
-            </div>
-          </div>
-        </div>
-      ))}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={disabled || slides.length >= maxSlides}
-        onClick={addSlide}
-        className="gap-1.5"
-      >
-        <Plus className="size-3.5" />
-        Add slide
-      </Button>
-    </div>
   );
 }
 

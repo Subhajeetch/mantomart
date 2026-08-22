@@ -6,6 +6,7 @@ import type {
   HomepageBlockConfig,
   HomepageBlockType,
   HomepageMeta,
+  HomepageProductHit,
   ReorderItemPayload,
 } from "./types";
 
@@ -55,7 +56,13 @@ export async function requestHomepageJson<T>(
       },
       cache: "no-store",
     });
-  } catch {
+  } catch (error) {
+    if (
+      (error instanceof DOMException && error.name === "AbortError") ||
+      options.signal?.aborted
+    ) {
+      throw error;
+    }
     throw new ApiError("Unable to reach the server. Please try again.", 0);
   }
 
@@ -184,4 +191,17 @@ export async function invalidateHomepageCache() {
     "/invalidate-cache",
     { method: "POST" }
   );
+}
+
+export async function searchHomepageProducts(
+  query: string,
+  signal?: AbortSignal
+): Promise<HomepageProductHit[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const body = await requestHomepageJson<{
+    success: true;
+    data: HomepageProductHit[];
+  }>(`products?q=${encodeURIComponent(q)}`, { signal });
+  return Array.isArray(body.data) ? body.data : [];
 }

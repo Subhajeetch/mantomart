@@ -40,6 +40,11 @@ import {
   sanitizeHomepageConfig,
   type BlockOrderRow,
 } from '@/utils/homepageContent';
+import {
+  collectPromoProductIds,
+  loadExistingProductIdSet,
+  searchHomepageProducts,
+} from '@/utils/homepagePromo';
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -233,6 +238,34 @@ homepage.get('/', async (c) => {
   }
 });
 
+// ─── GET /products — published product search for slide pickers ───────────────
+
+homepage.get('/products', async (c) => {
+  const q = (c.req.query('q') ?? '').trim();
+  if (q.length > 120) {
+    return errorJson(
+      c,
+      400,
+      'INVALID_QUERY',
+      'Search query is too long.'
+    );
+  }
+
+  try {
+    const db = getDb(c);
+    const data = q.length === 0 ? [] : await searchHomepageProducts(db, q);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error('Error searching homepage products:', error);
+    return errorJson(
+      c,
+      500,
+      'INTERNAL_ERROR',
+      'Failed to search products.'
+    );
+  }
+});
+
 // ─── POST / — create a block ──────────────────────────────────────────────────
 
 homepage.post(
@@ -279,15 +312,19 @@ homepage.post(
         );
       }
 
-      const categoryIds = await loadCategoryIdSet(db);
       const configInput =
         body.config === undefined
           ? defaultHomepageConfig(blockType)
           : body.config;
+      const [categoryIds, productIds] = await Promise.all([
+        loadCategoryIdSet(db),
+        loadExistingProductIdSet(db, collectPromoProductIds(configInput)),
+      ]);
       const sanitized = sanitizeHomepageConfig(
         blockType,
         configInput,
-        categoryIds
+        categoryIds,
+        productIds
       );
       if (!sanitized.ok) {
         return errorJson(c, 400, sanitized.code, sanitized.error);
@@ -463,11 +500,15 @@ homepage.patch(
       }
 
       if (body.config !== undefined) {
-        const categoryIds = await loadCategoryIdSet(db);
+        const [categoryIds, productIds] = await Promise.all([
+          loadCategoryIdSet(db),
+          loadExistingProductIdSet(db, collectPromoProductIds(body.config)),
+        ]);
         const sanitized = sanitizeHomepageConfig(
           nextType,
           body.config,
-          categoryIds
+          categoryIds,
+          productIds
         );
         if (!sanitized.ok) {
           return errorJson(c, 400, sanitized.code, sanitized.error);

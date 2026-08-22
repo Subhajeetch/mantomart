@@ -35,7 +35,8 @@ type AddBlockDialogProps = {
 };
 
 const DESCRIPTIONS: Record<HomepageBlockType, string> = {
-  promo_slider: "Hero carousel of promo slides (optional first-order slide).",
+  promo_slider:
+    "Hero carousel of product promo slides (five layouts, optional first-order slide).",
   product_grid: "A finite grid of featured or category products.",
   category_cta: "Call-to-action buttons that link to categories.",
   product_feed: "Infinite-scroll product stream. Must be last; only one allowed.",

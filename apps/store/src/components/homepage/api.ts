@@ -9,7 +9,11 @@ import type {
   PublicProductFeedBlock,
   PublicProductGridBlock,
   PublicPromoSlide,
+  PublicPromoSlideOffer,
+  PublicPromoSlideProduct,
   PublicPromoSliderBlock,
+  PromoSlideLayout,
+  PromoSlideTheme,
 } from "./types";
 
 const HOMEPAGE_REVALIDATE_SECONDS = 5 * 24 * 60 * 60;
@@ -57,28 +61,150 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
   };
 }
 
+const SLIDE_LAYOUTS = new Set<PromoSlideLayout>([
+  "deals_banner",
+  "welcome_deal",
+  "split_products",
+  "flash_row",
+  "stack_showcase",
+  "legacy",
+]);
+
+const SLIDE_THEMES = new Set<PromoSlideTheme>([
+  "primary",
+  "warm",
+  "cool",
+  "forest",
+  "sunset",
+  "slate",
+]);
+
+function asLayout(value: unknown, imageUrl: string | null): PromoSlideLayout | null {
+  if (typeof value === "string" && SLIDE_LAYOUTS.has(value as PromoSlideLayout)) {
+    return value as PromoSlideLayout;
+  }
+  return imageUrl ? "legacy" : null;
+}
+
+function asTheme(value: unknown): PromoSlideTheme {
+  if (typeof value === "string" && SLIDE_THEMES.has(value as PromoSlideTheme)) {
+    return value as PromoSlideTheme;
+  }
+  return "primary";
+}
+
+function normalizeSlideProduct(raw: unknown): PublicPromoSlideProduct | null {
+  if (!isRecord(raw)) return null;
+  const id = asString(raw.id);
+  const href = asString(raw.href);
+  const name = asString(raw.name);
+  if (!id || !href || !name) return null;
+  const price =
+    typeof raw.price === "number" && Number.isFinite(raw.price) ? raw.price : null;
+  const compareAtPrice =
+    typeof raw.compareAtPrice === "number" && Number.isFinite(raw.compareAtPrice)
+      ? raw.compareAtPrice
+      : null;
+  const onSale =
+    typeof raw.onSale === "boolean"
+      ? raw.onSale
+      : price !== null && compareAtPrice !== null && compareAtPrice > price;
+  const product: PublicPromoSlideProduct = {
+    id,
+    href,
+    name,
+    imageUrl: asString(raw.imageUrl),
+    imageAlt: asString(raw.imageAlt),
+    price,
+    compareAtPrice,
+    onSale,
+  };
+  const discountLabel = asString(raw.discountLabel);
+  if (discountLabel) product.discountLabel = discountLabel;
+  return product;
+}
+
+function normalizeSlideOffer(raw: unknown): PublicPromoSlideOffer | null {
+  if (!isRecord(raw)) return null;
+  const id = asString(raw.id);
+  const title = asString(raw.title);
+  if (!id || !title) return null;
+  const offer: PublicPromoSlideOffer = { id, title };
+  const subtitle = asString(raw.subtitle);
+  if (subtitle) offer.subtitle = subtitle;
+  const code = asString(raw.code);
+  if (code) offer.code = code;
+  const href = asString(raw.href);
+  if (href) offer.href = href;
+  return offer;
+}
+
 function normalizeSlide(raw: unknown): PublicPromoSlide | null {
   if (!isRecord(raw)) return null;
   const id = asString(raw.id);
+  if (!id) return null;
   const imageUrl = asString(raw.imageUrl);
-  if (!id || !imageUrl) return null;
+  const layout = asLayout(raw.layout, imageUrl);
+  if (!layout) return null;
+
+  const products = (Array.isArray(raw.products) ? raw.products : [])
+    .map(normalizeSlideProduct)
+    .filter((item): item is PublicPromoSlideProduct => item !== null);
+  const offers = (Array.isArray(raw.offers) ? raw.offers : [])
+    .map(normalizeSlideOffer)
+    .filter((item): item is PublicPromoSlideOffer => item !== null);
+
   const slide: PublicPromoSlide = {
     id,
-    imageUrl,
+    layout,
     audience: raw.audience === "new_user" ? "new_user" : "all",
+    theme: asTheme(raw.theme),
+    products,
+    offers,
   };
-  const mobile = asString(raw.mobileImageUrl);
-  if (mobile) slide.mobileImageUrl = mobile;
+
+  const kicker = asString(raw.kicker);
+  if (kicker) slide.kicker = kicker;
   const title = asString(raw.title);
   if (title) slide.title = title;
   const subtitle = asString(raw.subtitle);
   if (subtitle) slide.subtitle = subtitle;
   const ctaLabel = asString(raw.ctaLabel);
   if (ctaLabel) slide.ctaLabel = ctaLabel;
+  const endsAt = asString(raw.endsAt);
+  if (endsAt) slide.endsAt = endsAt;
+  const graphicTitle = asString(raw.graphicTitle);
+  if (graphicTitle) slide.graphicTitle = graphicTitle;
+  const graphicSubtitle = asString(raw.graphicSubtitle);
+  if (graphicSubtitle) slide.graphicSubtitle = graphicSubtitle;
+  const slideHref = asString(raw.slideHref);
+  if (slideHref) slide.slideHref = slideHref;
+  const titleHref = asString(raw.titleHref);
+  if (titleHref) slide.titleHref = titleHref;
+  if (imageUrl) slide.imageUrl = imageUrl;
+  const mobile = asString(raw.mobileImageUrl);
+  if (mobile) slide.mobileImageUrl = mobile;
   const ctaHref = asString(raw.ctaHref);
-  if (ctaHref) slide.ctaHref = ctaHref;
+  if (ctaHref) {
+    slide.ctaHref = ctaHref;
+    if (!slide.slideHref) slide.slideHref = ctaHref;
+    if (!slide.titleHref) slide.titleHref = ctaHref;
+  }
   const discountLabel = asString(raw.discountLabel);
   if (discountLabel) slide.discountLabel = discountLabel;
+
+  if (layout === "legacy" && !slide.imageUrl) return null;
+  if (
+    layout !== "legacy" &&
+    !slide.title &&
+    !slide.subtitle &&
+    !slide.kicker &&
+    !slide.graphicTitle &&
+    products.length === 0 &&
+    offers.length === 0
+  ) {
+    return null;
+  }
   return slide;
 }
 

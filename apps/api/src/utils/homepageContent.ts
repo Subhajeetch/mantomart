@@ -15,6 +15,18 @@ import {
   type ProductImage,
 } from '@repo/db';
 import kvManager from '@/utils/kvManager';
+import {
+  normalizePublicPromoSlides,
+  sanitizePromoSliderConfig,
+  serializePublicPromoSlides,
+  type PublicPromoSlide,
+} from '@/utils/homepagePromo';
+
+export type {
+  PublicPromoSlide,
+  PublicPromoSlideOffer,
+  PublicPromoSlideProduct,
+} from '@/utils/homepagePromo';
 
 /** Public storefront homepage cache key. */
 export const HOMEPAGE_KV_KEY = 'store:homepage';
@@ -35,7 +47,6 @@ const MAX_ID_LENGTH = 128;
 const MAX_TITLE_LENGTH = 120;
 const MAX_SUBTITLE_LENGTH = 240;
 const MAX_CTA_LABEL_LENGTH = 40;
-const MAX_DISCOUNT_LABEL_LENGTH = 40;
 const MAX_URL_LENGTH = 2048;
 
 export const HOMEPAGE_BLOCK_TYPES = [
@@ -57,18 +68,6 @@ export type PublicProductCard = {
   compareAtPrice: number | null;
   onSale: boolean;
   href: string;
-};
-
-export type PublicPromoSlide = {
-  id: string;
-  imageUrl: string;
-  mobileImageUrl?: string;
-  title?: string;
-  subtitle?: string;
-  ctaLabel?: string;
-  ctaHref?: string;
-  audience: 'all' | 'new_user';
-  discountLabel?: string;
 };
 
 export type PublicPromoSliderBlock = {
@@ -356,81 +355,23 @@ function sanitizeOptionalUrl(
 
 /**
  * Strict sanitizer used by admin writes. Rejects invalid nested fields.
- * `knownCategoryIds` — when provided, categoryId values must exist.
+ * `knownCategoryIds` / `knownProductIds` — when provided, referenced ids must exist.
  */
 export function sanitizeHomepageConfig(
   blockType: HomepageBlockType,
   raw: unknown,
-  knownCategoryIds?: Set<string>
+  knownCategoryIds?: Set<string>,
+  knownProductIds?: Set<string>
 ): SanitizeConfigResult {
   const body = isRecord(raw) ? raw : {};
 
   if (blockType === 'promo_slider') {
-    if (body.slides !== undefined && !Array.isArray(body.slides)) {
-      return {
-        ok: false,
-        error: 'Slider slides must be an array.',
-        code: 'INVALID_SLIDES',
-      };
-    }
-    const slidesRaw = Array.isArray(body.slides) ? body.slides : [];
-    if (slidesRaw.length > MAX_SLIDES_PER_SLIDER) {
-      return {
-        ok: false,
-        error: `A slider can have at most ${MAX_SLIDES_PER_SLIDER} slides.`,
-        code: 'MAX_SLIDES',
-      };
-    }
-    const slides: PublicPromoSlide[] = [];
-    const seen = new Set<string>();
-    for (const entry of slidesRaw) {
-      if (!isRecord(entry)) {
-        return {
-          ok: false,
-          error: 'Each slide must be an object.',
-          code: 'INVALID_SLIDE',
-        };
-      }
-      const imageUrl = sanitizeOptionalUrl(entry.imageUrl, 'image');
-      if (!imageUrl) {
-        return {
-          ok: false,
-          error:
-            'Each slide needs a valid image URL (http(s) or /api/images/…).',
-          code: 'INVALID_IMAGE_URL',
-        };
-      }
-      let id =
-        typeof entry.id === 'string' && isValidId(entry.id.trim())
-          ? entry.id.trim()
-          : nanoid();
-      if (seen.has(id)) id = nanoid();
-      seen.add(id);
-
-      const audience =
-        entry.audience === 'new_user' || entry.audience === 'all'
-          ? entry.audience
-          : 'all';
-
-      const slide: PublicPromoSlide = { id, imageUrl, audience };
-      const mobile = sanitizeOptionalUrl(entry.mobileImageUrl, 'image');
-      if (mobile) slide.mobileImageUrl = mobile;
-      const title = asTrimmedString(entry.title, MAX_TITLE_LENGTH);
-      if (title) slide.title = title;
-      const subtitle = asTrimmedString(entry.subtitle, MAX_SUBTITLE_LENGTH);
-      if (subtitle) slide.subtitle = subtitle;
-      const ctaLabel = asTrimmedString(entry.ctaLabel, MAX_CTA_LABEL_LENGTH);
-      if (ctaLabel) slide.ctaLabel = ctaLabel;
-      const ctaHref = sanitizeOptionalUrl(entry.ctaHref, 'href');
-      if (ctaHref) slide.ctaHref = ctaHref;
-      const discountLabel = asTrimmedString(
-        entry.discountLabel,
-        MAX_DISCOUNT_LABEL_LENGTH
-      );
-      if (discountLabel) slide.discountLabel = discountLabel;
-      slides.push(slide);
-    }
-    return { ok: true, config: { type: 'promo_slider', slides } };
+    return sanitizePromoSliderConfig(
+      body,
+      MAX_SLIDES_PER_SLIDER,
+      knownCategoryIds,
+      knownProductIds
+    );
   }
 
   if (blockType === 'product_grid') {
@@ -847,15 +788,11 @@ async function serializePublicBlock(
   }
 
   if (config.type === 'promo_slider') {
-    const slides = config.slides.filter((slide) => slide.imageUrl);
-    if (slides.length === 0) {
-      // Empty slider is valid but renders nothing on the storefront.
-      return {
-        id: row.id,
-        blockType: 'promo_slider',
-        position: row.position,
-        config: { type: 'promo_slider', slides: [] },
-      };
+    let slides: PublicPromoSlide[] = [];
+    try {
+      slides = await serializePublicPromoSlides(db, config, categoriesById);
+    } catch (error) {
+      console.warn(`Failed to serialize promo slider ${row.id}:`, error);
     }
     return {
       id: row.id,
@@ -1006,40 +943,7 @@ function normalizePublicBlock(raw: unknown): PublicHomepageBlock | null {
 
   if (blockType === 'promo_slider') {
     const config = isRecord(raw.config) ? raw.config : {};
-    const slidesRaw = Array.isArray(config.slides) ? config.slides : [];
-    const slides: PublicPromoSlide[] = [];
-    for (const entry of slidesRaw) {
-      if (!isRecord(entry)) continue;
-      const imageUrl =
-        typeof entry.imageUrl === 'string' ? entry.imageUrl.trim() : '';
-      const slideId = typeof entry.id === 'string' ? entry.id : '';
-      if (!imageUrl || !slideId) continue;
-      const audience =
-        entry.audience === 'new_user' ? 'new_user' : 'all';
-      const slide: PublicPromoSlide = { id: slideId, imageUrl, audience };
-      if (typeof entry.mobileImageUrl === 'string' && entry.mobileImageUrl.trim()) {
-        slide.mobileImageUrl = entry.mobileImageUrl.trim();
-      }
-      if (typeof entry.title === 'string' && entry.title.trim()) {
-        slide.title = entry.title.trim();
-      }
-      if (typeof entry.subtitle === 'string' && entry.subtitle.trim()) {
-        slide.subtitle = entry.subtitle.trim();
-      }
-      if (typeof entry.ctaLabel === 'string' && entry.ctaLabel.trim()) {
-        slide.ctaLabel = entry.ctaLabel.trim();
-      }
-      if (typeof entry.ctaHref === 'string' && entry.ctaHref.trim()) {
-        slide.ctaHref = entry.ctaHref.trim();
-      }
-      if (
-        typeof entry.discountLabel === 'string' &&
-        entry.discountLabel.trim()
-      ) {
-        slide.discountLabel = entry.discountLabel.trim();
-      }
-      slides.push(slide);
-    }
+    const slides = normalizePublicPromoSlides(config.slides);
     return {
       id,
       blockType: 'promo_slider',
