@@ -10,7 +10,7 @@ import {
   SeoFooter,
 } from "@/components/homepage";
 
-export const revalidate = 5 * 24 * 60 * 60;
+export const revalidate = 432000;
 
 export const metadata: Metadata = {
   title: "RagiMart — Shop fashion, electronics, and more",
