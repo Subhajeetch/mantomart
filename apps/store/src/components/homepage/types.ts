@@ -1,13 +1,23 @@
+export type PublicProductCardImage = {
+  url: string;
+  alt: string;
+  position?: number;
+};
+
 export type PublicProductCard = {
   id: string;
   slug: string;
   name: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  images: PublicProductCardImage[];
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;
   href: string;
+  aeSalesCount: string | null;
+  aeRating: number | null;
+  aeReviewCount: number | null;
 };
 
 export type PromoSlideLayout =

@@ -28,8 +28,8 @@ export type {
   PublicPromoSlideProduct,
 } from '@/utils/homepagePromo';
 
-/** Public storefront homepage cache key. */
-export const HOMEPAGE_KV_KEY = 'store:homepage';
+/** Public storefront homepage cache key. Bump when the product-card payload changes. */
+export const HOMEPAGE_KV_KEY = 'store:homepage:v3';
 
 /** 5 days in seconds — homepage blocks change infrequently. */
 export const HOMEPAGE_CACHE_TTL_SECONDS = 5 * 24 * 60 * 60;
@@ -48,6 +48,7 @@ const MAX_TITLE_LENGTH = 120;
 const MAX_SUBTITLE_LENGTH = 240;
 const MAX_CTA_LABEL_LENGTH = 40;
 const MAX_URL_LENGTH = 2048;
+const MAX_PRODUCT_CARD_IMAGES = 7;
 
 export const HOMEPAGE_BLOCK_TYPES = [
   'promo_slider',
@@ -58,16 +59,32 @@ export const HOMEPAGE_BLOCK_TYPES = [
 
 // ─── Public payload types ─────────────────────────────────────────────────────
 
+/** Gallery image on a public product card. Variant keys are stripped. */
+export type PublicProductCardImage = {
+  url: string;
+  alt: string;
+  position?: number;
+};
+
+/**
+ * Storefront product-card payload. Only fields the card renders:
+ * gallery, title, cheapest-SKU pricing, link, units-sold, rating, review count.
+ * No variants, copy, SEO, analytics, admin, or AliExpress source ids.
+ */
 export type PublicProductCard = {
   id: string;
   slug: string;
   name: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  images: PublicProductCardImage[];
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;
   href: string;
+  aeSalesCount: string | null;
+  aeRating: number | null;
+  aeReviewCount: number | null;
 };
 
 export type PublicPromoSliderBlock = {
@@ -273,6 +290,76 @@ function toPrice(value: number | string | null | undefined): number | null {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : null;
 }
+
+function toFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toRating(value: unknown): number | null {
+  const n = toFiniteNumber(value);
+  if (n === null || n <= 0 || n > 5) return null;
+  return n;
+}
+
+function toReviewCount(value: unknown): number | null {
+  const n = toFiniteNumber(value);
+  if (n === null || n < 0) return null;
+  return Math.floor(n);
+}
+
+function optionalTrimmed(
+  value: unknown,
+  max = MAX_TITLE_LENGTH
+): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return truncate(trimmed, max);
+}
+
+function publicImages(
+  images: ProductImage[] | null | undefined
+): PublicProductCardImage[] {
+  if (!Array.isArray(images) || images.length === 0) return [];
+  const cleaned: PublicProductCardImage[] = [];
+  for (const img of images) {
+    if (!img || typeof img.url !== 'string') continue;
+    const url = img.url.trim();
+    if (!url) continue;
+    const alt = typeof img.alt === 'string' ? img.alt.trim() : '';
+    const position =
+      typeof img.position === 'number' && Number.isFinite(img.position)
+        ? img.position
+        : cleaned.length;
+    cleaned.push({ url, alt, position });
+  }
+  cleaned.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return cleaned.slice(0, MAX_PRODUCT_CARD_IMAGES);
+}
+
+const PRODUCT_CARD_COLUMNS = {
+  id: products.id,
+  slug: products.slug,
+  name: products.name,
+  images: products.images,
+  aeSalesCount: products.aeSalesCount,
+  aeRating: products.aeRating,
+  aeReviewCount: products.aeReviewCount,
+  position: products.position,
+};
+
+type ProductCardRow = {
+  id: string;
+  slug: string;
+  name: string;
+  images: ProductImage[] | null;
+  aeSalesCount: string | null;
+  aeRating: number | null;
+  aeReviewCount: number | null;
+  position: number;
+};
 
 export function encodeFeedCursor(position: number, id: string): string {
   const raw = `${position}:${id}`;
@@ -553,15 +640,36 @@ export function configNeedsRepair(
 
 // ─── Product card loader ──────────────────────────────────────────────────────
 
+function toPublicProductCard(
+  row: ProductCardRow,
+  pricing: { price: number; compareAtPrice: number | null } | undefined
+): PublicProductCard {
+  const images = publicImages(row.images);
+  const img = images[0] ?? primaryImage(row.images);
+  const price = pricing?.price ?? null;
+  const compareAtPrice = pricing?.compareAtPrice ?? null;
+  const onSale =
+    price !== null && compareAtPrice !== null && compareAtPrice > price;
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    imageUrl: img?.url ?? null,
+    imageAlt: img?.alt ?? null,
+    images,
+    price,
+    compareAtPrice,
+    onSale,
+    href: productHref(row.slug),
+    aeSalesCount: optionalTrimmed(row.aeSalesCount, 64),
+    aeRating: toRating(row.aeRating),
+    aeReviewCount: toReviewCount(row.aeReviewCount),
+  };
+}
+
 async function hydrateProductCards(
   db: Database,
-  rows: Array<{
-    id: string;
-    slug: string;
-    name: string;
-    images: ProductImage[] | null;
-    position: number;
-  }>
+  rows: ProductCardRow[]
 ): Promise<PublicProductCard[]> {
   if (rows.length === 0) return [];
 
@@ -620,23 +728,7 @@ async function hydrateProductCards(
   for (const row of rows) {
     if (seen.has(row.id)) continue;
     seen.add(row.id);
-    const img = primaryImage(row.images);
-    const pricing = bestByProduct.get(row.id);
-    const price = pricing?.price ?? null;
-    const compareAtPrice = pricing?.compareAtPrice ?? null;
-    const onSale =
-      price !== null && compareAtPrice !== null && compareAtPrice > price;
-    cards.push({
-      id: row.id,
-      slug: row.slug,
-      name: row.name,
-      imageUrl: img?.url ?? null,
-      imageAlt: img?.alt ?? null,
-      price,
-      compareAtPrice: onSale ? compareAtPrice : compareAtPrice,
-      onSale,
-      href: productHref(row.slug),
-    });
+    cards.push(toPublicProductCard(row, bestByProduct.get(row.id)));
   }
   return cards;
 }
@@ -660,13 +752,7 @@ async function loadPublishedProducts(
       )
     : undefined;
 
-  let productRows: Array<{
-    id: string;
-    slug: string;
-    name: string;
-    images: ProductImage[] | null;
-    position: number;
-  }> = [];
+  let productRows: ProductCardRow[] = [];
 
   if (options.source === 'category' && options.categoryId) {
     const categoryId = options.categoryId;
@@ -697,13 +783,7 @@ async function loadPublishedProducts(
       : and(eq(products.published, true), inArray(products.id, ids));
 
     productRows = await db
-      .select({
-        id: products.id,
-        slug: products.slug,
-        name: products.name,
-        images: products.images,
-        position: products.position,
-      })
+      .select(PRODUCT_CARD_COLUMNS)
       .from(products)
       .where(whereClause)
       .orderBy(asc(products.position), asc(products.id))
@@ -716,13 +796,7 @@ async function loadPublishedProducts(
     if (cursorClause) filters.push(cursorClause);
 
     productRows = await db
-      .select({
-        id: products.id,
-        slug: products.slug,
-        name: products.name,
-        images: products.images,
-        position: products.position,
-      })
+      .select(PRODUCT_CARD_COLUMNS)
       .from(products)
       .where(and(...filters))
       .orderBy(asc(products.position), asc(products.id))
@@ -1067,22 +1141,32 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
     typeof raw.href === 'string' && raw.href.trim()
       ? raw.href.trim()
       : productHref(slug);
+  const imageUrl =
+    typeof raw.imageUrl === 'string' && raw.imageUrl.trim()
+      ? raw.imageUrl.trim()
+      : null;
+  const imageAlt =
+    typeof raw.imageAlt === 'string' && raw.imageAlt.trim()
+      ? raw.imageAlt.trim()
+      : null;
+  let images = publicImages(raw.images as ProductImage[] | null);
+  if (images.length === 0 && imageUrl) {
+    images = [{ url: imageUrl, alt: imageAlt ?? name }];
+  }
   return {
     id,
     slug,
     name,
-    imageUrl:
-      typeof raw.imageUrl === 'string' && raw.imageUrl.trim()
-        ? raw.imageUrl.trim()
-        : null,
-    imageAlt:
-      typeof raw.imageAlt === 'string' && raw.imageAlt.trim()
-        ? raw.imageAlt.trim()
-        : null,
+    imageUrl: images[0]?.url ?? imageUrl,
+    imageAlt: images[0]?.alt ?? imageAlt,
+    images,
     price,
     compareAtPrice,
     onSale,
     href,
+    aeSalesCount: optionalTrimmed(raw.aeSalesCount, 64),
+    aeRating: toRating(raw.aeRating),
+    aeReviewCount: toReviewCount(raw.aeReviewCount),
   };
 }
 

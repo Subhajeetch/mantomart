@@ -8,6 +8,55 @@ export function formatPriceCents(cents: number | null | undefined): string {
   }).format(cents / 100);
 }
 
+/** Savings amount: whole dollars without cents, otherwise two decimal places. */
+export function formatSavingsAmount(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined || !Number.isFinite(cents) || cents <= 0) {
+    return "";
+  }
+  const amount = cents / 100;
+  const fractionDigits = Number.isInteger(amount) ? 0 : 2;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(amount);
+}
+
+export function formatRating(rating: number | null | undefined): string {
+  if (
+    rating === null ||
+    rating === undefined ||
+    !Number.isFinite(rating) ||
+    rating <= 0
+  ) {
+    return "";
+  }
+  return (Math.round(rating * 10) / 10).toFixed(1);
+}
+
+export function formatReviewCount(count: number | null | undefined): string {
+  if (
+    count === null ||
+    count === undefined ||
+    !Number.isFinite(count) ||
+    count <= 0
+  ) {
+    return "";
+  }
+  const n = Math.floor(count);
+  if (n < 1000) return String(n);
+  if (n < 10_000) {
+    const tenths = Math.round(n / 100) / 10;
+    return Number.isInteger(tenths) ? `${tenths}k` : `${tenths.toFixed(1)}k`;
+  }
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  const millions = Math.round(n / 100_000) / 10;
+  return Number.isInteger(millions)
+    ? `${millions}m`
+    : `${millions.toFixed(1)}m`;
+}
+
 export function percentOff(
   price: number | null | undefined,
   compareAt: number | null | undefined

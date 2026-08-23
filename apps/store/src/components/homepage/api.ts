@@ -6,6 +6,7 @@ import type {
   PublicCategoryCtaBlock,
   PublicHomepageBlock,
   PublicProductCard,
+  PublicProductCardImage,
   PublicProductFeedBlock,
   PublicProductGridBlock,
   PublicPromoSlide,
@@ -17,6 +18,7 @@ import type {
 } from "./types";
 
 const HOMEPAGE_REVALIDATE_SECONDS = 5 * 24 * 60 * 60;
+const MAX_PRODUCT_CARD_IMAGES = 7;
 
 function getApiBaseUrl(): string {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
@@ -28,6 +30,39 @@ function productHref(slug: string): string {
   return cleaned ? `/product/${cleaned}` : "/";
 }
 
+function asNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeCardImages(
+  raw: unknown,
+  fallbackUrl: string | null,
+  fallbackAlt: string | null,
+  name: string
+): PublicProductCardImage[] {
+  const images: PublicProductCardImage[] = [];
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (!isRecord(entry)) continue;
+      const url = asString(entry.url);
+      if (!url) continue;
+      const image: PublicProductCardImage = {
+        url,
+        alt: asString(entry.alt) || name,
+      };
+      if (typeof entry.position === "number" && Number.isFinite(entry.position)) {
+        image.position = entry.position;
+      }
+      images.push(image);
+    }
+    images.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  }
+  if (images.length === 0 && fallbackUrl) {
+    images.push({ url: fallbackUrl, alt: fallbackAlt || name });
+  }
+  return images.slice(0, MAX_PRODUCT_CARD_IMAGES);
+}
+
 function normalizeProductCard(raw: unknown): PublicProductCard | null {
   if (!isRecord(raw)) return null;
   const id = asString(raw.id);
@@ -35,29 +70,38 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
   const name = asString(raw.name);
   if (!id || !slug || !name) return null;
 
-  const price =
-    typeof raw.price === "number" && Number.isFinite(raw.price)
-      ? raw.price
-      : null;
-  const compareAtPrice =
-    typeof raw.compareAtPrice === "number" && Number.isFinite(raw.compareAtPrice)
-      ? raw.compareAtPrice
-      : null;
+  const price = asNullableNumber(raw.price);
+  const compareAtPrice = asNullableNumber(raw.compareAtPrice);
   const onSale =
     typeof raw.onSale === "boolean"
       ? raw.onSale
       : price !== null && compareAtPrice !== null && compareAtPrice > price;
+  const imageUrl = asString(raw.imageUrl);
+  const imageAlt = asString(raw.imageAlt);
+  const images = normalizeCardImages(raw.images, imageUrl, imageAlt, name);
 
   return {
     id,
     slug,
     name,
-    imageUrl: asString(raw.imageUrl),
-    imageAlt: asString(raw.imageAlt),
+    imageUrl: images[0]?.url ?? imageUrl,
+    imageAlt: images[0]?.alt ?? imageAlt,
+    images,
     price,
     compareAtPrice,
     onSale,
     href: asString(raw.href) ?? productHref(slug),
+    aeSalesCount: asString(raw.aeSalesCount),
+    aeRating: (() => {
+      const n = asNullableNumber(raw.aeRating);
+      if (n === null || n <= 0 || n > 5) return null;
+      return n;
+    })(),
+    aeReviewCount: (() => {
+      const n = asNullableNumber(raw.aeReviewCount);
+      if (n === null || n < 0) return null;
+      return Math.floor(n);
+    })(),
   };
 }
 

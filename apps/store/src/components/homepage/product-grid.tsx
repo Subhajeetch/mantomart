@@ -29,7 +29,7 @@ export function ProductGrid({ block }: ProductGridProps) {
   }
 
   return (
-    <section aria-labelledby={`grid-${block.id}-heading`} className="px-4 py-8">
+    <section aria-labelledby={`grid-${block.id}-heading`} className="px-4 py-8 mx-auto max-w-450">
       <div className="mb-4 flex items-end justify-between gap-3">
         <h2
           id={`grid-${block.id}-heading`}
@@ -46,9 +46,9 @@ export function ProductGrid({ block }: ProductGridProps) {
           </a>
         ) : null}
       </div>
-      <ul className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 lg:grid-cols-4">
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 sm:gap-4">
         {products.map((product) => (
-          <li key={product.id} className="bg-background">
+          <li key={product.id}>
             <ProductCard product={product} />
           </li>
         ))}

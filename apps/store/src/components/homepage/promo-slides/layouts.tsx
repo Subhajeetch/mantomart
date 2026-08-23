@@ -41,9 +41,12 @@ function CopyBlock({
       )}
     >
       {slide.kicker ? (
-        <p className="text-[12px] font-medium tracking-wide text-[var(--slide-muted)] sm:text-xs lg:text-xl">
-          {slide.kicker}
-        </p>
+        <div className="relative inline-block px-3">
+          <span className="absolute inset-0 -skew-x-13 bg-[#e9e9e9]" />
+          <p className="relative text-[12px] font-medium tracking-wide sm:text-xs lg:text-xl text-[#1d1d1d]">
+            {slide.kicker}
+          </p>
+        </div>
       ) : null}
       <SlideCountdown
         endsAt={slide.endsAt}

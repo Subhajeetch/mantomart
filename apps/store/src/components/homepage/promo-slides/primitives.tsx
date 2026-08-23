@@ -86,14 +86,14 @@ export function SlideShell({
 export function SlidePattern({ layout }: { layout: PromoSlideLayout }) {
   if (layout === "legacy") return null;
 
-  if (layout === "split_products") {
+if (layout === "split_products") {
   return (
     <div className="pointer-events-none absolute inset-0" aria-hidden>
       <div
         className="absolute inset-0 opacity-40"
         style={{
           backgroundImage:
-            "repeating-linear-gradient(90deg, transparent 0, transparent 3.125%, var(--slide-pattern) 3.125%, var(--slide-pattern) 6.25%)",
+            "repeating-linear-gradient(90deg, transparent 0, transparent 33px, var(--slide-pattern) 33px, var(--slide-pattern) 66px)",
         }}
       />
     </div>
@@ -415,7 +415,7 @@ function ProductImage({
   return (
     // eslint-disable-next-line @next/next/no-img-element -- product URLs from R2 / CDN
     <img
-      src={product.imageUrl}
+      src={`${product.imageUrl}_480x480q75.jpg_.avif`}
       alt={product.imageAlt || product.name}
       className="size-full object-cover"
       loading={priority ? "eager" : "lazy"}

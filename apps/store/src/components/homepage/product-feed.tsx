@@ -69,7 +69,7 @@ export function ProductFeed({ block }: ProductFeedProps) {
   }, [cursor, loadMore]);
 
   return (
-    <section aria-labelledby={`feed-${block.id}-heading`} className="px-4 py-8">
+    <section aria-labelledby={`feed-${block.id}-heading`} className="px-4 py-8 mx-auto max-w-450">
       <h2
         id={`feed-${block.id}-heading`}
         className="mb-4 text-lg font-semibold tracking-tight sm:text-xl"
@@ -81,15 +81,15 @@ export function ProductFeed({ block }: ProductFeedProps) {
           No products published yet.
         </p>
       ) : (
-        <ul className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 lg:grid-cols-4">
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 sm:gap-4">
           {items.map((product) => (
-            <li key={product.id} className="bg-background">
+            <li key={product.id}>
               <ProductCard product={product} />
             </li>
           ))}
           {loading
             ? Array.from({ length: 4 }).map((_, i) => (
-                <li key={`sk-${i}`} className="bg-background">
+                <li key={`sk-${i}`}>
                   <ProductCardSkeleton />
                 </li>
               ))
