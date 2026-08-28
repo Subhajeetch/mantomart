@@ -29,6 +29,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CloudUpload,
   FolderPlus,
   GripVertical,
   ImageIcon,
@@ -67,13 +68,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { isAliExpressImageUrl } from '@/app/(with-sidebar)/settings/settings';
 
 import {
   flattenCategories,
   formatMoney,
+  getProductsApiBase,
   normalizeProductPayload,
   requestCategories,
   requestJson,
@@ -85,12 +89,16 @@ import {
   type ProductImage,
   type ProductPayload,
 } from '../../manage/utils';
+import { streamHostImages } from '../../host-images-stream';
 
 import { AeMediaDialog } from './ae-media-dialog';
 import {
+  galleryImagesForEditor,
   htmlToMarkdown,
   imageDedupeKey,
   markdownToHtml,
+  mergeGalleryWithOptimised,
+  optimisedImages,
   serializeFormSnapshot,
 } from './edit-utils';
 import { EditVariantsSection } from './edit-variants';
@@ -149,8 +157,12 @@ function StepIndicator({
             className={cn(
               'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition',
               active && 'bg-primary text-primary-foreground',
-              done && !active && 'bg-primary/15 text-primary hover:bg-primary/25',
-              !done && !active && 'bg-muted text-muted-foreground hover:bg-muted/80'
+              done &&
+                !active &&
+                'bg-primary/15 text-primary hover:bg-primary/25',
+              !done &&
+                !active &&
+                'bg-muted text-muted-foreground hover:bg-muted/80'
             )}
           >
             <span
@@ -351,6 +363,13 @@ export default function ProductEditPage() {
 
   const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  const [hostDialogOpen, setHostDialogOpen] = useState(false);
+  const [hostingImages, setHostingImages] = useState(false);
+  const [hostProgress, setHostProgress] = useState<{
+    current: number;
+    total: number;
+    message: string;
+  } | null>(null);
 
   const [mediaDialog, setMediaDialog] = useState<{
     open: boolean;
@@ -358,6 +377,8 @@ export default function ProductEditPage() {
   }>({ open: false, mode: 'images' });
 
   const baselineRef = useRef<string>('');
+  const optimisedImagesRef = useRef<ProductImage[]>([]);
+  const hostAbortRef = useRef<AbortController | null>(null);
   const imageIdsRef = useRef<string[]>([]);
   const attrIdsRef = useRef<string[]>([]);
 
@@ -382,10 +403,7 @@ export default function ProductEditPage() {
     );
   }, [flatCategories, categorySearch]);
 
-  const derivedSlug = useMemo(
-    () => slugify(form?.name ?? ''),
-    [form?.name]
-  );
+  const derivedSlug = useMemo(() => slugify(form?.name ?? ''), [form?.name]);
 
   const isDirty = useMemo(() => {
     if (!form) return false;
@@ -393,6 +411,32 @@ export default function ProductEditPage() {
       serializeFormSnapshot(form, mobileDetailMarkdown) !== baselineRef.current
     );
   }, [form, mobileDetailMarkdown]);
+
+  const imageHostingSummary = useMemo(() => {
+    if (!form) return { count: 0 };
+
+    const seen = new Set<string>();
+    const add = (url: string | null | undefined) => {
+      if (!isAliExpressImageUrl(url)) return;
+      if (typeof url !== 'string') return;
+      seen.add(imageDedupeKey(url));
+    };
+
+    for (const image of galleryImagesForEditor(form.images)) {
+      add(image.url);
+    }
+    add(form.sizeChartImage);
+    for (const sku of form.skus) {
+      for (const image of galleryImagesForEditor(sku.images)) {
+        add(image.url);
+      }
+      for (const property of sku.properties) {
+        add(property.image);
+      }
+    }
+
+    return { count: seen.size };
+  }, [form]);
 
   const ensureImageIds = useCallback((count: number) => {
     while (imageIdsRef.current.length < count) {
@@ -419,11 +463,20 @@ export default function ProductEditPage() {
   }, []);
 
   const applyLoadedProduct = useCallback((data: ProductDetail) => {
-    const payload = normalizeProductPayload(data);
+    const normalized = normalizeProductPayload(data);
+    const payload = {
+      ...normalized,
+      images: galleryImagesForEditor(normalized.images),
+      skus: normalized.skus.map((sku) => ({
+        ...sku,
+        images: galleryImagesForEditor(sku.images),
+      })),
+    };
     const md = htmlToMarkdown(payload.mobileDetail);
     setProduct(data);
     setForm(payload);
     setMobileDetailMarkdown(md);
+    optimisedImagesRef.current = optimisedImages(normalized.images);
     baselineRef.current = serializeFormSnapshot(payload, md);
     imageIdsRef.current = payload.images.map(
       (_, i) => `img-init-${i}-${payload.images[i]?.url?.slice(-12) ?? i}`
@@ -477,6 +530,12 @@ export default function ProductEditPage() {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
+
+  useEffect(() => {
+    return () => {
+      hostAbortRef.current?.abort();
+    };
+  }, []);
 
   function updateForm(patch: Partial<ProductPayload>) {
     setForm((current) => (current ? { ...current, ...patch } : current));
@@ -611,6 +670,7 @@ export default function ProductEditPage() {
 
   async function handleSave() {
     if (!form || !product) return;
+    if (hostingImages) return;
     const validation = validateForm(form);
     if (validation) {
       toast.error(validation);
@@ -621,6 +681,16 @@ export default function ProductEditPage() {
     setSaving(true);
     try {
       const html = await markdownToHtml(mobileDetailMarkdown);
+      const cleanImages = form.images
+        .map((image, index) => ({
+          ...image,
+          url: image.url.trim(),
+          alt: image.alt.trim() || form.name.trim().slice(0, 120),
+          position: index,
+          isOp: image.isOp === true ? true : undefined,
+        }))
+        .filter((image) => image.url);
+
       const payload: ProductPayload = {
         ...form,
         // Slug always derived from title — never free-edited.
@@ -642,14 +712,10 @@ export default function ProductEditPage() {
         metaTitle: nullable(form.metaTitle ?? ''),
         metaDescription: nullable(form.metaDescription ?? ''),
         productNotes: nullable(form.productNotes ?? ''),
-        images: form.images
-          .map((image, index) => ({
-            ...image,
-            url: image.url.trim(),
-            alt: image.alt.trim() || form.name.trim().slice(0, 120),
-            position: index,
-          }))
-          .filter((image) => image.url),
+        images: mergeGalleryWithOptimised(
+          cleanImages,
+          optimisedImagesRef.current
+        ),
         tags: form.tags.map((tag) => tag.trim()).filter(Boolean),
         skus: form.skus.map((sku) => ({
           ...sku,
@@ -702,6 +768,70 @@ export default function ProductEditPage() {
     }
   }
 
+  async function handleHostImages() {
+    if (!product || !form) return;
+    if (!meta?.canUpdate) {
+      toast.error('You do not have product update permission.');
+      return;
+    }
+    if (isDirty) {
+      toast.error('Save your product changes before uploading images.');
+      return;
+    }
+
+    const controller = new AbortController();
+    hostAbortRef.current = controller;
+    setHostingImages(true);
+    setHostProgress({
+      current: 0,
+      total: 0,
+      message: 'Starting image upload…',
+    });
+
+    try {
+      const res = await streamHostImages<{
+        id: string;
+        slug: string;
+        name: string;
+        imageCount: number;
+      }>({
+        url: `${getProductsApiBase()}/${productId}/host-images`,
+        signal: controller.signal,
+        onProgress: setHostProgress,
+      });
+      toast.success(res.message || 'Product images uploaded.');
+      setHostDialogOpen(false);
+      router.push(`/product/view/${productId}`);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        toast.info('Image upload cancelled.');
+        setHostDialogOpen(false);
+      } else if (err instanceof Error && err.name === 'AbortError') {
+        toast.info('Image upload cancelled.');
+        setHostDialogOpen(false);
+      } else {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : 'Failed to upload product images.'
+        );
+      }
+    } finally {
+      if (hostAbortRef.current === controller) {
+        hostAbortRef.current = null;
+      }
+      setHostingImages(false);
+    }
+  }
+
+  function handleCancelHostImages() {
+    if (hostingImages) {
+      hostAbortRef.current?.abort();
+      return;
+    }
+    setHostDialogOpen(false);
+  }
+
   const imageIds = form ? ensureImageIds(form.images.length) : [];
   const attrIds = form ? ensureAttrIds(form.attributes.length) : [];
 
@@ -734,14 +864,17 @@ export default function ProductEditPage() {
           </Button>
           <div className="flex flex-wrap items-center gap-2">
             {isDirty ? (
-              <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
+              <Badge
+                variant="outline"
+                className="text-amber-700 dark:text-amber-400"
+              >
                 Unsaved changes
               </Badge>
             ) : null}
             <Button
               variant="outline"
               size="sm"
-              disabled={loading || refreshing || saving}
+              disabled={loading || refreshing || saving || hostingImages}
               onClick={requestReload}
               className="gap-1.5"
             >
@@ -752,7 +885,9 @@ export default function ProductEditPage() {
             </Button>
             <Button
               size="sm"
-              disabled={loading || saving || !form || !meta?.canUpdate}
+              disabled={
+                loading || saving || hostingImages || !form || !meta?.canUpdate
+              }
               onClick={() => setSaveConfirmOpen(true)}
               className="gap-1.5"
             >
@@ -829,9 +964,7 @@ export default function ProductEditPage() {
                           id="name"
                           value={form.name}
                           maxLength={300}
-                          onChange={(e) =>
-                            updateForm({ name: e.target.value })
-                          }
+                          onChange={(e) => updateForm({ name: e.target.value })}
                           placeholder="Clear, SEO-friendly product title"
                           className="text-base"
                         />
@@ -1141,20 +1274,50 @@ export default function ProductEditPage() {
                           AliExpress product.
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5"
-                        onClick={() =>
-                          setMediaDialog({ open: true, mode: 'images' })
-                        }
-                        disabled={!product.aeProductId}
-                      >
-                        <Plus className="size-3.5" />
-                        Add from AliExpress
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        {imageHostingSummary.count > 0 && meta?.canUpdate ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="gap-1.5"
+                            onClick={() => setHostDialogOpen(true)}
+                            disabled={hostingImages || saving}
+                          >
+                            {hostingImages ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <CloudUpload className="size-3.5" />
+                            )}
+                            Upload to storage
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() =>
+                            setMediaDialog({ open: true, mode: 'images' })
+                          }
+                          disabled={!product.aeProductId || hostingImages}
+                        >
+                          <Plus className="size-3.5" />
+                          Add from AliExpress
+                        </Button>
+                      </div>
                     </div>
+
+                    {imageHostingSummary.count > 0 && meta?.canUpdate ? (
+                      <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                        <CloudUpload className="mt-0.5 size-4 shrink-0 text-primary" />
+                        <p>
+                          {imageHostingSummary.count} AliExpress-hosted image
+                          {imageHostingSummary.count === 1 ? '' : 's'} can be
+                          copied to your storage for first-party product URLs.
+                        </p>
+                      </div>
+                    ) : null}
 
                     {!product.aeProductId ? (
                       <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
@@ -1419,10 +1582,9 @@ export default function ProductEditPage() {
                                 const next = form.attributes.filter(
                                   (_, i) => i !== index
                                 );
-                                attrIdsRef.current =
-                                  attrIdsRef.current.filter(
-                                    (_, i) => i !== index
-                                  );
+                                attrIdsRef.current = attrIdsRef.current.filter(
+                                  (_, i) => i !== index
+                                );
                                 updateForm({
                                   attributes: next.map((item, i) => ({
                                     ...item,
@@ -1459,9 +1621,7 @@ export default function ProductEditPage() {
                         <p className="text-xs text-muted-foreground">
                           Categories
                         </p>
-                        <p className="font-medium">
-                          {form.categoryIds.length}
-                        </p>
+                        <p className="font-medium">{form.categoryIds.length}</p>
                       </div>
                       <div className="rounded-lg border p-3">
                         <p className="text-xs text-muted-foreground">Images</p>
@@ -1492,9 +1652,7 @@ export default function ProductEditPage() {
                   <CardContent className="space-y-4 p-4">
                     <h2 className="font-medium">Publish state</h2>
                     <div className="flex flex-wrap gap-2">
-                      <Badge
-                        variant={form.published ? 'default' : 'secondary'}
-                      >
+                      <Badge variant={form.published ? 'default' : 'secondary'}>
                         {form.published ? 'Published' : 'Draft'}
                       </Badge>
                       {form.featured ? (
@@ -1506,7 +1664,7 @@ export default function ProductEditPage() {
                     </div>
                     <Button
                       type="button"
-                      disabled={saving || !meta?.canUpdate}
+                      disabled={saving || hostingImages || !meta?.canUpdate}
                       onClick={() => setSaveConfirmOpen(true)}
                       className="w-full gap-1.5"
                     >
@@ -1616,11 +1774,7 @@ export default function ProductEditPage() {
             >
               Keep editing
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={confirmReload}
-            >
+            <Button type="button" variant="destructive" onClick={confirmReload}>
               Discard & reload
             </Button>
           </DialogFooter>
@@ -1654,7 +1808,7 @@ export default function ProductEditPage() {
             </Button>
             <Button
               type="button"
-              disabled={saving || !meta?.canUpdate}
+              disabled={saving || hostingImages || !meta?.canUpdate}
               onClick={() => void handleSave()}
               className="gap-1.5"
             >
@@ -1669,13 +1823,111 @@ export default function ProductEditPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Host AliExpress images on first-party storage */}
+      <Dialog
+        open={hostDialogOpen}
+        onOpenChange={(open) => {
+          if (!hostingImages) setHostDialogOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload images to storage</DialogTitle>
+            <DialogDescription>
+              This uploads the saved AliExpress product images to your storage
+              and updates the product after every image succeeds.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="flex items-start gap-3">
+                <CloudUpload className="mt-0.5 size-5 shrink-0 text-primary" />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-medium">
+                    {imageHostingSummary.count} image
+                    {imageHostingSummary.count === 1 ? '' : 's'} ready
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Videos are left unchanged. If an upload fails, the server
+                    retries it and rolls back uploaded files before returning an
+                    error.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {isDirty ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+                Save your current product changes first. The storage upload uses
+                the saved product data from the server.
+              </div>
+            ) : null}
+
+            {hostingImages ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <p className="min-w-0 truncate font-medium">
+                    {hostProgress?.message || 'Uploading product images…'}
+                  </p>
+                  {hostProgress && hostProgress.total > 0 ? (
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {hostProgress.current}/{hostProgress.total}
+                    </span>
+                  ) : null}
+                </div>
+                <Progress
+                  value={
+                    hostProgress && hostProgress.total > 0
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (hostProgress.current / hostProgress.total) * 100
+                          )
+                        )
+                      : 8
+                  }
+                  className="h-1.5"
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCancelHostImages}
+            >
+              {hostingImages ? 'Cancel upload' : 'Cancel'}
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                hostingImages ||
+                isDirty ||
+                !meta?.canUpdate ||
+                imageHostingSummary.count === 0
+              }
+              onClick={() => void handleHostImages()}
+              className="gap-1.5"
+            >
+              {hostingImages ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <CloudUpload className="size-4" />
+              )}
+              Start upload
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* AE media picker */}
       {product ? (
         <AeMediaDialog
           open={mediaDialog.open}
-          onOpenChange={(open) =>
-            setMediaDialog((prev) => ({ ...prev, open }))
-          }
+          onOpenChange={(open) => setMediaDialog((prev) => ({ ...prev, open }))}
           mode={mediaDialog.mode}
           aeProductId={product.aeProductId}
           productName={form?.name ?? product.name}
@@ -1702,9 +1954,7 @@ export default function ProductEditPage() {
           onSelectVideo={(url) => {
             updateForm({
               mainVideo: url,
-              videos: url
-                ? [{ url, poster: null, alt: form?.name ?? '' }]
-                : [],
+              videos: url ? [{ url, poster: null, alt: form?.name ?? '' }] : [],
             });
           }}
           onSelectSizeChart={(url) => {

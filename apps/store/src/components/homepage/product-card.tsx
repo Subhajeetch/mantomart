@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import {
   useEffect,
@@ -6,11 +6,11 @@ import {
   useState,
   type MouseEvent,
   type PointerEvent,
-} from "react";
-import Link from "next/link";
-import { Heart, Star, Tag } from "lucide-react";
+} from 'react';
+import Link from 'next/link';
+import { Heart, Star, Tag } from 'lucide-react';
 
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
 import {
   formatPriceCents,
@@ -18,35 +18,45 @@ import {
   formatReviewCount,
   formatSavingsAmount,
   percentOff,
-} from "./format";
-import type { PublicProductCard } from "./types";
+} from './format';
+import type { PublicProductCard } from './types';
 
 type ProductCardProps = {
   product: PublicProductCard;
   className?: string;
 };
 
-const MAX_CARD_IMAGES = 7;
+const MAX_CARD_IMAGES = 5;
 
 type CardImage = {
   url: string;
   alt: string;
+  isOp?: boolean;
+  fullUrl?: string;
 };
 
 function galleryImages(product: PublicProductCard): CardImage[] {
-  const name = product.name.trim() || "Product";
+  const name = product.name.trim() || 'Product';
   const out: CardImage[] = [];
   const seen = new Set<string>();
   const source = Array.isArray(product.images) ? product.images : [];
 
   for (const img of source) {
-    if (!img || typeof img.url !== "string") continue;
+    if (!img || typeof img.url !== 'string') continue;
     const url = img.url.trim();
     if (!url || seen.has(url)) continue;
     seen.add(url);
     const alt =
-      typeof img.alt === "string" && img.alt.trim() ? img.alt.trim() : name;
-    out.push({ url, alt });
+      typeof img.alt === 'string' && img.alt.trim() ? img.alt.trim() : name;
+    out.push({
+      url,
+      alt,
+      isOp: img.isOp === true ? true : undefined,
+      fullUrl:
+        typeof img.fullUrl === 'string' && img.fullUrl.trim()
+          ? img.fullUrl.trim()
+          : undefined,
+    });
     if (out.length >= MAX_CARD_IMAGES) break;
   }
 
@@ -65,13 +75,13 @@ function galleryImages(product: PublicProductCard): CardImage[] {
 
 function productHref(product: PublicProductCard): string {
   const href = product.href?.trim();
-  if (href && href.startsWith("/")) return href;
-  const slug = product.slug?.trim().replace(/^\/+|\/+$/g, "");
-  return slug ? `/product/${slug}` : "/";
+  if (href && href.startsWith('/')) return href;
+  const slug = product.slug?.trim().replace(/^\/+|\/+$/g, '');
+  return slug ? `/product/${slug}` : '/';
 }
 
 function cardImageSrc(url: string): string {
-  return `${url}_480x480q75.jpg_.avif`;
+  return url;
 }
 
 function imageIndexFromMouse(
@@ -117,7 +127,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
       ? product.compareAtPrice - product.price
       : null;
   const savingsLabel =
-    savingsCents !== null ? formatSavingsAmount(savingsCents) : "";
+    savingsCents !== null ? formatSavingsAmount(savingsCents) : '';
 
   const ratingLabel = formatRating(product.aeRating);
   const reviewCountLabel = formatReviewCount(product.aeReviewCount);
@@ -131,7 +141,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
       ? percentOff(product.price, product.compareAtPrice)
       : 0;
   const priceLabel = formatPriceCents(product.price);
-  const wasLabel = off > 0 ? formatPriceCents(product.compareAtPrice) : "";
+  const wasLabel = off > 0 ? formatPriceCents(product.compareAtPrice) : '';
 
   const cancelScrub = () => {
     if (rafRef.current != null) {
@@ -177,7 +187,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
   }, []);
 
   const handlePointerEnter = (event: PointerEvent<HTMLElement>) => {
-    if (event.pointerType !== "mouse") return;
+    if (event.pointerType !== 'mouse') return;
     hoveringRef.current = true;
     setIsHovering(true);
   };
@@ -191,7 +201,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
   };
 
   const handleImagePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "mouse") return;
+    if (event.pointerType !== 'mouse') return;
     queueScrub(event.clientX);
   };
 
@@ -199,7 +209,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
     event.preventDefault();
     event.stopPropagation();
     // TODO: wishlist feature not implemented yet — hook this up once backend is ready
-    console.log("wishlist clicked for product:", product.name);
+    console.log('wishlist clicked for product:', product.name);
     setIsWishlisted((prev) => !prev);
   };
 
@@ -208,8 +218,8 @@ export function ProductCard({ product, className }: ProductCardProps) {
   return (
     <article
       className={cn(
-        "relative flex h-full min-w-0 flex-col bg-background transition-shadow duration-150",
-        isHovering && "z-10 shadow-[0_4px_24px_rgba(0,0,0,0.16)]",
+        'relative flex h-full min-w-0 flex-col bg-background transition-shadow duration-150',
+        isHovering && 'z-10 shadow-[0_4px_24px_rgba(0,0,0,0.16)]',
         className
       )}
       onPointerEnter={handlePointerEnter}
@@ -234,20 +244,16 @@ export function ProductCard({ product, className }: ProductCardProps) {
                 <img
                   key={`${image.url}-${index}`}
                   src={cardImageSrc(image.url)}
-                  alt={isActive ? imageAlt : ""}
+                  alt={isActive ? imageAlt : ''}
                   aria-hidden={!isActive}
                   width={600}
                   height={800}
-                  loading={index === 0 || isHovering ? "eager" : "lazy"}
+                  loading={index === 0 || isHovering ? 'eager' : 'lazy'}
                   decoding="async"
                   draggable={false}
                   className={cn(
-                    "absolute inset-0 size-full object-cover",
-                    isActive
-                      ? "z-[2]"
-                      : isPrevious
-                        ? "z-[1]"
-                        : "z-0 opacity-0"
+                    'absolute inset-0 size-full object-cover',
+                    isActive ? 'z-[2]' : isPrevious ? 'z-[1]' : 'z-0 opacity-0'
                   )}
                 />
               );
@@ -290,10 +296,10 @@ export function ProductCard({ product, className }: ProductCardProps) {
         {canScrub ? (
           <div
             className={cn(
-              "pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-center gap-1.5 pt-6 pb-2",
+              'pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-center gap-1.5 pt-6 pb-2',
               isHovering
-                ? "translate-y-0 opacity-100"
-                : "translate-y-full opacity-0"
+                ? 'translate-y-0 opacity-100'
+                : 'translate-y-full opacity-0'
             )}
             aria-hidden
           >
@@ -301,8 +307,8 @@ export function ProductCard({ product, className }: ProductCardProps) {
               <span
                 key={`${image.url}-${index}`}
                 className={cn(
-                  "size-1.5",
-                  index === safeIndex ? "bg-primary" : "bg-neutral-300"
+                  'size-1.5',
+                  index === safeIndex ? 'bg-primary' : 'bg-neutral-300'
                 )}
               />
             ))}
@@ -312,40 +318,40 @@ export function ProductCard({ product, className }: ProductCardProps) {
 
       <div className="flex flex-1 flex-col px-1.5 pt-2 pb-3 sm:px-2">
         {isHovering || soldCount || savingsLabel ? (
-        <div className="flex min-h-8 items-center">
-          {isHovering ? (
-            <button
-              type="button"
-              onClick={handleWishlistClick}
-              aria-pressed={isWishlisted}
-              aria-label={
-                isWishlisted
-                  ? `Remove ${product.name} from wishlist`
-                  : `Save ${product.name} to wishlist`
-              }
-              className="flex h-8 w-full items-center justify-center gap-1.5 border border-foreground/15 text-xs font-semibold tracking-[0.12em] text-foreground/88 uppercase transition hover:bg-muted hover:border-foreground/25"
-            >
-              <Heart
-                className={cn(
-                  "size-3.5",
+          <div className="flex min-h-8 items-center">
+            {isHovering ? (
+              <button
+                type="button"
+                onClick={handleWishlistClick}
+                aria-pressed={isWishlisted}
+                aria-label={
                   isWishlisted
-                    ? "fill-[#ff3f6c] text-[#ff3f6c]"
-                    : "text-neutral-800"
-                )}
-              />
-              {isWishlisted ? "Wishlisted" : "Wishlist"}
-            </button>
-          ) : soldCount ? (
-            <p className="text-[12px] font-bold text-foreground/60">
-              {soldCount} sold
-            </p>
-          ) : savingsLabel ? (
-            <p className="flex items-center gap-1 text-sm font-bold text-destructive">
-              <Tag className="size-3.5 shrink-0" aria-hidden />
-              <span>Save {savingsLabel}</span>
-            </p>
-          ) : null}
-        </div>
+                    ? `Remove ${product.name} from wishlist`
+                    : `Save ${product.name} to wishlist`
+                }
+                className="flex h-8 w-full items-center justify-center gap-1.5 border border-foreground/15 text-xs font-semibold tracking-[0.12em] text-foreground/88 uppercase transition hover:bg-muted hover:border-foreground/25"
+              >
+                <Heart
+                  className={cn(
+                    'size-3.5',
+                    isWishlisted
+                      ? 'fill-[#ff3f6c] text-[#ff3f6c]'
+                      : 'text-neutral-800'
+                  )}
+                />
+                {isWishlisted ? 'Wishlisted' : 'Wishlist'}
+              </button>
+            ) : soldCount ? (
+              <p className="text-[12px] font-bold text-foreground/60">
+                {soldCount} sold
+              </p>
+            ) : savingsLabel ? (
+              <p className="flex items-center gap-1 text-sm font-bold text-destructive">
+                <Tag className="size-3.5 shrink-0" aria-hidden />
+                <span>Save {savingsLabel}</span>
+              </p>
+            ) : null}
+          </div>
         ) : null}
 
         <Link
@@ -354,7 +360,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
         >
           <h3
             className={cn(
-              "line-clamp-2 text-sm leading-snug text-foreground/80",
+              'line-clamp-2 text-sm leading-snug text-foreground/80'
             )}
           >
             {product.name}

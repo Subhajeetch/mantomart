@@ -24,7 +24,9 @@ export function htmlToMarkdown(html: string | null | undefined): string {
     const root = doc.getElementById('root');
     if (!root) return stripTagsFallback(raw);
 
-    return serializeNode(root).trim().replace(/\n{3,}/g, '\n\n');
+    return serializeNode(root)
+      .trim()
+      .replace(/\n{3,}/g, '\n\n');
   } catch {
     return stripTagsFallback(raw);
   }
@@ -165,4 +167,42 @@ export function imageDedupeKey(url: string): string {
   } catch {
     return url.replace(/#.*$/, '').replace(/\?.*$/, '');
   }
+}
+
+export function galleryImagesForEditor<T extends { isOp?: boolean }>(
+  images: T[] | null | undefined
+): T[] {
+  if (!Array.isArray(images)) return [];
+  return images.filter((img) => img.isOp !== true);
+}
+
+export function optimisedImages<T extends { isOp?: boolean }>(
+  images: T[] | null | undefined
+): T[] {
+  if (!Array.isArray(images)) return [];
+  return images.filter((img) => img.isOp === true);
+}
+
+export function optimisedPairUrl(fullUrl: string): string {
+  return `${fullUrl}_op.avif`;
+}
+
+export function mergeGalleryWithOptimised<
+  T extends { url: string; position?: number; isOp?: boolean },
+>(gallery: T[], optimised: T[]): T[] {
+  const reindexed = gallery.map((img, index) => ({ ...img, position: index }));
+  const nextOp: T[] = [];
+  for (const img of optimised) {
+    const fullUrl = img.url.replace(/_op\.avif$/i, '');
+    const match = reindexed.findIndex(
+      (g) => g.url === fullUrl || optimisedPairUrl(g.url) === img.url
+    );
+    if (match < 0) continue;
+    nextOp.push({
+      ...img,
+      position: match,
+      isOp: true,
+    });
+  }
+  return [...reindexed, ...nextOp];
 }

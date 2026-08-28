@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   AlertCircle,
   Check,
@@ -9,20 +9,20 @@ import {
   Loader2,
   PackagePlus,
   RefreshCw,
-} from "lucide-react";
+} from 'lucide-react';
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { ProxiedImg } from "@/util/proxied-image";
-import { useProxiedImageSrc } from "@/app/(with-sidebar)/settings/use-settings";
+} from '@/components/ui/dialog';
+import { ProxiedImg } from '@/util/proxied-image';
+import { useProxiedImageSrc } from '@/app/(with-sidebar)/settings/use-settings';
 
 export type AliExpressSearchProduct = {
   itemId: string;
@@ -86,21 +86,22 @@ type ParsedDetail = {
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function getString(value: unknown, fallback = "") {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "boolean") return value ? "Yes" : "No";
+function getString(value: unknown, fallback = '') {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return fallback;
 }
 
 function formatValue(value: unknown) {
-  if (value === undefined || value === null || value === "") return "Unavailable";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return value.toLocaleString();
-  if (typeof value === "string") return value;
+  if (value === undefined || value === null || value === '')
+    return 'Unavailable';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return value.toLocaleString();
+  if (typeof value === 'string') return value;
 
   try {
     return JSON.stringify(value);
@@ -112,8 +113,12 @@ function formatValue(value: unknown) {
 function normalizeUrl(value: unknown): string | null {
   const raw = getString(value).trim();
   if (!raw) return null;
-  if (raw.startsWith("//")) return `https:${raw}`;
-  if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/")) {
+  if (raw.startsWith('//')) return `https:${raw}`;
+  if (
+    raw.startsWith('http://') ||
+    raw.startsWith('https://') ||
+    raw.startsWith('/')
+  ) {
     return raw;
   }
   return `https://${raw}`;
@@ -152,7 +157,7 @@ function getApiErrorMessage(payload: unknown, status: number) {
     const response = payload.aliexpress_ds_product_get_response;
     if (isRecord(response)) {
       const responseMessage = getString(response.rsp_msg);
-      if (responseMessage && responseMessage !== "Call succeeds") {
+      if (responseMessage && responseMessage !== 'Call succeeds') {
         return responseMessage;
       }
     }
@@ -168,18 +173,22 @@ function getApiErrorMessage(payload: unknown, status: number) {
     }
   }
 
-  if (status === 400) return "The product detail request is invalid.";
-  if (status === 401) return "AliExpress is not connected. Connect it before loading product details.";
-  if (status === 403) return "AliExpress denied permission for this product detail request.";
-  if (status === 404) return "This AliExpress product could not be found.";
-  if (status === 429) return "Too many AliExpress requests. Please try again later.";
-  if (status >= 500) return "AliExpress product details are temporarily unavailable.";
+  if (status === 400) return 'The product detail request is invalid.';
+  if (status === 401)
+    return 'AliExpress is not connected. Connect it before loading product details.';
+  if (status === 403)
+    return 'AliExpress denied permission for this product detail request.';
+  if (status === 404) return 'This AliExpress product could not be found.';
+  if (status === 429)
+    return 'Too many AliExpress requests. Please try again later.';
+  if (status >= 500)
+    return 'AliExpress product details are temporarily unavailable.';
 
   return `Product detail request failed with status ${status}.`;
 }
 
 function isAbortError(error: unknown) {
-  return error instanceof Error && error.name === "AbortError";
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 export async function fetchAliExpressProductDetail(
@@ -189,13 +198,13 @@ export async function fetchAliExpressProductDetail(
   const trimmedId = productId.trim();
 
   if (!trimmedId) {
-    throw new Error("Product id is required to load details.");
+    throw new Error('Product id is required to load details.');
   }
 
   const params = new URLSearchParams({
-    shipToCountry: options.shipToCountry ?? "US",
-    currency: options.currency ?? "USD",
-    lang: options.lang ?? "en",
+    shipToCountry: options.shipToCountry ?? 'US',
+    currency: options.currency ?? 'USD',
+    lang: options.lang ?? 'en',
   });
 
   let response: Response;
@@ -204,14 +213,16 @@ export async function fetchAliExpressProductDetail(
     response = await fetch(
       `/api/ae/product/${encodeURIComponent(trimmedId)}?${params.toString()}`,
       {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
         signal: options.signal,
       }
     );
   } catch (error) {
     if (isAbortError(error)) throw error;
-    throw new Error("Unable to reach the product detail server. Please try again.");
+    throw new Error(
+      'Unable to reach the product detail server. Please try again.'
+    );
   }
 
   let payload: unknown;
@@ -221,7 +232,7 @@ export async function fetchAliExpressProductDetail(
   } catch {
     throw new Error(
       response.ok
-        ? "The product detail server returned an invalid response."
+        ? 'The product detail server returned an invalid response.'
         : `Product detail request failed with status ${response.status}.`
     );
   }
@@ -247,13 +258,17 @@ export async function fetchAliExpressProductDetail(
     const rspMsg = getString(aliResponse.rsp_msg);
 
     if (Number.isFinite(rspCode) && rspCode !== 200) {
-      throw new Error(rspMsg || "AliExpress rejected the product detail request.");
+      throw new Error(
+        rspMsg || 'AliExpress rejected the product detail request.'
+      );
     }
   }
 
   const result = isRecord(aliResponse) ? aliResponse.result : undefined;
   if (!isRecord(result)) {
-    throw new Error("AliExpress returned an unexpected product detail response.");
+    throw new Error(
+      'AliExpress returned an unexpected product detail response.'
+    );
   }
 
   return payload as AliExpressProductDetailResponse;
@@ -261,7 +276,7 @@ export async function fetchAliExpressProductDetail(
 
 function splitImageUrls(value: unknown) {
   return getString(value)
-    .split(";")
+    .split(';')
     .map((url) => url.trim())
     .filter(Boolean);
 }
@@ -270,10 +285,10 @@ function getHtmlImageUrls(html: unknown) {
   const raw = getString(html);
   if (!raw) return [];
 
-  if (typeof DOMParser !== "undefined") {
-    const doc = new DOMParser().parseFromString(raw, "text/html");
-    return Array.from(doc.querySelectorAll("img"))
-      .map((img) => img.getAttribute("src"))
+  if (typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(raw, 'text/html');
+    return Array.from(doc.querySelectorAll('img'))
+      .map((img) => img.getAttribute('src'))
       .filter(Boolean);
   }
 
@@ -345,13 +360,11 @@ function parseDetail(
   const skuImages = skus.flatMap((sku) =>
     getSkuProperties(sku).map((property) => property.sku_image)
   );
-  const videoPosters = videos.map((video) => video.poster_url);
 
   const galleryImages = uniqueUrls([
     product?.itemMainPic,
     ...splitImageUrls(multimediaInfo.image_urls),
     ...skuImages,
-    ...videoPosters,
   ]);
 
   const detailImages = uniqueUrls([
@@ -363,9 +376,11 @@ function parseDetail(
     title:
       getString(baseInfo.subject) ||
       getString(product?.title) ||
-      "AliExpress product",
+      'AliExpress product',
     productId:
-      getString(baseInfo.product_id) || getString(product?.itemId) || "Unavailable",
+      getString(baseInfo.product_id) ||
+      getString(product?.itemId) ||
+      'Unavailable',
     baseInfo,
     storeInfo,
     packageInfo,
@@ -392,13 +407,7 @@ function InfoRow({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3 rounded-xl border bg-muted/20 p-3 sm:p-4">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
@@ -434,7 +443,7 @@ function ProductDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-h-[94dvh] overflow-hidden rounded-lg p-0"
-        style={{ width: "min(96vw, 1120px)", maxWidth: "none" }}
+        style={{ width: 'min(96vw, 1120px)', maxWidth: 'none' }}
       >
         <DialogHeader className="border-b bg-background px-4 py-3 sm:px-5 sm:py-4">
           <DialogTitle className="line-clamp-2 pr-7 text-sm leading-5 sm:text-base sm:leading-6">
@@ -459,7 +468,12 @@ function ProductDetailDialog({
               <AlertTitle>Could not load product details</AlertTitle>
               <AlertDescription className="space-y-3">
                 <p>{error}</p>
-                <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onRetry}
+                >
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Try again
                 </Button>
@@ -498,8 +512,8 @@ function ProductDetailDialog({
                           onClick={() => setSelectedImage(image)}
                           className={`h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-muted sm:h-auto sm:w-auto sm:aspect-square ${
                             image === selectedImageUrl
-                              ? "border-primary ring-2 ring-primary/20"
-                              : "hover:border-primary/50"
+                              ? 'border-primary ring-2 ring-primary/20'
+                              : 'hover:border-primary/50'
                           }`}
                         >
                           <ProxiedImg
@@ -529,7 +543,10 @@ function ProductDetailDialog({
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                    <InfoRow label="Sales" value={parsed.baseInfo.sales_count} />
+                    <InfoRow
+                      label="Sales"
+                      value={parsed.baseInfo.sales_count}
+                    />
                     <InfoRow
                       label="Evaluations"
                       value={parsed.baseInfo.evaluation_count}
@@ -540,7 +557,10 @@ function ProductDetailDialog({
                     />
                     <InfoRow
                       label="Wholesale"
-                      value={detail?.aliexpress_ds_product_get_response?.result?.has_whole_sale}
+                      value={
+                        detail?.aliexpress_ds_product_get_response?.result
+                          ?.has_whole_sale
+                      }
                     />
                   </div>
 
@@ -558,7 +578,7 @@ function ProductDetailDialog({
                       value={
                         parsed.logisticsInfo.delivery_time
                           ? `${formatValue(parsed.logisticsInfo.delivery_time)} days`
-                          : "Unavailable"
+                          : 'Unavailable'
                       }
                     />
                   </div>
@@ -576,7 +596,11 @@ function ProductDetailDialog({
                     ) : (
                       <PackagePlus className="mr-2 h-4 w-4" />
                     )}
-                    {saving ? "Saving..." : isSaved ? "Added to list" : "Add to list"}
+                    {saving
+                      ? 'Saving...'
+                      : isSaved
+                        ? 'Added to list'
+                        : 'Add to list'}
                   </Button>
                 </div>
               </div>
@@ -633,7 +657,7 @@ function ProductDetailDialog({
                     value={
                       parsed.packageInfo.gross_weight
                         ? `${formatValue(parsed.packageInfo.gross_weight)} kg`
-                        : "Unavailable"
+                        : 'Unavailable'
                     }
                   />
                   <InfoRow
@@ -672,18 +696,26 @@ function ProductDetailDialog({
                                   property.sku_property_value
                                 )}`
                             )
-                            .join(", ");
+                            .join(', ');
 
                           return (
-                            <tr key={`${getString(sku.sku_id)}-${index}`} className="border-t">
-                              <td className="px-3 py-2">{formatValue(sku.sku_id)}</td>
-                              <td className="px-3 py-2">{properties || "Unavailable"}</td>
+                            <tr
+                              key={`${getString(sku.sku_id)}-${index}`}
+                              className="border-t"
+                            >
                               <td className="px-3 py-2">
-                                {formatValue(sku.currency_code)}{" "}
+                                {formatValue(sku.sku_id)}
+                              </td>
+                              <td className="px-3 py-2">
+                                {properties || 'Unavailable'}
+                              </td>
+                              <td className="px-3 py-2">
+                                {formatValue(sku.currency_code)}{' '}
                                 {formatValue(sku.offer_sale_price)}
                               </td>
                               <td className="px-3 py-2">
-                                {formatValue(sku.currency_code)} {formatValue(sku.sku_price)}
+                                {formatValue(sku.currency_code)}{' '}
+                                {formatValue(sku.sku_price)}
                               </td>
                               <td className="px-3 py-2">
                                 {formatValue(sku.sku_available_stock)}
@@ -701,12 +733,14 @@ function ProductDetailDialog({
               ) : null}
 
               {parsed.properties.length > 0 ? (
-                <Section title={`Product Properties (${parsed.properties.length})`}>
+                <Section
+                  title={`Product Properties (${parsed.properties.length})`}
+                >
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {parsed.properties.map((property, index) => (
                       <InfoRow
                         key={`${getString(property.attr_name)}-${index}`}
-                        label={getString(property.attr_name, "Property")}
+                        label={getString(property.attr_name, 'Property')}
                         value={property.attr_value}
                       />
                     ))}
@@ -715,10 +749,15 @@ function ProductDetailDialog({
               ) : null}
 
               {parsed.detailImages.length > 0 ? (
-                <Section title={`Detail Images (${parsed.detailImages.length})`}>
+                <Section
+                  title={`Detail Images (${parsed.detailImages.length})`}
+                >
                   <div className="grid gap-3 md:grid-cols-2">
                     {parsed.detailImages.map((image) => (
-                      <div key={image} className="overflow-hidden rounded-lg border bg-muted">
+                      <div
+                        key={image}
+                        className="overflow-hidden rounded-lg border bg-muted"
+                      >
                         <ProxiedImg
                           src={image}
                           alt=""

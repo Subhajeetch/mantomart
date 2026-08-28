@@ -56,6 +56,8 @@ import { useSession } from '@/lib/auth-client';
 import config from '@/mine.config';
 import { cn } from '@/lib/utils';
 import { recordProductAdded } from '@/components/todo-progress';
+import { Progress } from '@/components/ui/progress';
+import { streamHostImages } from '../host-images-stream';
 
 import {
   fetchAliExpressProductDetail,
@@ -333,6 +335,11 @@ export default function ImportWizard({
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [publishProgress, setPublishProgress] = useState<{
+    current: number;
+    total: number;
+    message: string;
+  } | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
 
   // Categories
@@ -528,6 +535,7 @@ export default function ImportWizard({
       setDetailError(null);
       setStepError(null);
       setPublishing(false);
+      setPublishProgress(null);
       setCategorySearch('');
       setNewCategoryName('');
       setTagInput('');
@@ -716,6 +724,11 @@ export default function ImportWizard({
     }
 
     setPublishing(true);
+    setPublishProgress({
+      current: 0,
+      total: 0,
+      message: 'Preparing product images…',
+    });
     setStepError(null);
 
     try {
@@ -727,13 +740,15 @@ export default function ImportWizard({
         mobileDetail: html || null,
       };
 
-      const res = await requestJson<{
-        success: true;
-        message: string;
-        data: { id: string; slug: string; name: string };
-      }>('/api/products/mylist', {
+      const res = await streamHostImages<{
+        id: string;
+        slug: string;
+        name: string;
+      }>({
+        url: '/api/products/mylist',
         method: 'POST',
-        body: JSON.stringify(body),
+        body,
+        onProgress: (event) => setPublishProgress(event),
       });
 
       removeDraft(listItemId);
@@ -749,6 +764,7 @@ export default function ImportWizard({
       const message =
         err instanceof Error ? err.message : 'Failed to publish product.';
       setStepError(message);
+      setPublishProgress(null);
       toast.error(message);
     } finally {
       setPublishing(false);
@@ -1670,11 +1686,45 @@ export default function ImportWizard({
                             <h3 className="font-semibold">Ready to publish</h3>
                             <p className="text-sm text-muted-foreground">
                               Review the summary, add optional notes, then
-                              publish. The product will be removed from your
-                              list and drafts.
+                              publish. Selected AliExpress images are copied to
+                              your storage on the server — this page will show
+                              upload progress so you are not left waiting
+                              blindly.
                             </p>
                           </div>
                         </div>
+
+                        {publishing ? (
+                          <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                            <div className="flex items-center justify-between gap-3 text-sm">
+                              <p className="min-w-0 truncate font-medium">
+                                {publishProgress?.message ||
+                                  'Uploading product images…'}
+                              </p>
+                              {publishProgress && publishProgress.total > 0 ? (
+                                <span className="shrink-0 tabular-nums text-muted-foreground">
+                                  {publishProgress.current}/
+                                  {publishProgress.total}
+                                </span>
+                              ) : null}
+                            </div>
+                            <Progress
+                              value={
+                                publishProgress && publishProgress.total > 0
+                                  ? Math.min(
+                                      100,
+                                      Math.round(
+                                        (publishProgress.current /
+                                          publishProgress.total) *
+                                          100
+                                      )
+                                    )
+                                  : 8
+                              }
+                              className="h-1.5"
+                            />
+                          </div>
+                        ) : null}
 
                         <dl className="grid gap-2 text-sm sm:grid-cols-2">
                           <div className="rounded-lg border bg-muted/20 p-3">
@@ -1846,7 +1896,9 @@ export default function ImportWizard({
                     {publishing ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Publishing…
+                        {publishProgress && publishProgress.total > 0
+                          ? `Uploading ${publishProgress.current}/${publishProgress.total}`
+                          : 'Publishing…'}
                       </>
                     ) : (
                       <>

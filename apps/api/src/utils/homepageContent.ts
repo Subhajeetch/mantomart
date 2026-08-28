@@ -21,6 +21,12 @@ import {
   serializePublicPromoSlides,
   type PublicPromoSlide,
 } from '@/utils/homepagePromo';
+import {
+  productCardImagesForClient,
+  resolveProductImageUrlForClient,
+} from '@/utils/productImageHost';
+import type { R2UrlOptions } from '@/utils/r2';
+import type Env from '@/types/env';
 
 export type {
   PublicPromoSlide,
@@ -29,7 +35,7 @@ export type {
 } from '@/utils/homepagePromo';
 
 /** Public storefront homepage cache key. Bump when the product-card payload changes. */
-export const HOMEPAGE_KV_KEY = 'store:homepage:v3';
+export const HOMEPAGE_KV_KEY = 'store:homepage:v4';
 
 /** 5 days in seconds — homepage blocks change infrequently. */
 export const HOMEPAGE_CACHE_TTL_SECONDS = 5 * 24 * 60 * 60;
@@ -48,7 +54,7 @@ const MAX_TITLE_LENGTH = 120;
 const MAX_SUBTITLE_LENGTH = 240;
 const MAX_CTA_LABEL_LENGTH = 40;
 const MAX_URL_LENGTH = 2048;
-const MAX_PRODUCT_CARD_IMAGES = 7;
+const MAX_PRODUCT_CARD_IMAGES = 5;
 
 export const HOMEPAGE_BLOCK_TYPES = [
   'promo_slider',
@@ -64,6 +70,10 @@ export type PublicProductCardImage = {
   url: string;
   alt: string;
   position?: number;
+  /** isOptimised — smaller card-sized copy hosted alongside the full image. */
+  isOp?: boolean;
+  /** Full-quality image URL paired with an optimized card image. */
+  fullUrl?: string;
 };
 
 /**
@@ -320,6 +330,14 @@ function optionalTrimmed(
 }
 
 function publicImages(
+  images: ProductImage[] | null | undefined,
+  env: Env,
+  options?: R2UrlOptions
+): PublicProductCardImage[] {
+  return productCardImagesForClient(images, env, options);
+}
+
+function normalizePayloadImages(
   images: ProductImage[] | null | undefined
 ): PublicProductCardImage[] {
   if (!Array.isArray(images) || images.length === 0) return [];
@@ -333,7 +351,12 @@ function publicImages(
       typeof img.position === 'number' && Number.isFinite(img.position)
         ? img.position
         : cleaned.length;
-    cleaned.push({ url, alt, position });
+    const item: PublicProductCardImage = { url, alt, position };
+    if (img.isOp === true) item.isOp = true;
+    const record = img as unknown as Record<string, unknown>;
+    const fullUrl = asTrimmedString(record.fullUrl, MAX_URL_LENGTH);
+    if (fullUrl) item.fullUrl = fullUrl;
+    cleaned.push(item);
   }
   cleaned.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
   return cleaned.slice(0, MAX_PRODUCT_CARD_IMAGES);
@@ -479,7 +502,10 @@ export function sanitizeHomepageConfig(
     const limit = clampInt(limitRaw, 1, MAX_GRID_LIMIT);
     let categoryId: string | undefined;
     if (source === 'category') {
-      if (typeof body.categoryId !== 'string' || !isValidId(body.categoryId.trim())) {
+      if (
+        typeof body.categoryId !== 'string' ||
+        !isValidId(body.categoryId.trim())
+      ) {
         return {
           ok: false,
           error: 'Pick a category for this product grid.',
@@ -642,10 +668,15 @@ export function configNeedsRepair(
 
 function toPublicProductCard(
   row: ProductCardRow,
-  pricing: { price: number; compareAtPrice: number | null } | undefined
+  pricing: { price: number; compareAtPrice: number | null } | undefined,
+  env: Env,
+  options?: R2UrlOptions
 ): PublicProductCard {
-  const images = publicImages(row.images);
+  const images = publicImages(row.images, env, options);
   const img = images[0] ?? primaryImage(row.images);
+  const imageUrl = img?.url
+    ? resolveProductImageUrlForClient(img.url, env, options)
+    : null;
   const price = pricing?.price ?? null;
   const compareAtPrice = pricing?.compareAtPrice ?? null;
   const onSale =
@@ -654,7 +685,7 @@ function toPublicProductCard(
     id: row.id,
     slug: row.slug,
     name: row.name,
-    imageUrl: img?.url ?? null,
+    imageUrl,
     imageAlt: img?.alt ?? null,
     images,
     price,
@@ -669,7 +700,9 @@ function toPublicProductCard(
 
 async function hydrateProductCards(
   db: Database,
-  rows: ProductCardRow[]
+  rows: ProductCardRow[],
+  env: Env,
+  options?: R2UrlOptions
 ): Promise<PublicProductCard[]> {
   if (rows.length === 0) return [];
 
@@ -728,7 +761,9 @@ async function hydrateProductCards(
   for (const row of rows) {
     if (seen.has(row.id)) continue;
     seen.add(row.id);
-    cards.push(toPublicProductCard(row, bestByProduct.get(row.id)));
+    cards.push(
+      toPublicProductCard(row, bestByProduct.get(row.id), env, options)
+    );
   }
   return cards;
 }
@@ -740,6 +775,8 @@ async function loadPublishedProducts(
     categoryId?: string;
     limit: number;
     cursor?: { position: number; id: string } | null;
+    env: Env;
+    origin?: string;
   }
 ): Promise<{ items: PublicProductCard[]; nextCursor: string | null }> {
   const take = clampInt(options.limit, 1, MAX_FEED_PAGE_SIZE);
@@ -805,7 +842,9 @@ async function loadPublishedProducts(
 
   const hasMore = productRows.length > take;
   const page = hasMore ? productRows.slice(0, take) : productRows;
-  const items = await hydrateProductCards(db, page);
+  const items = await hydrateProductCards(db, page, options.env, {
+    origin: options.origin,
+  });
   const last = page[page.length - 1];
   const nextCursor =
     hasMore && last ? encodeFeedCursor(last.position, last.id) : null;
@@ -819,7 +858,9 @@ async function loadPublishedProducts(
 export async function loadProductFeedPage(
   db: Database,
   cursor: string | null | undefined,
-  pageSize: number | null | undefined
+  pageSize: number | null | undefined,
+  env: Env,
+  origin?: string
 ): Promise<ProductFeedPage> {
   try {
     const size = clampInt(
@@ -834,6 +875,8 @@ export async function loadProductFeedPage(
       source: 'all',
       limit: size,
       cursor: decoded,
+      env,
+      origin,
     });
   } catch (error) {
     console.error('Failed to load product feed page:', error);
@@ -846,7 +889,9 @@ export async function loadProductFeedPage(
 async function serializePublicBlock(
   db: Database,
   row: HomepageBlock,
-  categoriesById: Map<string, Category>
+  categoriesById: Map<string, Category>,
+  env: Env,
+  options?: R2UrlOptions
 ): Promise<PublicHomepageBlock | null> {
   if (!isHomepageBlockType(row.blockType)) {
     console.warn(
@@ -864,7 +909,13 @@ async function serializePublicBlock(
   if (config.type === 'promo_slider') {
     let slides: PublicPromoSlide[] = [];
     try {
-      slides = await serializePublicPromoSlides(db, config, categoriesById);
+      slides = await serializePublicPromoSlides(
+        db,
+        config,
+        categoriesById,
+        env,
+        options
+      );
     } catch (error) {
       console.warn(`Failed to serialize promo slider ${row.id}:`, error);
     }
@@ -887,13 +938,12 @@ async function serializePublicBlock(
         source: config.source,
         categoryId: config.categoryId,
         limit: config.limit,
+        env,
+        origin: options?.origin,
       });
       productsForGrid = loaded.items;
     } catch (error) {
-      console.warn(
-        `Failed to hydrate product grid ${row.id}:`,
-        error
-      );
+      console.warn(`Failed to hydrate product grid ${row.id}:`, error);
     }
     return {
       id: row.id,
@@ -948,6 +998,8 @@ async function serializePublicBlock(
     feed = await loadPublishedProducts(db, {
       source: 'all',
       limit: config.pageSize,
+      env,
+      origin: options?.origin,
     });
   } catch (error) {
     console.warn(`Failed to hydrate product feed ${row.id}:`, error);
@@ -967,7 +1019,9 @@ async function serializePublicBlock(
  * skip malformed rows. Never throws on bad config.
  */
 export async function loadPublicHomepageFromDb(
-  db: Database
+  db: Database,
+  env: Env,
+  origin?: string
 ): Promise<HomepagePayload> {
   const [rows, categoryRows] = await Promise.all([
     db
@@ -990,7 +1044,15 @@ export async function loadPublicHomepageFromDb(
   const blocks: PublicHomepageBlock[] = [];
   for (const row of rows) {
     try {
-      const serialized = await serializePublicBlock(db, row, categoriesById);
+      const serialized = await serializePublicBlock(
+        db,
+        row,
+        categoriesById,
+        env,
+        {
+          origin,
+        }
+      );
       if (serialized) blocks.push(serialized);
     } catch (error) {
       console.warn(`Skipping homepage block ${row.id}:`, error);
@@ -1149,7 +1211,7 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
     typeof raw.imageAlt === 'string' && raw.imageAlt.trim()
       ? raw.imageAlt.trim()
       : null;
-  let images = publicImages(raw.images as ProductImage[] | null);
+  let images = normalizePayloadImages(raw.images as ProductImage[] | null);
   if (images.length === 0 && imageUrl) {
     images = [{ url: imageUrl, alt: imageAlt ?? name }];
   }
@@ -1190,7 +1252,9 @@ export function normalizePublicPayload(raw: HomepagePayload): HomepagePayload {
  */
 export async function getPublicHomepage(
   db: Database,
-  kv: KVNamespace
+  kv: KVNamespace,
+  env: Env,
+  origin?: string
 ): Promise<{ data: HomepagePayload; source: 'kv' | 'db' }> {
   const manager = kvManager(kv);
 
@@ -1203,7 +1267,9 @@ export async function getPublicHomepage(
     console.error('Failed to read homepage from KV:', error);
   }
 
-  const data = normalizePublicPayload(await loadPublicHomepageFromDb(db));
+  const data = normalizePublicPayload(
+    await loadPublicHomepageFromDb(db, env, origin)
+  );
 
   try {
     await manager.setJson(HOMEPAGE_KV_KEY, data, {
@@ -1217,9 +1283,7 @@ export async function getPublicHomepage(
 }
 
 /** Drop the public homepage cache so the next store request rebuilds from D1. */
-export async function invalidateHomepageCache(
-  kv: KVNamespace
-): Promise<void> {
+export async function invalidateHomepageCache(kv: KVNamespace): Promise<void> {
   try {
     await kvManager(kv).delete(HOMEPAGE_KV_KEY);
   } catch (error) {

@@ -2,6 +2,10 @@ export type PublicProductCardImage = {
   url: string;
   alt: string;
   position?: number;
+  /** isOptimised — smaller card-sized copy hosted alongside the full image. */
+  isOp?: boolean;
+  /** Full-quality image URL paired with an optimized card image. */
+  fullUrl?: string;
 };
 
 export type PublicProductCard = {
@@ -21,20 +25,20 @@ export type PublicProductCard = {
 };
 
 export type PromoSlideLayout =
-  | "deals_banner"
-  | "welcome_deal"
-  | "split_products"
-  | "flash_row"
-  | "stack_showcase"
-  | "legacy";
+  | 'deals_banner'
+  | 'welcome_deal'
+  | 'split_products'
+  | 'flash_row'
+  | 'stack_showcase'
+  | 'legacy';
 
 export type PromoSlideTheme =
-  | "primary"
-  | "warm"
-  | "cool"
-  | "forest"
-  | "sunset"
-  | "slate";
+  | 'primary'
+  | 'warm'
+  | 'cool'
+  | 'forest'
+  | 'sunset'
+  | 'slate';
 
 export type PublicPromoSlideProduct = {
   id: string;
@@ -42,6 +46,7 @@ export type PublicPromoSlideProduct = {
   name: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  images?: PublicProductCardImage[];
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;
@@ -59,7 +64,7 @@ export type PublicPromoSlideOffer = {
 export type PublicPromoSlide = {
   id: string;
   layout: PromoSlideLayout;
-  audience: "all" | "new_user";
+  audience: 'all' | 'new_user';
   theme: PromoSlideTheme;
   kicker?: string;
   title?: string;
@@ -80,18 +85,18 @@ export type PublicPromoSlide = {
 
 export type PublicPromoSliderBlock = {
   id: string;
-  blockType: "promo_slider";
+  blockType: 'promo_slider';
   position: number;
-  config: { type: "promo_slider"; slides: PublicPromoSlide[] };
+  config: { type: 'promo_slider'; slides: PublicPromoSlide[] };
 };
 
 export type PublicProductGridBlock = {
   id: string;
-  blockType: "product_grid";
+  blockType: 'product_grid';
   position: number;
   config: {
-    type: "product_grid";
-    source: "category" | "featured";
+    type: 'product_grid';
+    source: 'category' | 'featured';
     categoryId?: string;
     categoryName?: string | null;
     categorySlug?: string | null;
@@ -112,10 +117,10 @@ export type PublicCategoryCtaButton = {
 
 export type PublicCategoryCtaBlock = {
   id: string;
-  blockType: "category_cta";
+  blockType: 'category_cta';
   position: number;
   config: {
-    type: "category_cta";
+    type: 'category_cta';
     title?: string;
     subtitle?: string;
     buttons: PublicCategoryCtaButton[];
@@ -124,9 +129,9 @@ export type PublicCategoryCtaBlock = {
 
 export type PublicProductFeedBlock = {
   id: string;
-  blockType: "product_feed";
+  blockType: 'product_feed';
   position: number;
-  config: { type: "product_feed"; pageSize: number };
+  config: { type: 'product_feed'; pageSize: number };
   items: PublicProductCard[];
   nextCursor: string | null;
 };

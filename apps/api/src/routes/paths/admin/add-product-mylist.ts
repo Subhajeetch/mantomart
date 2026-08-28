@@ -27,6 +27,14 @@ import {
   logAuditFromContext,
 } from '@/utils/auditLog';
 import { incrementAdminProductsAdded } from '@/utils/adminStats';
+import {
+  createProductHostSseResponse,
+  deleteUploadedProductImageKeys,
+  hostProductImages,
+  persistProductImageUrl,
+  persistProductImages,
+  requestOriginFromUrl,
+} from '@/utils/productImageHost';
 
 // ─── Limits ───────────────────────────────────────────────────────────────────
 
@@ -313,7 +321,10 @@ function sanitizeProductImage(
   const position =
     sanitizeInteger(value.position, { min: 0, max: 10_000 }) ?? index;
 
-  return { url, alt, variantKeys, position };
+  const persistedUrl = persistProductImageUrl(url);
+  const isOp = value.isOp === true ? true : undefined;
+
+  return { url: persistedUrl, alt, variantKeys, position, isOp };
 }
 
 function sanitizeProductVideo(value: unknown): ProductVideo | null {
@@ -623,7 +634,10 @@ function parseSku(
           prop.valueDefinitionName,
           MAX_PROPERTY_VALUE_LENGTH
         ) ?? null,
-      image: image === undefined ? null : image,
+      image:
+        image === undefined || image === null
+          ? null
+          : persistProductImageUrl(image),
     });
   }
 
@@ -1148,10 +1162,9 @@ addProductMyList.post(
       attributes.push(attr);
     }
 
-    // ── Persist ──────────────────────────────────────────────────────────────
+    // ── Pre-flight (JSON errors — before the upload stream starts) ───────────
 
     try {
-      // Duplicate AE product?
       if (aeProductId) {
         const [existingAe] = await db
           .select({ id: products.id, name: products.name })
@@ -1169,14 +1182,13 @@ addProductMyList.post(
         }
       }
 
-      // Validate categories exist
       const existingCategories = await db
         .select({ id: categories.id, name: categories.name })
         .from(categories)
         .where(inArray(categories.id, categoryIds));
 
       if (existingCategories.length !== categoryIds.length) {
-        const found = new Set(existingCategories.map((c) => c.id));
+        const found = new Set(existingCategories.map((cat) => cat.id));
         const missing = categoryIds.filter((id) => !found.has(id));
         return errorJson(
           c,
@@ -1185,124 +1197,186 @@ addProductMyList.post(
           `Category not found: ${missing[0]}`
         );
       }
+    } catch (error) {
+      console.error('Error pre-checking product create:', error);
+      return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to create product.');
+    }
 
-      const slug = await ensureUniqueSlug(db, slugInput);
+    const slug = await ensureUniqueSlug(db, slugInput);
+    const origin = requestOriginFromUrl(c.req.url);
+    const env = c.env;
+
+    return createProductHostSseResponse(c.req.raw, async (write, signal) => {
+      const hosted = await hostProductImages({
+        env,
+        slug,
+        origin,
+        signal,
+        productImages: images,
+        skuImages: skus.map((sku) => sku.images),
+        propertyImages: skus.map((sku) =>
+          sku.properties.map((prop) => prop.image)
+        ),
+        sizeChartImage: sizeChartImage ?? null,
+        onProgress: (event) => {
+          write('progress', event);
+        },
+      });
+
+      if (!hosted.ok) {
+        await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+        write('error', {
+          success: false,
+          code: hosted.error.code,
+          message: hosted.error.message,
+          error: hosted.error.message,
+        });
+        return;
+      }
+
       const now = new Date();
       const productId = nanoid();
       const primaryCategoryId = categoryIds[0] ?? null;
+      const hostedImages = persistProductImages(hosted.productImages);
+      const hostedSizeChart = hosted.sizeChartImage;
 
-      // Insert product
-      await db.insert(products).values({
-        id: productId,
-        slug,
-        name,
-        description,
-        mobileDetail,
-        hasSizeChart: hasSizeChart || Boolean(sizeChartImage),
-        sizeChartImage: sizeChartImage ?? null,
-        sizeChartDescription: sizeChartDescription ?? null,
+      try {
+        await db.insert(products).values({
+          id: productId,
+          slug,
+          name,
+          description,
+          mobileDetail,
+          hasSizeChart: hasSizeChart || Boolean(hostedSizeChart),
+          sizeChartImage: hostedSizeChart ?? null,
+          sizeChartDescription: sizeChartDescription ?? null,
 
-        isAEProduct,
-        aeProductId: aeProductId ?? null,
-        aeCategoryId: aeCategoryId ?? null,
-        aeRating: aeRating ?? null,
-        aeReviewCount: aeReviewCount ?? null,
-        aeSalesCount: aeSalesCount ?? null,
-        aeStatus: aeStatus ?? null,
-        aeLastSynced: isAEProduct ? now : null,
+          isAEProduct,
+          aeProductId: aeProductId ?? null,
+          aeCategoryId: aeCategoryId ?? null,
+          aeRating: aeRating ?? null,
+          aeReviewCount: aeReviewCount ?? null,
+          aeSalesCount: aeSalesCount ?? null,
+          aeStatus: aeStatus ?? null,
+          aeLastSynced: isAEProduct ? now : null,
 
-        images,
-        videos,
-        mainVideo: mainVideo ?? videos[0]?.url ?? null,
+          images: hostedImages,
+          videos,
+          mainVideo: mainVideo ?? videos[0]?.url ?? null,
 
-        categoryId: primaryCategoryId,
-        published,
-        featured,
-        position: 0,
+          categoryId: primaryCategoryId,
+          published,
+          featured,
+          position: 0,
 
-        metaTitle: metaTitle ?? name.slice(0, MAX_META_TITLE_LENGTH),
-        metaDescription: metaDescription ?? null,
-        tags,
+          metaTitle: metaTitle ?? name.slice(0, MAX_META_TITLE_LENGTH),
+          metaDescription: metaDescription ?? null,
+          tags,
 
-        // revenueInProfit starts at 0; order flow increments it later.
-        revenueInProfit: 0,
+          revenueInProfit: 0,
 
-        productAddedBy: actor.id,
-        productNotes: productNotes ?? null,
+          productAddedBy: actor.id,
+          productNotes: productNotes ?? null,
 
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // Keep the denormalized leaderboard in sync. Fail-soft: a missed
-      // increment is recoverable via POST /api/admin-stats/sync.
-      await incrementAdminProductsAdded(db, actor.id, now);
-
-      // Product ↔ categories
-      if (categoryIds.length > 0) {
-        const categoryRows = categoryIds.map((categoryId) => ({
-          id: nanoid(),
-          productId,
-          categoryId,
           createdAt: now,
-        }));
-        for (const chunk of chunkArray(categoryRows)) {
-          await db.insert(productCategories).values(chunk);
-        }
-      }
-
-      // SKUs + properties
-      for (const parsedSku of skus) {
-        const skuId = nanoid();
-        await db.insert(productSkus).values({
-          id: skuId,
-          productId,
-          aeSkuId: parsedSku.aeSkuId,
-          aeSkuAttr: parsedSku.aeSkuAttr,
-          price: parsedSku.price,
-          compareAtPrice: parsedSku.compareAtPrice,
-          aePrice: parsedSku.aePrice,
-          aeSalePrice: parsedSku.aeSalePrice,
-          estProfit: parsedSku.estProfit,
-          stock: parsedSku.stock,
-          sku: parsedSku.sku,
-          priceIncludesTax: parsedSku.priceIncludesTax,
-          images: parsedSku.images,
-          createdAt: now,
+          updatedAt: now,
         });
 
-        if (parsedSku.properties.length > 0) {
-          const propertyRows = parsedSku.properties.map((prop) => ({
+        await incrementAdminProductsAdded(db, actor.id, now);
+
+        if (categoryIds.length > 0) {
+          const categoryRows = categoryIds.map((categoryId) => ({
             id: nanoid(),
-            skuId,
-            aePropertyId: prop.aePropertyId,
-            propertyName: prop.propertyName,
-            aeValueId: prop.aeValueId,
-            value: prop.value,
-            valueDefinitionName: prop.valueDefinitionName,
-            image: prop.image,
+            productId,
+            categoryId,
+            createdAt: now,
           }));
-          for (const chunk of chunkArray(propertyRows)) {
-            await db.insert(skuProperties).values(chunk);
+          for (const chunk of chunkArray(categoryRows)) {
+            await db.insert(productCategories).values(chunk);
           }
         }
-      }
 
-      // Attributes
-      if (attributes.length > 0) {
-        const attributeRows = attributes.map((attr) => ({
-          id: nanoid(),
-          productId,
-          aeAttrNameId: attr.aeAttrNameId,
-          attrName: attr.attrName,
-          aeAttrValueId: attr.aeAttrValueId,
-          attrValue: attr.attrValue,
-          attrValueUnit: attr.attrValueUnit,
-          position: attr.position,
-        }));
-        for (const chunk of chunkArray(attributeRows)) {
-          await db.insert(productAttributes).values(chunk);
+        for (let skuIndex = 0; skuIndex < skus.length; skuIndex++) {
+          const parsedSku = skus[skuIndex]!;
+          const skuId = nanoid();
+          const hostedSkuImages = persistProductImages(
+            hosted.skuImages[skuIndex] ?? parsedSku.images
+          );
+          const hostedProps = hosted.propertyImages[skuIndex];
+
+          await db.insert(productSkus).values({
+            id: skuId,
+            productId,
+            aeSkuId: parsedSku.aeSkuId,
+            aeSkuAttr: parsedSku.aeSkuAttr,
+            price: parsedSku.price,
+            compareAtPrice: parsedSku.compareAtPrice,
+            aePrice: parsedSku.aePrice,
+            aeSalePrice: parsedSku.aeSalePrice,
+            estProfit: parsedSku.estProfit,
+            stock: parsedSku.stock,
+            sku: parsedSku.sku,
+            priceIncludesTax: parsedSku.priceIncludesTax,
+            images: hostedSkuImages,
+            createdAt: now,
+          });
+
+          if (parsedSku.properties.length > 0) {
+            const propertyRows = parsedSku.properties.map((prop, propIndex) => ({
+              id: nanoid(),
+              skuId,
+              aePropertyId: prop.aePropertyId,
+              propertyName: prop.propertyName,
+              aeValueId: prop.aeValueId,
+              value: prop.value,
+              valueDefinitionName: prop.valueDefinitionName,
+              image: hostedProps?.[propIndex] ?? prop.image,
+            }));
+            for (const chunk of chunkArray(propertyRows)) {
+              await db.insert(skuProperties).values(chunk);
+            }
+          }
         }
+
+        if (attributes.length > 0) {
+          const attributeRows = attributes.map((attr) => ({
+            id: nanoid(),
+            productId,
+            aeAttrNameId: attr.aeAttrNameId,
+            attrName: attr.attrName,
+            aeAttrValueId: attr.aeAttrValueId,
+            attrValue: attr.attrValue,
+            attrValueUnit: attr.attrValueUnit,
+            position: attr.position,
+          }));
+          for (const chunk of chunkArray(attributeRows)) {
+            await db.insert(productAttributes).values(chunk);
+          }
+        }
+      } catch (error) {
+        console.error('Error creating product from my-list:', error);
+        await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+
+        const message =
+          error instanceof Error ? error.message.toLowerCase() : '';
+        if (message.includes('unique') || message.includes('constraint')) {
+          write('error', {
+            success: false,
+            code: 'CONFLICT',
+            message:
+              'A product with this slug or AliExpress id already exists.',
+            error: 'A product with this slug or AliExpress id already exists.',
+          });
+          return;
+        }
+
+        write('error', {
+          success: false,
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to create product.',
+          error: 'Failed to create product.',
+        });
+        return;
       }
 
       c.executionCtx.waitUntil(
@@ -1321,7 +1395,7 @@ addProductMyList.post(
             featured: { to: featured },
             categoryIds: { to: categoryIds },
             skuCount: { to: skus.length },
-            imageCount: { to: images.length },
+            imageCount: { to: hostedImages.length },
             isAEProduct: { to: isAEProduct },
             aeProductId: { to: aeProductId },
           },
@@ -1329,6 +1403,8 @@ addProductMyList.post(
             source: 'admin_mylist_import',
             attributeCount: attributes.length,
             tagCount: tags.length,
+            hostedImageCount: hosted.hostedCount,
+            optimisedImageCount: hosted.optimisedCount,
             addedBy: {
               id: actor.id,
               name: actor.name,
@@ -1339,45 +1415,27 @@ addProductMyList.post(
         }).then(() => undefined)
       );
 
-      return c.json(
-        {
-          success: true,
-          message: published
-            ? `Product "${truncateNameForMessage(name)}" published successfully.`
-            : `Product "${truncateNameForMessage(name)}" saved as draft.`,
-          data: {
-            id: productId,
-            slug,
-            name,
-            published,
-            categoryIds,
-            skuCount: skus.length,
-            imageCount: images.length,
-            productAddedBy: {
-              id: actor.id,
-              name: actor.name,
-              email: actor.email,
-            },
+      write('complete', {
+        success: true,
+        message: published
+          ? `Product "${truncateNameForMessage(name)}" published successfully.`
+          : `Product "${truncateNameForMessage(name)}" saved as draft.`,
+        data: {
+          id: productId,
+          slug,
+          name,
+          published,
+          categoryIds,
+          skuCount: skus.length,
+          imageCount: hostedImages.length,
+          productAddedBy: {
+            id: actor.id,
+            name: actor.name,
+            email: actor.email,
           },
         },
-        201
-      );
-    } catch (error) {
-      console.error('Error creating product from my-list:', error);
-
-      // Unique constraint race
-      const message = error instanceof Error ? error.message.toLowerCase() : '';
-      if (message.includes('unique') || message.includes('constraint')) {
-        return errorJson(
-          c,
-          409,
-          'CONFLICT',
-          'A product with this slug or AliExpress id already exists.'
-        );
-      }
-
-      return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to create product.');
-    }
+      });
+    });
   }
 );
 

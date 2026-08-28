@@ -252,15 +252,13 @@ export function buildInitialForm(
     });
   }
 
-  const videoPosters = videos.map((v) => v.poster).filter(Boolean);
-
-  // Match product-dialog: gallery + SKU images + video posters + detail images
+  // Keep video media separate. Product image hosting should never rewrite
+  // AliExpress video URLs or their poster URLs.
   const galleryUrls = uniqueUrls([
     listItem.normalized.imageUrl,
     listItem.product?.itemMainPic,
     ...splitImageUrls(multimediaInfo.image_urls),
     ...skuImages,
-    ...videoPosters,
   ]);
 
   const detailUrls = uniqueUrls([
@@ -507,10 +505,7 @@ function propertyPriorityScore(propertyName: string): number {
   return 40;
 }
 
-function getPropertyValue(
-  sku: SkuDraft,
-  propertyName: string
-): string | null {
+function getPropertyValue(sku: SkuDraft, propertyName: string): string | null {
   const prop = sku.properties.find(
     (p) => p.propertyName.toLowerCase() === propertyName.toLowerCase()
   );
@@ -518,10 +513,7 @@ function getPropertyValue(
   return prop.valueDefinitionName?.trim() || prop.value.trim() || null;
 }
 
-function getPropertyImage(
-  sku: SkuDraft,
-  propertyName: string
-): string | null {
+function getPropertyImage(sku: SkuDraft, propertyName: string): string | null {
   const prop = sku.properties.find(
     (p) => p.propertyName.toLowerCase() === propertyName.toLowerCase()
   );
@@ -572,7 +564,9 @@ export function getSkuGroupDimensions(skus: SkuDraft[]): SkuGroupDimension[] {
     });
   }
 
-  return dimensions.sort((a, b) => b.score - a.score || a.propertyName.localeCompare(b.propertyName));
+  return dimensions.sort(
+    (a, b) => b.score - a.score || a.propertyName.localeCompare(b.propertyName)
+  );
 }
 
 /**
@@ -608,7 +602,8 @@ export function groupSkusByProperty(
         key,
         propertyName,
         value,
-        image: getPropertyImage(sku, propertyName) ?? sku.images[0]?.url ?? null,
+        image:
+          getPropertyImage(sku, propertyName) ?? sku.images[0]?.url ?? null,
         skuIndices: [],
       };
       groups.set(key, group);
@@ -632,8 +627,7 @@ export function getSecondaryOptionLabel(
 ): string {
   const others = sku.properties
     .filter(
-      (p) =>
-        p.propertyName.toLowerCase() !== groupPropertyName.toLowerCase()
+      (p) => p.propertyName.toLowerCase() !== groupPropertyName.toLowerCase()
     )
     .map((p) => p.valueDefinitionName?.trim() || p.value.trim())
     .filter(Boolean);
@@ -875,11 +869,9 @@ export function extractAliExpressMedia(
     });
   }
 
-  const videoPosters = videos.map((v) => v.poster).filter(Boolean);
   const galleryUrls = uniqueUrls([
     ...splitImageUrls(multimediaInfo.image_urls),
     ...skuImages,
-    ...videoPosters,
   ]);
   const detailUrls = uniqueUrls([
     ...getMobileDetailImages(baseInfo.mobile_detail),
@@ -918,7 +910,13 @@ export function buildPublishPayload(form: ImportFormState) {
   // If mainVideo was set to a URL not in videos[], still publish the URL alone.
   const resolvedVideos =
     mainVideo && videos.length === 0
-      ? [{ url: mainVideo, poster: null as string | null, alt: form.name.slice(0, 120) }]
+      ? [
+          {
+            url: mainVideo,
+            poster: null as string | null,
+            alt: form.name.slice(0, 120),
+          },
+        ]
       : videos;
 
   // Slug always derived from the product title.

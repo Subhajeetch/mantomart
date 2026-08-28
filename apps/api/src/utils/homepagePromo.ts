@@ -19,6 +19,19 @@ import {
   type PromoSliderConfig,
   type PromoSlideTheme,
 } from '@repo/db';
+import type Env from '@/types/env';
+import { productCardImagesForClient } from '@/utils/productImageHost';
+import type { R2UrlOptions } from '@/utils/r2';
+
+export type PublicProductCardImage = {
+  url: string;
+  alt: string;
+  position?: number;
+  /** isOptimised — smaller card-sized copy hosted alongside the full image. */
+  isOp?: boolean;
+  /** Full-quality image URL paired with an optimized card image. */
+  fullUrl?: string;
+};
 
 type PublicProductCard = {
   id: string;
@@ -26,6 +39,7 @@ type PublicProductCard = {
   name: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  images: PublicProductCardImage[];
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;
@@ -183,7 +197,9 @@ function sanitizeLink(
   raw: unknown,
   knownCategoryIds?: Set<string>,
   knownProductIds?: Set<string>
-): { ok: true; link?: PromoLinkConfig } | { ok: false; error: string; code: string } {
+):
+  | { ok: true; link?: PromoLinkConfig }
+  | { ok: false; error: string; code: string } {
   if (raw === undefined || raw === null) return { ok: true };
   if (!isRecord(raw)) {
     return {
@@ -532,6 +548,7 @@ export type PublicPromoSlideProduct = {
   name: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  images?: PublicProductCardImage[];
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;
@@ -591,28 +608,11 @@ function resolveLinkHref(
   return undefined;
 }
 
-function primaryImage(
-  images: ProductImage[] | null | undefined
-): { url: string; alt: string } | null {
-  if (!Array.isArray(images) || images.length === 0) return null;
-  const sorted = [...images].sort((a, b) => {
-    const ap = typeof a?.position === 'number' ? a.position : 0;
-    const bp = typeof b?.position === 'number' ? b.position : 0;
-    return ap - bp;
-  });
-  for (const img of sorted) {
-    if (!img || typeof img.url !== 'string') continue;
-    const url = img.url.trim();
-    if (!url) continue;
-    const alt = typeof img.alt === 'string' ? img.alt.trim() : '';
-    return { url, alt };
-  }
-  return null;
-}
-
 export async function loadPublishedProductCardsByIds(
   db: Database,
-  ids: string[]
+  ids: string[],
+  env: Env,
+  options?: R2UrlOptions
 ): Promise<Map<string, PublicProductCard>> {
   const unique = [...new Set(ids.filter((id) => isValidId(id)))];
   const map = new Map<string, PublicProductCard>();
@@ -660,13 +660,15 @@ export async function loadPublishedProductCardsByIds(
     if (!current || price < current.price) {
       bestByProduct.set(sku.productId, {
         price,
-        compareAtPrice: compare !== null && Number.isFinite(compare) ? compare : null,
+        compareAtPrice:
+          compare !== null && Number.isFinite(compare) ? compare : null,
       });
     }
   }
 
   for (const row of rows) {
-    const img = primaryImage(row.images);
+    const images = productCardImagesForClient(row.images, env, options);
+    const img = images[0] ?? null;
     const pricing = bestByProduct.get(row.id);
     const price = pricing?.price ?? null;
     const compareAtPrice = pricing?.compareAtPrice ?? null;
@@ -678,6 +680,7 @@ export async function loadPublishedProductCardsByIds(
       name: row.name,
       imageUrl: img?.url ?? null,
       imageAlt: img?.alt ?? null,
+      images,
       price,
       compareAtPrice,
       onSale,
@@ -710,6 +713,7 @@ function publicProductFromSlot(
     name,
     imageUrl: live?.imageUrl ?? slot.imageUrl ?? null,
     imageAlt: live?.imageAlt ?? slot.imageAlt ?? null,
+    images: live?.images,
     price,
     compareAtPrice: onSale ? compareAtPrice : compareAtPrice,
     onSale,
@@ -720,12 +724,19 @@ function publicProductFromSlot(
 export async function serializePublicPromoSlides(
   db: Database,
   config: PromoSliderConfig,
-  categoriesById: Map<string, Category>
+  categoriesById: Map<string, Category>,
+  env: Env,
+  options?: R2UrlOptions
 ): Promise<PublicPromoSlide[]> {
   const productIds = collectPromoProductIds(config);
   let productsById = new Map<string, PublicProductCard>();
   try {
-    productsById = await loadPublishedProductCardsByIds(db, productIds);
+    productsById = await loadPublishedProductCardsByIds(
+      db,
+      productIds,
+      env,
+      options
+    );
   } catch (error) {
     console.warn('Failed to hydrate promo slider products:', error);
   }
@@ -827,6 +838,33 @@ function asFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function normalizePayloadImages(raw: unknown): PublicProductCardImage[] {
+  if (!Array.isArray(raw)) return [];
+  const images: PublicProductCardImage[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const url = asString(entry.url);
+    if (!url) continue;
+    const image: PublicProductCardImage = {
+      url,
+      alt: asString(entry.alt) ?? '',
+    };
+    if (typeof entry.position === 'number' && Number.isFinite(entry.position)) {
+      image.position = entry.position;
+    }
+    if (entry.isOp === true) {
+      image.isOp = true;
+    }
+    const fullUrl = asString(entry.fullUrl);
+    if (fullUrl) {
+      image.fullUrl = fullUrl;
+    }
+    images.push(image);
+  }
+  images.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return images.slice(0, 5);
+}
+
 export function normalizePublicPromoSlides(raw: unknown): PublicPromoSlide[] {
   if (!Array.isArray(raw)) return [];
   const slides: PublicPromoSlide[] = [];
@@ -894,6 +932,7 @@ export function normalizePublicPromoSlides(raw: unknown): PublicPromoSlide[] {
         name,
         imageUrl: asString(slot.imageUrl) ?? null,
         imageAlt: asString(slot.imageAlt) ?? null,
+        images: normalizePayloadImages(slot.images),
         price,
         compareAtPrice,
         onSale,
@@ -957,13 +996,16 @@ export type HomepageProductSearchHit = {
   name: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  images: PublicProductCardImage[];
   price: number | null;
   compareAtPrice: number | null;
 };
 
 export async function searchHomepageProducts(
   db: Database,
-  query: string
+  query: string,
+  env: Env,
+  options?: R2UrlOptions
 ): Promise<HomepageProductSearchHit[]> {
   const search = query.trim();
   if (search.length < 1 || search.length > MAX_SEARCH_LENGTH) return [];
@@ -1025,7 +1067,8 @@ export async function searchHomepageProducts(
   );
 
   return rows.map((row) => {
-    const img = primaryImage(row.images);
+    const images = productCardImagesForClient(row.images, env, options);
+    const img = images[0] ?? null;
     const pricing = priceByProduct.get(row.id);
     return {
       id: row.id,
@@ -1033,6 +1076,7 @@ export async function searchHomepageProducts(
       name: row.name,
       imageUrl: img?.url ?? null,
       imageAlt: img?.alt ?? null,
+      images,
       price: pricing?.price ?? null,
       compareAtPrice: pricing?.compareAtPrice ?? null,
     };

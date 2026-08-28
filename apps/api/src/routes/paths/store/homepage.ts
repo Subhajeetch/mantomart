@@ -8,6 +8,7 @@ import {
   HOMEPAGE_CACHE_TTL_SECONDS,
   loadProductFeedPage,
 } from '@/utils/homepageContent';
+import { requestOriginFromUrl } from '@/utils/productImageHost';
 
 /**
  * Public storefront homepage.
@@ -36,7 +37,12 @@ function cacheHeaders(
 storeHomepage.get('/', async (c) => {
   try {
     const db = createDb(c.env.DB);
-    const { data, source } = await getPublicHomepage(db, c.env.KV);
+    const { data, source } = await getPublicHomepage(
+      db,
+      c.env.KV,
+      c.env,
+      requestOriginFromUrl(c.req.url)
+    );
 
     cacheHeaders(c, source);
 
@@ -69,7 +75,13 @@ storeHomepage.get('/feed', async (c) => {
       if (Number.isFinite(parsed)) pageSize = parsed;
     }
 
-    const data = await loadProductFeedPage(db, cursor, pageSize);
+    const data = await loadProductFeedPage(
+      db,
+      cursor,
+      pageSize,
+      c.env,
+      requestOriginFromUrl(c.req.url)
+    );
 
     cacheHeaders(c, 'db');
 
@@ -82,12 +94,7 @@ storeHomepage.get('/feed', async (c) => {
     });
   } catch (error) {
     console.error('Error loading homepage product feed:', error);
-    return errorJson(
-      c,
-      500,
-      'INTERNAL_ERROR',
-      'Failed to load product feed.'
-    );
+    return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load product feed.');
   }
 });
 

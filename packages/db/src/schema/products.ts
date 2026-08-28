@@ -26,6 +26,8 @@ export type ProductImage = {
   variantKeys?: string[];
   /** Display order (ascending). */
   position?: number;
+  /** isOptimised — smaller card-sized copy hosted alongside the full image. */
+  isOp?: boolean;
 };
 
 export type ProductVideo = {

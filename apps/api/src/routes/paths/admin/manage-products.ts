@@ -44,6 +44,17 @@ import {
   logAuditFromContext,
 } from '@/utils/auditLog';
 import { decrementAdminProductContribution } from '@/utils/adminStats';
+import {
+  createProductHostSseResponse,
+  deleteUploadedProductImageKeys,
+  hostProductImages,
+  persistProductImageUrl,
+  persistProductImages,
+  productNeedsImageHosting,
+  requestOriginFromUrl,
+  resolveProductImageUrlForClient,
+  resolveProductImagesForClient,
+} from '@/utils/productImageHost';
 
 const MAX_ID_LENGTH = 128;
 const MAX_PAGE_SIZE = 100;
@@ -313,10 +324,11 @@ function sanitizeProductImage(value: unknown, index: number): ProductImage | nul
     if (keys.length) variantKeys = keys;
   }
   return {
-    url,
+    url: persistProductImageUrl(url),
     alt,
     variantKeys,
     position: sanitizeInteger(value.position, { min: 0, max: 10_000 }) ?? index,
+    isOp: value.isOp === true ? true : undefined,
   };
 }
 
@@ -380,6 +392,27 @@ function serializeProduct(product: typeof products.$inferSelect) {
     videos: product.videos ?? [],
     tags: product.tags ?? [],
   };
+}
+
+function requestOrigin(c: AppContext): string {
+  return requestOriginFromUrl(c.req.url);
+}
+
+function resolveStoredImageUrl(
+  url: string | null | undefined,
+  c: AppContext
+): string | null {
+  if (url === null || url === undefined) return url ?? null;
+  const resolved = resolveProductImageUrlForClient(url, c.env, {
+    origin: requestOrigin(c),
+  });
+  return resolved || url;
+}
+
+function firstGalleryImage(
+  images: ProductImage[]
+): ProductImage | undefined {
+  return images.find((img) => img.isOp !== true) ?? images[0];
 }
 
 async function resolveActorCapabilities(
@@ -559,7 +592,10 @@ function parseSku(value: unknown, index: number): ParsedSku | { error: string } 
       valueDefinitionName:
         sanitizeOptionalString(prop.valueDefinitionName, MAX_PROPERTY_VALUE_LENGTH) ??
         null,
-      image: image === undefined ? null : image,
+      image:
+        image === undefined || image === null
+          ? null
+          : persistProductImageUrl(image),
     });
   }
 
@@ -752,7 +788,10 @@ function parseProductPayload(
     description: descriptionRaw ? sanitizeHtml(descriptionRaw) : null,
     mobileDetail: mobileDetailRaw ? sanitizeHtml(mobileDetailRaw) : null,
     hasSizeChart: sanitizeBoolean(body.hasSizeChart, false) || Boolean(sizeChartImage),
-    sizeChartImage: sizeChartImage === undefined ? null : sizeChartImage,
+    sizeChartImage:
+      sizeChartImage === undefined || sizeChartImage === null
+        ? null
+        : persistProductImageUrl(sizeChartImage),
     sizeChartDescription:
       sizeChartDescription === undefined ? null : sizeChartDescription,
     isAEProduct,
@@ -1078,13 +1117,20 @@ manageProducts.get(
           const prices = priceByProduct.get(row.id);
           const images = Array.isArray(row.images) ? row.images : [];
           // Only ship the first gallery image for the card thumbnail.
-          const firstImage = images[0];
+          const firstImage = firstGalleryImage(images);
           return {
             id: row.id,
             name: row.name,
             published: row.published,
             images: firstImage
-              ? [{ url: firstImage.url, alt: firstImage.alt ?? '' }]
+              ? [
+                  {
+                    url:
+                      resolveStoredImageUrl(firstImage.url, c) ?? firstImage.url,
+                    alt: firstImage.alt ?? '',
+                    isOp: firstImage.isOp === true ? true : undefined,
+                  },
+                ]
               : [],
             minPrice: prices?.minPrice ?? null,
             maxPrice: prices?.maxPrice ?? null,
@@ -1139,11 +1185,25 @@ manageProducts.get(
             .limit(1)
         : [];
 
+      const origin = requestOrigin(c);
+      const serialized = serializeProduct(product);
       return c.json({
         success: true,
         data: {
-          ...serializeProduct(product),
+          ...serialized,
+          images: resolveProductImagesForClient(serialized.images, c.env, {
+            origin,
+          }),
+          sizeChartImage: resolveStoredImageUrl(serialized.sizeChartImage, c),
           ...nested,
+          skus: nested.skus.map((sku) => ({
+            ...sku,
+            images: resolveProductImagesForClient(sku.images, c.env, { origin }),
+            properties: sku.properties.map((prop) => ({
+              ...prop,
+              image: resolveStoredImageUrl(prop.image, c),
+            })),
+          })),
           addedBy: addedBy ?? null,
         },
         meta: {
@@ -1155,6 +1215,176 @@ manageProducts.get(
     } catch (error) {
       console.error('Error loading product:', error);
       return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load product.');
+    }
+  }
+);
+
+manageProducts.post(
+  '/:id/host-images',
+  requireAnyPermission(PERMISSIONS.PRODUCT_UPDATE),
+  async (c) => {
+    const actor = getActor(c);
+    const db = getDb(c);
+    const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
+    }
+
+    try {
+      const [product] = await db
+        .select()
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
+      if (!product) {
+        return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
+      }
+
+      const nested = await loadNestedProductData(db, id);
+      const extraUrls: Array<string | null | undefined> = [
+        product.sizeChartImage,
+        ...nested.skus.flatMap((sku) =>
+          sku.properties.map((prop) => prop.image)
+        ),
+      ];
+      const skuNeedsHost = nested.skus.some((sku) =>
+        productNeedsImageHosting(sku.images ?? [])
+      );
+      if (
+        !productNeedsImageHosting(product.images ?? [], extraUrls) &&
+        !skuNeedsHost
+      ) {
+        return errorJson(
+          c,
+          400,
+          'IMAGES_ALREADY_HOSTED',
+          'This product’s images are already on your storage.'
+        );
+      }
+
+      const env = c.env;
+      const origin = requestOrigin(c);
+
+      return createProductHostSseResponse(c.req.raw, async (write, signal) => {
+        const hosted = await hostProductImages({
+          env,
+          slug: product.slug,
+          origin,
+          signal,
+          productImages: product.images ?? [],
+          skuImages: nested.skus.map((sku) => sku.images ?? []),
+          propertyImages: nested.skus.map((sku) =>
+            sku.properties.map((prop) => prop.image)
+          ),
+          sizeChartImage: product.sizeChartImage ?? null,
+          onProgress: (event) => {
+            write('progress', event);
+          },
+        });
+
+        if (!hosted.ok) {
+          await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+          write('error', {
+            success: false,
+            code: hosted.error.code,
+            message: hosted.error.message,
+            error: hosted.error.message,
+          });
+          return;
+        }
+
+        const now = new Date();
+        const hostedImages = persistProductImages(hosted.productImages);
+
+        try {
+          await db
+            .update(products)
+            .set({
+              images: hostedImages,
+              sizeChartImage: hosted.sizeChartImage,
+              updatedAt: now,
+            })
+            .where(eq(products.id, id));
+
+          for (let skuIndex = 0; skuIndex < nested.skus.length; skuIndex++) {
+            const sku = nested.skus[skuIndex]!;
+            await db
+              .update(productSkus)
+              .set({
+                images: persistProductImages(
+                  hosted.skuImages[skuIndex] ?? sku.images ?? []
+                ),
+              })
+              .where(eq(productSkus.id, sku.id));
+
+            const hostedProps = hosted.propertyImages[skuIndex];
+            for (
+              let propIndex = 0;
+              propIndex < sku.properties.length;
+              propIndex++
+            ) {
+              const prop = sku.properties[propIndex]!;
+              const nextImage = hostedProps?.[propIndex] ?? prop.image;
+              if (nextImage === prop.image) continue;
+              await db
+                .update(skuProperties)
+                .set({ image: nextImage })
+                .where(eq(skuProperties.id, prop.id));
+            }
+          }
+        } catch (error) {
+          console.error('Error saving hosted product images:', error);
+          await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+          write('error', {
+            success: false,
+            code: 'INTERNAL_ERROR',
+            message: 'Images uploaded but saving the product failed. Please try again.',
+            error:
+              'Images uploaded but saving the product failed. Please try again.',
+          });
+          return;
+        }
+
+        c.executionCtx.waitUntil(
+          logAuditFromContext(c, {
+            action: AUDIT_ACTIONS.PRODUCT_UPDATE,
+            category: AUDIT_CATEGORIES.PRODUCT,
+            description: `Hosted product images for "${product.name}" on first-party storage`,
+            targetType: AUDIT_TARGET_TYPES.PRODUCT,
+            targetId: id,
+            targetLabel: product.name,
+            metadata: {
+              hostedImageCount: hosted.hostedCount,
+              optimisedImageCount: hosted.optimisedCount,
+              editedBy: {
+                id: actor.id,
+                name: actor.name,
+                email: actor.email,
+                role: actor.role,
+              },
+            },
+          }).then(() => undefined)
+        );
+
+        write('complete', {
+          success: true,
+          message: `Images for "${product.name}" were uploaded to your storage.`,
+          data: {
+            id,
+            slug: product.slug,
+            name: product.name,
+            imageCount: hostedImages.length,
+          },
+        });
+      });
+    } catch (error) {
+      console.error('Error hosting product images:', error);
+      return errorJson(
+        c,
+        500,
+        'INTERNAL_ERROR',
+        'Failed to host product images.'
+      );
     }
   }
 );

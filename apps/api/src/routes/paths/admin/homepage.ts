@@ -45,6 +45,7 @@ import {
   loadExistingProductIdSet,
   searchHomepageProducts,
 } from '@/utils/homepagePromo';
+import { requestOriginFromUrl } from '@/utils/productImageHost';
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -179,9 +180,7 @@ async function loadOrderRows(db: Database): Promise<BlockOrderRow[]> {
 }
 
 async function countBlocks(db: Database): Promise<number> {
-  const [result] = await db
-    .select({ value: count() })
-    .from(homepageBlocks);
+  const [result] = await db.select({ value: count() }).from(homepageBlocks);
   return Number(result?.value ?? 0);
 }
 
@@ -243,26 +242,21 @@ homepage.get('/', async (c) => {
 homepage.get('/products', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
   if (q.length > 120) {
-    return errorJson(
-      c,
-      400,
-      'INVALID_QUERY',
-      'Search query is too long.'
-    );
+    return errorJson(c, 400, 'INVALID_QUERY', 'Search query is too long.');
   }
 
   try {
     const db = getDb(c);
-    const data = q.length === 0 ? [] : await searchHomepageProducts(db, q);
+    const data =
+      q.length === 0
+        ? []
+        : await searchHomepageProducts(db, q, c.env, {
+            origin: requestOriginFromUrl(c.req.url),
+          });
     return c.json({ success: true, data });
   } catch (error) {
     console.error('Error searching homepage products:', error);
-    return errorJson(
-      c,
-      500,
-      'INTERNAL_ERROR',
-      'Failed to search products.'
-    );
+    return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to search products.');
   }
 });
 
@@ -467,12 +461,7 @@ homepage.patch(
         .limit(1);
 
       if (!before) {
-        return errorJson(
-          c,
-          404,
-          'NOT_FOUND',
-          'Homepage block was not found.'
-        );
+        return errorJson(c, 404, 'NOT_FOUND', 'Homepage block was not found.');
       }
 
       const nextType = isHomepageBlockType(body.blockType)
@@ -612,12 +601,7 @@ homepage.delete(
         .limit(1);
 
       if (!before) {
-        return errorJson(
-          c,
-          404,
-          'NOT_FOUND',
-          'Homepage block was not found.'
-        );
+        return errorJson(c, 404, 'NOT_FOUND', 'Homepage block was not found.');
       }
 
       await db.delete(homepageBlocks).where(eq(homepageBlocks.id, id));
@@ -670,9 +654,7 @@ homepage.put(
     const existingIds = new Set(existing.map((row) => row.id));
     const byId = new Map(existing.map((row) => [row.id, row]));
 
-    const proposed = new Map(
-      existing.map((row) => [row.id, { ...row }])
-    );
+    const proposed = new Map(existing.map((row) => [row.id, { ...row }]));
 
     try {
       if (Array.isArray(body.orderedIds)) {
@@ -820,12 +802,7 @@ homepage.put(
       });
     } catch (error) {
       console.error('Error reordering homepage:', error);
-      return errorJson(
-        c,
-        500,
-        'INTERNAL_ERROR',
-        'Failed to reorder homepage.'
-      );
+      return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to reorder homepage.');
     }
   }
 );

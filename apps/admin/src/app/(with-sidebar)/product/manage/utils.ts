@@ -5,6 +5,8 @@ export type ProductImage = {
   alt: string;
   variantKeys?: string[];
   position?: number;
+  /** isOptimised — smaller card-sized copy hosted alongside the full image. */
+  isOp?: boolean;
 };
 
 export type ProductVideo = {

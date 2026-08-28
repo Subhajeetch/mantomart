@@ -1,19 +1,19 @@
-"use client";
+'use client';
 
-import { useEffect, useState, type ReactNode } from "react";
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { useEffect, useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import { ChevronRight } from 'lucide-react';
 
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
-import { formatPriceCents, percentOff } from "../format";
+import { formatPriceCents, percentOff } from '../format';
 import type {
   PromoSlideLayout,
   PublicPromoSlide,
   PublicPromoSlideOffer,
   PublicPromoSlideProduct,
-} from "../types";
-import { slideThemeStyle } from "./themes";
+} from '../types';
+import { slideThemeStyle } from './themes';
 
 export function PromoHref({
   href,
@@ -31,7 +31,7 @@ export function PromoHref({
   }
   const external = /^https?:\/\//i.test(href);
   const linkClass = cn(
-    "pointer-events-auto outline-none focus-visible:ring-2 focus-visible:ring-[var(--slide-fg)]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+    'pointer-events-auto outline-none focus-visible:ring-2 focus-visible:ring-[var(--slide-fg)]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent',
     className
   );
   if (external) {
@@ -65,7 +65,7 @@ export function SlideShell({
   return (
     <div
       className={cn(
-        "relative h-full min-h-[16.5rem] overflow-hidden sm:min-h-[18.5rem] lg:min-h-[20rem]",
+        'relative h-full min-h-[16.5rem] overflow-hidden sm:min-h-[18.5rem] lg:min-h-[20rem]',
         className
       )}
       style={slideThemeStyle(slide.theme)}
@@ -75,7 +75,7 @@ export function SlideShell({
         <PromoHref
           href={slide.slideHref}
           className="absolute inset-0 z-0"
-          ariaLabel={slide.title || "Promotion"}
+          ariaLabel={slide.title || 'Promotion'}
         />
       ) : null}
       <div className="relative z-10 h-full pointer-events-none">{children}</div>
@@ -84,25 +84,28 @@ export function SlideShell({
 }
 
 export function SlidePattern({ layout }: { layout: PromoSlideLayout }) {
-  if (layout === "legacy") return null;
+  if (layout === 'legacy') return null;
 
-if (layout === "split_products") {
-  return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden>
-      <div
-        className="absolute inset-0 opacity-40"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(90deg, transparent 0, transparent 33px, var(--slide-pattern) 33px, var(--slide-pattern) 66px)",
-        }}
-      />
-    </div>
-  );
-}
-
-  if (layout === "welcome_deal") {
+  if (layout === 'split_products') {
     return (
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        <div
+          className="absolute inset-0 opacity-40"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(90deg, transparent 0, transparent 33px, var(--slide-pattern) 33px, var(--slide-pattern) 66px)',
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (layout === 'welcome_deal') {
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        aria-hidden
+      >
         <span className="absolute -top-8 -left-6 size-28 rounded-full bg-[var(--slide-pattern)]" />
         <span className="absolute top-6 left-10 size-3 rotate-45 bg-[var(--slide-fg)]/30" />
         <span className="absolute bottom-8 left-8 size-16 rounded-full border-4 border-[var(--slide-pattern)]" />
@@ -113,31 +116,34 @@ if (layout === "split_products") {
     );
   }
 
-  if (layout === "flash_row") {
+  if (layout === 'flash_row') {
     return (
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden
         style={{
           backgroundImage:
-            "radial-gradient(circle at 1px 1px, var(--slide-pattern) 1px, transparent 0)",
-          backgroundSize: "18px 18px",
+            'radial-gradient(circle at 1px 1px, var(--slide-pattern) 1px, transparent 0)',
+          backgroundSize: '18px 18px',
         }}
       />
     );
   }
 
-  if (layout === "stack_showcase") {
+  if (layout === 'stack_showcase') {
     return (
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <div
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        aria-hidden
+      >
         <span className="absolute -left-10 top-8 size-40 rounded-full bg-[var(--slide-pattern)]" />
         <span className="absolute right-10 -bottom-12 size-52 rounded-full bg-[var(--slide-pattern)]" />
         <div
           className="absolute inset-0 opacity-40"
           style={{
             backgroundImage:
-              "linear-gradient(var(--slide-pattern) 1px, transparent 1px), linear-gradient(90deg, var(--slide-pattern) 1px, transparent 1px)",
-            backgroundSize: "28px 28px",
+              'linear-gradient(var(--slide-pattern) 1px, transparent 1px), linear-gradient(90deg, var(--slide-pattern) 1px, transparent 1px)',
+            backgroundSize: '28px 28px',
           }}
         />
       </div>
@@ -150,7 +156,7 @@ if (layout === "split_products") {
       aria-hidden
       style={{
         backgroundImage:
-          "radial-gradient(circle at 20% 20%, var(--slide-pattern) 0 18%, transparent 19%), radial-gradient(circle at 80% 80%, var(--slide-pattern) 0 14%, transparent 15%)",
+          'radial-gradient(circle at 20% 20%, var(--slide-pattern) 0 18%, transparent 19%), radial-gradient(circle at 80% 80%, var(--slide-pattern) 0 14%, transparent 15%)',
       }}
     />
   );
@@ -159,11 +165,11 @@ if (layout === "split_products") {
 export function SlideCountdown({
   endsAt,
   className,
-  variant = "text",
+  variant = 'text',
 }: {
   endsAt?: string;
   className?: string;
-  variant?: "text" | "badge";
+  variant?: 'text' | 'badge';
 }) {
   const [now, setNow] = useState(() => Date.now());
 
@@ -178,8 +184,8 @@ export function SlideCountdown({
   if (!Number.isFinite(end)) return null;
   const diff = end - now;
   const badge =
-    variant === "badge"
-      ? "inline-flex w-fit bg-[var(--slide-accent)] px-2 py-0.5 text-[11px] font-medium text-[var(--slide-cta-fg)] sm:text-xs"
+    variant === 'badge'
+      ? 'inline-flex w-fit bg-[var(--slide-accent)] px-2 py-0.5 text-[11px] font-medium text-[var(--slide-cta-fg)] sm:text-xs'
       : undefined;
   if (diff <= 0) {
     return <span className={cn(badge, className)}>Sale ended</span>;
@@ -190,7 +196,7 @@ export function SlideCountdown({
   const hours = Math.floor((totalSec % 86400) / 3600);
   const minutes = Math.floor((totalSec % 3600) / 60);
   const seconds = totalSec % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
+  const pad = (n: number) => String(n).padStart(2, '0');
   const label =
     days > 0
       ? `Ends in ${days}d ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
@@ -220,7 +226,7 @@ export function SlideTitle({
   const inner = (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1.5 text-balance wrap-break-word",
+        'inline-flex max-w-full items-center gap-1.5 text-balance wrap-break-word',
         className
       )}
     >
@@ -254,8 +260,8 @@ export function SlideCta({
     <PromoHref
       href={href}
       className={cn(
-        "inline-flex w-fit shrink-0 items-center justify-center bg-[var(--slide-accent)] px-4 py-2 text-sm lg:text-[18px] lg:text-xl font-semibold text-[var(--slide-cta-fg)] shadow-sm transition-opacity hover:opacity-90",
-        !href && "pointer-events-none",
+        'inline-flex w-fit shrink-0 items-center justify-center bg-[var(--slide-accent)] px-4 py-2 text-sm lg:text-[18px] lg:text-xl font-semibold text-[var(--slide-cta-fg)] shadow-sm transition-opacity hover:opacity-90',
+        !href && 'pointer-events-none',
         className
       )}
     >
@@ -272,25 +278,25 @@ function discountText(product: PublicPromoSlideProduct): string | null {
 
 export function ProductTile({
   product,
-  variant = "card",
+  variant = 'card',
   priority = false,
   className,
 }: {
   product: PublicPromoSlideProduct;
-  variant?: "card" | "compact" | "featured" | "polaroid" | "hero";
+  variant?: 'card' | 'compact' | 'featured' | 'polaroid' | 'hero';
   priority?: boolean;
   className?: string;
 }) {
   const price = formatPriceCents(product.price);
-  const was = product.onSale ? formatPriceCents(product.compareAtPrice) : "";
+  const was = product.onSale ? formatPriceCents(product.compareAtPrice) : '';
   const off = discountText(product);
 
-  if (variant === "featured") {
+  if (variant === 'featured') {
     return (
       <PromoHref
         href={product.href}
         className={cn(
-          "flex min-w-0 items-stretch overflow-hidden bg-background text-foreground shadow-sm ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5",
+          'flex min-w-0 items-stretch overflow-hidden bg-background text-foreground shadow-sm ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5',
           className
         )}
         ariaLabel={product.name}
@@ -312,12 +318,12 @@ export function ProductTile({
     );
   }
 
-  if (variant === "polaroid") {
+  if (variant === 'polaroid') {
     return (
       <PromoHref
         href={product.href}
         className={cn(
-          "relative block bg-background p-1.5 text-foreground shadow-md ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5",
+          'relative block bg-background p-1.5 text-foreground shadow-md ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5',
           className
         )}
         ariaLabel={product.name}
@@ -343,12 +349,12 @@ export function ProductTile({
     );
   }
 
-  if (variant === "hero") {
+  if (variant === 'hero') {
     return (
       <PromoHref
         href={product.href}
         className={cn(
-          "relative block overflow-hidden bg-background text-foreground shadow-md ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5",
+          'relative block overflow-hidden bg-background text-foreground shadow-md ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5',
           className
         )}
         ariaLabel={product.name}
@@ -369,7 +375,7 @@ export function ProductTile({
     <PromoHref
       href={product.href}
       className={cn(
-        "flex min-w-0 flex-col overflow-hidden bg-background text-foreground shadow-sm ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5",
+        'flex min-w-0 flex-col overflow-hidden bg-background text-foreground shadow-sm ring-1 ring-foreground/10 transition-transform hover:-translate-y-0.5',
         className
       )}
       ariaLabel={product.name}
@@ -405,7 +411,13 @@ function ProductImage({
   product: PublicPromoSlideProduct;
   priority?: boolean;
 }) {
-  if (!product.imageUrl) {
+  const image = Array.isArray(product.images)
+    ? product.images.find((entry) => entry?.url)
+    : null;
+  const imageUrl = image?.url ?? product.imageUrl;
+  const imageAlt = image?.alt ?? product.imageAlt ?? product.name;
+
+  if (!imageUrl) {
     return (
       <div className="flex size-full items-center justify-center text-[10px] text-muted-foreground">
         No image
@@ -415,11 +427,11 @@ function ProductImage({
   return (
     // eslint-disable-next-line @next/next/no-img-element -- product URLs from R2 / CDN
     <img
-      src={`${product.imageUrl}_480x480q75.jpg_.avif`}
-      alt={product.imageAlt || product.name}
+      src={imageUrl}
+      alt={imageAlt}
       className="size-full object-cover"
-      loading={priority ? "eager" : "lazy"}
-      fetchPriority={priority ? "high" : "low"}
+      loading={priority ? 'eager' : 'lazy'}
+      fetchPriority={priority ? 'high' : 'low'}
     />
   );
 }
@@ -434,7 +446,7 @@ export function OfferTile({
   const inner = (
     <div
       className={cn(
-        "flex h-full min-w-0 flex-col items-center justify-center px-1.5 py-2 text-center sm:px-2",
+        'flex h-full min-w-0 flex-col items-center justify-center px-1.5 py-2 text-center sm:px-2',
         className
       )}
     >
