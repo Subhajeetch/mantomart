@@ -13,8 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ProxiedImg } from '@/util/proxied-image';
 import { cn } from '@/lib/utils';
 
@@ -38,7 +36,7 @@ type AeMediaDialogProps = {
   existingImageUrls?: string[];
   currentMainVideo?: string | null;
   currentSizeChartImage?: string | null;
-  onAddImages?: (images: Array<{ url: string; alt: string }>) => void;
+  onAddImages?: (images: Array<{ url: string }>) => void;
   onSelectVideo?: (url: string | null) => void;
   onSelectSizeChart?: (url: string | null) => void;
 };
@@ -48,7 +46,6 @@ export function AeMediaDialog({
   onOpenChange,
   mode,
   aeProductId,
-  productName,
   existingImageUrls = [],
   currentMainVideo = null,
   currentSizeChartImage = null,
@@ -67,7 +64,6 @@ export function AeMediaDialog({
   const [selectedSizeChart, setSelectedSizeChart] = useState<string | null>(
     null
   );
-  const [altDraft, setAltDraft] = useState(productName.slice(0, 120));
 
   const existingKeys = useMemo(
     () => new Set(existingImageUrls.map(imageDedupeKey)),
@@ -117,12 +113,10 @@ export function AeMediaDialog({
     setSelectedUrls(new Set());
     setSelectedVideo(currentMainVideo);
     setSelectedSizeChart(currentSizeChartImage);
-    setAltDraft(productName.trim().slice(0, 120) || 'Product image');
     void load();
   }, [
     open,
     load,
-    productName,
     currentMainVideo,
     currentSizeChartImage,
   ]);
@@ -136,7 +130,7 @@ export function AeMediaDialog({
 
   const description =
     mode === 'images'
-      ? 'Pick gallery or detail images from the linked AliExpress product. Alt text defaults to the product name.'
+      ? 'Pick gallery or detail images from the linked AliExpress product. Assign a colour on the media step for alt text.'
       : mode === 'video'
         ? 'Choose a video from the linked AliExpress product, or clear the current one.'
         : 'Pick an image from AliExpress (detail images often include size charts).';
@@ -157,10 +151,7 @@ export function AeMediaDialog({
         toast.error('Select at least one image.');
         return;
       }
-      const alt = altDraft.trim().slice(0, 120) || productName.slice(0, 120);
-      onAddImages?.(
-        Array.from(selectedUrls).map((url) => ({ url, alt }))
-      );
+      onAddImages?.(Array.from(selectedUrls).map((url) => ({ url })));
       toast.success(
         selectedUrls.size === 1
           ? 'Image added.'
@@ -237,20 +228,6 @@ export function AeMediaDialog({
 
               {mode === 'images' ? (
                 <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ae-img-alt">Alt text (for selected)</Label>
-                    <Input
-                      id="ae-img-alt"
-                      value={altDraft}
-                      maxLength={120}
-                      onChange={(e) => setAltDraft(e.target.value)}
-                      placeholder="Product name"
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      Defaults to the product title. Applied to every image you
-                      add in this batch.
-                    </p>
-                  </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                     {images.map((url) => {
                       const already = existingKeys.has(imageDedupeKey(url));

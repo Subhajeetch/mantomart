@@ -37,6 +37,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 
 import {
+  composeProductImageAlt,
   flattenCategories,
   formatCentsRange,
   formatEstProfitRange,
@@ -113,7 +114,7 @@ function ProductCard({
               src={image}
               width={400}
               height={400}
-              alt={product.images[0]?.alt || product.name}
+              alt={composeProductImageAlt(product.name, product.images[0])}
               className="h-full w-full transition duration-200 group-hover:scale-[1.02]"
             />
           ) : (

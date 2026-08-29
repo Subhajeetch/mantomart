@@ -32,12 +32,16 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { ProxiedImg } from '@/util/proxied-image';
 
+import { ImageForVariantSelect } from '../image-for-variant-select';
+import { composeProductImageAlt } from '../manage/utils';
+import {
+  getColorVariantOptions,
+  type ColorVariantOption,
+} from './import-wizard-utils';
 import type { ImportFormState, ProductImageForm, ProductVideoForm } from './storage';
 
 // ─── Image thumbnail with load-error fallback ─────────────────────────────────
@@ -98,14 +102,16 @@ function SortableMediaImageRow({
   image,
   index,
   productName,
-  onAltChange,
+  colorOptions,
+  onForVariantChange,
   onToggleSelected,
 }: {
   id: string;
   image: ProductImageForm;
   index: number;
   productName: string;
-  onAltChange: (alt: string) => void;
+  colorOptions: ColorVariantOption[];
+  onForVariantChange: (forVariant: string | undefined) => void;
   onToggleSelected: () => void;
 }) {
   const {
@@ -153,7 +159,10 @@ function SortableMediaImageRow({
       <div className="relative aspect-square w-full overflow-hidden rounded-md bg-muted">
         <MediaImagePreview
           src={image.url}
-          alt={image.alt || productName || `Product image ${index + 1}`}
+          alt={
+            composeProductImageAlt(productName, image) ||
+            `Product image ${index + 1}`
+          }
         />
         {isThumbnail ? (
           <Badge
@@ -167,26 +176,23 @@ function SortableMediaImageRow({
 
       <div className="min-w-0 space-y-0.5 self-center sm:space-y-1">
         <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-          <Label
-            htmlFor={`img-alt-${id}`}
-            className="text-[9px] leading-none text-muted-foreground sm:text-xs"
-          >
-            Alt · #{index + 1}
-          </Label>
           {isThumbnail ? (
             <span className="text-[9px] font-medium leading-none text-primary sm:text-[11px]">
               Thumbnail
             </span>
-          ) : null}
+          ) : (
+            <span className="text-[9px] leading-none text-muted-foreground sm:text-xs">
+              #{index + 1}
+            </span>
+          )}
         </div>
-        <Input
-          id={`img-alt-${id}`}
-          value={image.alt}
-          onChange={(e) => onAltChange(e.target.value)}
-          placeholder="Alt text for SEO"
-          className="h-6 px-1.5 text-[11px] sm:h-8 sm:px-3 sm:text-sm md:h-9"
-          maxLength={200}
-          aria-label={`Alt text for image ${index + 1}`}
+        <ImageForVariantSelect
+          id={`img-variant-${id}`}
+          value={image.forVariant}
+          options={colorOptions}
+          productName={productName}
+          onChange={onForVariantChange}
+          label="Colour for alt text"
         />
         {!hasUrl ? (
           <p className="flex items-center gap-1 text-[10px] text-destructive">
@@ -283,6 +289,10 @@ export function ImportWizardMedia({
 
   const includeVideo = Boolean(form.mainVideo);
   const hasVideos = form.videos.length > 0;
+  const colorOptions = useMemo(
+    () => getColorVariantOptions(form.skus),
+    [form.skus]
+  );
   const imagesWithoutUrl = useMemo(
     () => form.productImages.filter((img) => !img.url?.trim()).length,
     [form.productImages]
@@ -365,7 +375,8 @@ export function ImportWizardMedia({
               </h3>
               <p className="text-xs text-muted-foreground">
                 Drag the grip to reorder. The first image is always the
-                storefront thumbnail. Toggle selection and set alt text for SEO.
+                storefront thumbnail. Pick a colour so alt text becomes
+                product name + colour.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -424,11 +435,12 @@ export function ImportWizardMedia({
                         image={image}
                         index={index}
                         productName={form.name}
-                        onAltChange={(alt) =>
+                        colorOptions={colorOptions}
+                        onForVariantChange={(forVariant) =>
                           updateForm((prev) => ({
                             ...prev,
                             productImages: prev.productImages.map((img, i) =>
-                              i === index ? { ...img, alt } : img
+                              i === index ? { ...img, forVariant } : img
                             ),
                           }))
                         }

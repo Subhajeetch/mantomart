@@ -48,7 +48,11 @@ export type SavedAliExpressProduct = {
 
 export type ProductImageForm = {
   url: string;
-  alt: string;
+  /**
+   * Colour / visual-variant label. Storefront alt = productName + forVariant.
+   * `null` means the admin explicitly chose no colour; `undefined` is unset.
+   */
+  forVariant?: string;
   variantKeys?: string[];
   position?: number;
   selected?: boolean;

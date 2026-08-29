@@ -188,7 +188,13 @@ export function optimisedPairUrl(fullUrl: string): string {
 }
 
 export function mergeGalleryWithOptimised<
-  T extends { url: string; position?: number; isOp?: boolean },
+  T extends {
+    url: string;
+    position?: number;
+    isOp?: boolean;
+    forVariant?: string | null;
+    variantKeys?: string[];
+  },
 >(gallery: T[], optimised: T[]): T[] {
   const reindexed = gallery.map((img, index) => ({ ...img, position: index }));
   const nextOp: T[] = [];
@@ -198,8 +204,11 @@ export function mergeGalleryWithOptimised<
       (g) => g.url === fullUrl || optimisedPairUrl(g.url) === img.url
     );
     if (match < 0) continue;
+    const full = reindexed[match];
     nextOp.push({
       ...img,
+      forVariant: full?.forVariant,
+      variantKeys: full?.variantKeys ?? img.variantKeys,
       position: match,
       isOp: true,
     });

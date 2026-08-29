@@ -86,10 +86,18 @@ import {
   type ProductAttribute,
   type ProductDetail,
   type ProductDetailMeta,
+  composeProductImageAlt,
   type ProductImage,
   type ProductPayload,
 } from '../../manage/utils';
 import { streamHostImages } from '../../host-images-stream';
+import { ImageForVariantSelect } from '../../image-for-variant-select';
+import {
+  getColorVariantOptions,
+  getSkuColorValue,
+  hydrateImageForVariant,
+  type ColorVariantOption,
+} from '../../add/import-wizard-utils';
 
 import { AeMediaDialog } from './ae-media-dialog';
 import {
@@ -187,13 +195,17 @@ function SortableImageRow({
   id,
   image,
   index,
-  onAltChange,
+  productName,
+  colorOptions,
+  onForVariantChange,
   onRemove,
 }: {
   id: string;
   image: ProductImage;
   index: number;
-  onAltChange: (alt: string) => void;
+  productName: string;
+  colorOptions: ColorVariantOption[];
+  onForVariantChange: (forVariant: string | undefined) => void;
   onRemove: () => void;
 }) {
   const {
@@ -232,7 +244,7 @@ function SortableImageRow({
         {image.url ? (
           <CustomImage
             src={image.url}
-            alt={image.alt || 'Product image'}
+            alt={composeProductImageAlt(productName, image) || 'Product image'}
             sizes="96px"
             className="object-cover"
           />
@@ -243,13 +255,17 @@ function SortableImageRow({
         )}
       </div>
       <div className="space-y-1.5 self-center">
-        <Label className="text-xs text-muted-foreground">
-          Alt text · position {index + 1} {(index === 0 && '- Thumbnail') || ''}
-        </Label>
-        <Input
-          value={image.alt}
-          onChange={(e) => onAltChange(e.target.value)}
-          placeholder="Alt text for SEO"
+        <ImageForVariantSelect
+          id={`edit-img-variant-${id}`}
+          value={image.forVariant}
+          options={colorOptions}
+          productName={productName}
+          onChange={onForVariantChange}
+          label={
+            index === 0
+              ? `Colour for alt text · position ${index + 1} — Thumbnail`
+              : `Colour for alt text · position ${index + 1}`
+          }
         />
       </div>
       <Button
@@ -404,6 +420,10 @@ export default function ProductEditPage() {
   }, [flatCategories, categorySearch]);
 
   const derivedSlug = useMemo(() => slugify(form?.name ?? ''), [form?.name]);
+  const colorOptions = useMemo(
+    () => getColorVariantOptions(form?.skus ?? []),
+    [form?.skus]
+  );
 
   const isDirty = useMemo(() => {
     if (!form) return false;
@@ -464,12 +484,21 @@ export default function ProductEditPage() {
 
   const applyLoadedProduct = useCallback((data: ProductDetail) => {
     const normalized = normalizeProductPayload(data);
+    const colorOptions = getColorVariantOptions(normalized.skus);
     const payload = {
       ...normalized,
-      images: galleryImagesForEditor(normalized.images),
+      images: galleryImagesForEditor(normalized.images).map((img) =>
+        hydrateImageForVariant(img, colorOptions, normalized.name)
+      ),
       skus: normalized.skus.map((sku) => ({
         ...sku,
-        images: galleryImagesForEditor(sku.images),
+        images: galleryImagesForEditor(sku.images).map((img) =>
+          hydrateImageForVariant(
+            img,
+            getColorVariantOptions([sku]),
+            normalized.name
+          )
+        ),
       })),
     };
     const md = htmlToMarkdown(payload.mobileDetail);
@@ -683,9 +712,9 @@ export default function ProductEditPage() {
       const html = await markdownToHtml(mobileDetailMarkdown);
       const cleanImages = form.images
         .map((image, index) => ({
-          ...image,
           url: image.url.trim(),
-          alt: image.alt.trim() || form.name.trim().slice(0, 120),
+          forVariant: image.forVariant?.trim() || undefined,
+          variantKeys: image.variantKeys,
           position: index,
           isOp: image.isOp === true ? true : undefined,
         }))
@@ -712,7 +741,7 @@ export default function ProductEditPage() {
         metaTitle: nullable(form.metaTitle ?? ''),
         metaDescription: nullable(form.metaDescription ?? ''),
         productNotes: nullable(form.productNotes ?? ''),
-        images: mergeGalleryWithOptimised(
+        images: mergeGalleryWithOptimised<ProductImage>(
           cleanImages,
           optimisedImagesRef.current
         ),
@@ -722,6 +751,14 @@ export default function ProductEditPage() {
           sku: nullable(sku.sku ?? ''),
           aeSkuId: nullable(sku.aeSkuId ?? ''),
           aeSkuAttr: nullable(sku.aeSkuAttr ?? ''),
+          images: (sku.images ?? []).map((img, index) => ({
+            url: img.url,
+            forVariant:
+              img.forVariant?.trim() || getSkuColorValue(sku) || undefined,
+            variantKeys: img.variantKeys,
+            position: img.position ?? index,
+            isOp: img.isOp === true ? true : undefined,
+          })),
           properties: sku.properties.map((property) => ({
             ...property,
             propertyName: property.propertyName.trim(),
@@ -1270,8 +1307,9 @@ export default function ProductEditPage() {
                           Images ({form.images.length})
                         </h2>
                         <p className="text-xs text-muted-foreground">
-                          Drag the grip to reorder. Add images from the linked
-                          AliExpress product.
+                          Drag the grip to reorder. Pick a colour so alt text
+                          becomes product name + colour. Add images from the
+                          linked AliExpress product.
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -1348,10 +1386,17 @@ export default function ProductEditPage() {
                                 id={imageIds[index]!}
                                 image={image}
                                 index={index}
-                                onAltChange={(alt) =>
+                                productName={form.name}
+                                colorOptions={colorOptions}
+                                onForVariantChange={(forVariant) =>
                                   updateForm({
                                     images: form.images.map((img, i) =>
-                                      i === index ? { ...img, alt } : img
+                                      i === index
+                                        ? {
+                                            ...img,
+                                            forVariant: forVariant ?? undefined,
+                                          }
+                                        : img
                                     ),
                                   })
                                 }
@@ -1943,7 +1988,7 @@ export default function ProductEditPage() {
               .filter((img) => !existing.has(imageDedupeKey(img.url)))
               .map((img, i) => ({
                 url: img.url,
-                alt: img.alt,
+                forVariant: undefined as string | undefined,
                 position: form.images.length + i,
               }));
             if (!additions.length) return;

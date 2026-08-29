@@ -72,6 +72,7 @@ import {
   validateStep,
   WIZARD_STEPS,
 } from './import-wizard-utils';
+import { composeProductImageAlt } from '../manage/utils';
 import { ImportWizardMedia } from './import-wizard-media';
 import { ImportWizardVariants } from './import-wizard-variants';
 import AiSeoSheet, { type AiSeoApplyPayload } from './ai-seo-sheet';
@@ -1953,7 +1954,10 @@ export default function ImportWizard({
                     >
                       <ProxiedImg
                         src={img.url}
-                        alt={img.alt || `Product image ${index + 1}`}
+                        alt={
+                          composeProductImageAlt(form.name, img) ||
+                          `Product image ${index + 1}`
+                        }
                         className="h-full w-full object-contain"
                         loading="lazy"
                         referrerPolicy="no-referrer"

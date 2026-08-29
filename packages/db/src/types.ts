@@ -5,6 +5,7 @@ import type {
   productAttributes,
   productCategories,
   ProductImage,
+  ProductImageRecord,
   ProductVideo,
 } from "./schema/products";
 import type { categories } from "./schema/categories";
@@ -14,7 +15,7 @@ import type {
   adminStatsSync,
 } from "./schema/admin-stats";
 
-export type { ProductImage, ProductVideo };
+export type { ProductImage, ProductImageRecord, ProductVideo };
 
 // ─── Inferred row types ───────────────────────────────────────────────────────
 

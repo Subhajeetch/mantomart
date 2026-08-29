@@ -2,12 +2,37 @@
 
 export type ProductImage = {
   url: string;
-  alt: string;
+  /**
+   * Colour / visual-variant label used to compose image alt text as
+   * `productName + forVariant`. Size values (S, M, L, XXL) are not stored here.
+   */
+  forVariant?: string;
   variantKeys?: string[];
   position?: number;
   /** isOptimised — smaller card-sized copy hosted alongside the full image. */
   isOp?: boolean;
+  /** Legacy field from products saved before `forVariant`. Not written anymore. */
+  alt?: string;
 };
+
+/**
+ * Compose the HTML `alt` attribute for a product image.
+ * Prefer `productName + forVariant`. Fall back to a legacy stored `alt`
+ * then the product name alone. Keep in sync with `@repo/db` composeProductImageAlt.
+ */
+export function composeProductImageAlt(
+  productName: string,
+  image: Pick<ProductImage, 'forVariant' | 'alt'> | null | undefined
+): string {
+  const name = (productName ?? '').trim();
+  const variant = image?.forVariant?.trim();
+  if (variant) {
+    return name ? `${name} ${variant}` : variant;
+  }
+  const legacy = typeof image?.alt === 'string' ? image.alt.trim() : '';
+  if (legacy) return legacy;
+  return name;
+}
 
 export type ProductVideo = {
   url: string;

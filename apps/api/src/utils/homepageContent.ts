@@ -2,6 +2,7 @@ import { and, asc, eq, gt, inArray, min, or } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import {
   categories,
+  composeProductImageAlt,
   homepageBlocks,
   isHomepageBlockType,
   productCategories,
@@ -13,6 +14,7 @@ import {
   type HomepageBlockConfig,
   type HomepageBlockType,
   type ProductImage,
+  type ProductImageRecord,
 } from '@repo/db';
 import kvManager from '@/utils/kvManager';
 import {
@@ -277,7 +279,8 @@ function sortByPosition<T extends { position: number; id: string }>(
 }
 
 function primaryImage(
-  images: ProductImage[] | null | undefined
+  images: ProductImage[] | null | undefined,
+  productName = ''
 ): { url: string; alt: string } | null {
   if (!Array.isArray(images) || images.length === 0) return null;
   const sorted = [...images].sort((a, b) => {
@@ -289,8 +292,10 @@ function primaryImage(
     if (!img || typeof img.url !== 'string') continue;
     const url = img.url.trim();
     if (!url) continue;
-    const alt = typeof img.alt === 'string' ? img.alt.trim() : '';
-    return { url, alt };
+    return {
+      url,
+      alt: composeProductImageAlt(productName, img as ProductImageRecord),
+    };
   }
   return null;
 }
@@ -332,9 +337,10 @@ function optionalTrimmed(
 function publicImages(
   images: ProductImage[] | null | undefined,
   env: Env,
-  options?: R2UrlOptions
+  options?: R2UrlOptions,
+  productName = ''
 ): PublicProductCardImage[] {
-  return productCardImagesForClient(images, env, options);
+  return productCardImagesForClient(images, env, options, productName);
 }
 
 function normalizePayloadImages(
@@ -346,7 +352,7 @@ function normalizePayloadImages(
     if (!img || typeof img.url !== 'string') continue;
     const url = img.url.trim();
     if (!url) continue;
-    const alt = typeof img.alt === 'string' ? img.alt.trim() : '';
+    const alt = composeProductImageAlt('', img as ProductImageRecord);
     const position =
       typeof img.position === 'number' && Number.isFinite(img.position)
         ? img.position
@@ -672,8 +678,8 @@ function toPublicProductCard(
   env: Env,
   options?: R2UrlOptions
 ): PublicProductCard {
-  const images = publicImages(row.images, env, options);
-  const img = images[0] ?? primaryImage(row.images);
+  const images = publicImages(row.images, env, options, row.name);
+  const img = images[0] ?? primaryImage(row.images, row.name);
   const imageUrl = img?.url
     ? resolveProductImageUrlForClient(img.url, env, options)
     : null;

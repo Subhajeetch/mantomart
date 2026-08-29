@@ -667,7 +667,12 @@ export async function loadPublishedProductCardsByIds(
   }
 
   for (const row of rows) {
-    const images = productCardImagesForClient(row.images, env, options);
+    const images = productCardImagesForClient(
+      row.images,
+      env,
+      options,
+      row.name
+    );
     const img = images[0] ?? null;
     const pricing = bestByProduct.get(row.id);
     const price = pricing?.price ?? null;
@@ -1067,7 +1072,12 @@ export async function searchHomepageProducts(
   );
 
   return rows.map((row) => {
-    const images = productCardImagesForClient(row.images, env, options);
+    const images = productCardImagesForClient(
+      row.images,
+      env,
+      options,
+      row.name
+    );
     const img = images[0] ?? null;
     const pricing = priceByProduct.get(row.id);
     return {

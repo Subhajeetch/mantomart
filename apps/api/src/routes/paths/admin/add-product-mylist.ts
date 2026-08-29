@@ -48,6 +48,7 @@ const MAX_META_DESCRIPTION_LENGTH = 320;
 const MAX_NOTES_LENGTH = 5000;
 const MAX_URL_LENGTH = 2048;
 const MAX_ALT_LENGTH = 300;
+const MAX_FOR_VARIANT_LENGTH = 80;
 const MAX_TAG_LENGTH = 64;
 const MAX_TAGS = 40;
 const MAX_IMAGES = 60;
@@ -303,9 +304,10 @@ function sanitizeProductImage(
   const url = sanitizeUrl(value.url);
   if (!url) return null;
 
-  let alt = '';
-  if (typeof value.alt === 'string') {
-    alt = truncate(value.alt.trim(), MAX_ALT_LENGTH);
+  let forVariant: string | undefined;
+  if (typeof value.forVariant === 'string') {
+    const trimmed = truncate(value.forVariant.trim(), MAX_FOR_VARIANT_LENGTH);
+    if (trimmed) forVariant = trimmed;
   }
 
   let variantKeys: string[] | undefined;
@@ -324,7 +326,7 @@ function sanitizeProductImage(
   const persistedUrl = persistProductImageUrl(url);
   const isOp = value.isOp === true ? true : undefined;
 
-  return { url: persistedUrl, alt, variantKeys, position, isOp };
+  return { url: persistedUrl, forVariant, variantKeys, position, isOp };
 }
 
 function sanitizeProductVideo(value: unknown): ProductVideo | null {

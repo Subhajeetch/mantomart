@@ -68,6 +68,7 @@ const MAX_META_DESCRIPTION_LENGTH = 320;
 const MAX_NOTES_LENGTH = 5000;
 const MAX_URL_LENGTH = 2048;
 const MAX_ALT_LENGTH = 300;
+const MAX_FOR_VARIANT_LENGTH = 80;
 const MAX_TAG_LENGTH = 64;
 const MAX_TAGS = 40;
 const MAX_IMAGES = 60;
@@ -312,8 +313,11 @@ function sanitizeProductImage(value: unknown, index: number): ProductImage | nul
   if (!isRecord(value)) return null;
   const url = sanitizeUrl(value.url);
   if (!url) return null;
-  const alt =
-    typeof value.alt === 'string' ? truncate(value.alt.trim(), MAX_ALT_LENGTH) : '';
+  let forVariant: string | undefined;
+  if (typeof value.forVariant === 'string') {
+    const trimmed = truncate(value.forVariant.trim(), MAX_FOR_VARIANT_LENGTH);
+    if (trimmed) forVariant = trimmed;
+  }
   let variantKeys: string[] | undefined;
   if (Array.isArray(value.variantKeys)) {
     const keys = value.variantKeys
@@ -325,7 +329,7 @@ function sanitizeProductImage(value: unknown, index: number): ProductImage | nul
   }
   return {
     url: persistProductImageUrl(url),
-    alt,
+    forVariant,
     variantKeys,
     position: sanitizeInteger(value.position, { min: 0, max: 10_000 }) ?? index,
     isOp: value.isOp === true ? true : undefined,
@@ -1127,7 +1131,7 @@ manageProducts.get(
                   {
                     url:
                       resolveStoredImageUrl(firstImage.url, c) ?? firstImage.url,
-                    alt: firstImage.alt ?? '',
+                    forVariant: firstImage.forVariant,
                     isOp: firstImage.isOp === true ? true : undefined,
                   },
                 ]

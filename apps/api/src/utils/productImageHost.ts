@@ -12,7 +12,11 @@
  */
 
 import { nanoid } from 'nanoid';
-import type { ProductImage } from '@repo/db';
+import {
+  composeProductImageAlt,
+  type ProductImage,
+  type ProductImageRecord,
+} from '@repo/db';
 import type Env from '@/types/env';
 import {
   deleteFromR2,
@@ -343,7 +347,8 @@ function pairedOptimisedImage(
 export function productCardImagesForClient(
   images: ProductImage[] | null | undefined,
   env: Env,
-  options?: R2UrlOptions
+  options?: R2UrlOptions,
+  productName = ''
 ): ProductCardImageForClient[] {
   const fullImages = sortedProductImages(images, false);
   const optimised = sortedProductImages(images, true);
@@ -365,12 +370,14 @@ export function productCardImagesForClient(
     const url = resolveProductImageUrlForClient(chosen.url, env, options);
     if (!url) continue;
 
+    const chosenRecord = chosen as ProductImageRecord;
+    const fullRecord = full as ProductImageRecord;
     const alt =
-      typeof chosen.alt === 'string' && chosen.alt.trim()
-        ? chosen.alt.trim()
-        : typeof full.alt === 'string'
-          ? full.alt.trim()
-          : '';
+      composeProductImageAlt(productName, {
+        ...fullRecord,
+        forVariant: chosenRecord.forVariant || fullRecord.forVariant,
+        alt: chosenRecord.alt || fullRecord.alt,
+      }) || productName;
     const position = imagePosition(full, out.length);
     const item: ProductCardImageForClient = { url, alt, position };
     if (op) {
@@ -871,7 +878,7 @@ export async function hostProductImages(
       if (!wasHostedNow) continue;
       opGallery.push({
         url: opPath,
-        alt: img.alt,
+        forVariant: img.forVariant,
         variantKeys: img.variantKeys,
         position: img.position,
         isOp: true,

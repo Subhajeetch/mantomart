@@ -88,7 +88,7 @@ export function dedupeProductImages(
             ...(image.variantKeys ?? []),
           ]),
         ];
-        existing.alt = existing.alt || image.alt;
+        existing.forVariant = existing.forVariant ?? image.forVariant;
         existing.selected =
           existing.selected !== false || image.selected !== false;
       }
@@ -147,12 +147,24 @@ export function normalizeImportForm(form: ImportFormState): ImportFormState {
     []
   );
 
+  const colorOptions = getColorVariantOptions(rawSkus);
+
   return {
     ...form,
-    productImages: dedupeProductImages(rawImages),
+    productImages: dedupeProductImages(rawImages).map((img) =>
+      hydrateImageForVariant(img, colorOptions, form.name)
+    ),
     skus: rawSkus.map((sku) => ({
       ...sku,
-      images: dedupeProductImages(Array.isArray(sku.images) ? sku.images : []),
+      images: dedupeProductImages(
+        Array.isArray(sku.images) ? sku.images : []
+      ).map((img) =>
+        hydrateImageForVariant(
+          img,
+          getColorVariantOptions([sku]),
+          form.name
+        )
+      ),
     })),
     attributes,
   };
@@ -269,10 +281,8 @@ export function buildInitialForm(
   // Combined unique list: gallery first, then detail images (size charts often here)
   const allImageUrls = uniqueUrls([...galleryUrls, ...detailUrls]);
 
-  // Alt text starts empty; filled with step-1 title when user reaches variants step
   const productImages: ProductImageForm[] = allImageUrls.map((url, index) => ({
     url,
-    alt: '',
     position: index,
     selected: true,
     variantKeys: [],
@@ -310,7 +320,7 @@ export function buildInitialForm(
       .filter((p) => p.image)
       .map((p, i) => ({
         url: p.image as string,
-        alt: '',
+        forVariant: getSkuColorValue({ properties }),
         variantKeys,
         position: i,
         selected: true,
@@ -361,6 +371,8 @@ export function buildInitialForm(
     });
   }
 
+  const colorOptions = getColorVariantOptions(skus);
+
   // Link product images to variants by matching property images
   for (const img of productImages) {
     const matchingSkus = skus.filter((s) =>
@@ -379,6 +391,8 @@ export function buildInitialForm(
         ),
       ];
     }
+    const matched = matchImageToColorOption(img, colorOptions);
+    if (matched) img.forVariant = matched.value;
   }
 
   const attributes = toRecordArray(propertyWrapper.ae_item_property).map(
@@ -439,27 +453,16 @@ export function buildInitialForm(
   };
 }
 
-/** Apply step-1 title as fallback alt text without overwriting manual edits. */
+/** Apply step-1 title as fallback video alt without overwriting manual edits. */
 export function applyTitleToImageAlts(form: ImportFormState): ImportFormState {
   const alt = form.name.trim().slice(0, 120);
   if (!alt) return form;
 
   return {
     ...form,
-    productImages: form.productImages.map((img) => ({
-      ...img,
-      alt: img.alt.trim() || alt,
-    })),
     videos: form.videos.map((v) => ({
       ...v,
       alt: v.alt?.trim() || alt,
-    })),
-    skus: form.skus.map((sku) => ({
-      ...sku,
-      images: sku.images.map((img) => ({
-        ...img,
-        alt: img.alt.trim() || alt,
-      })),
     })),
   };
 }
@@ -467,12 +470,171 @@ export function applyTitleToImageAlts(form: ImportFormState): ImportFormState {
 // ─── Variant grouping (bulk-edit helpers for large SKU matrices) ──────────────
 
 /** Prefer grouping by visual options (color/style) over size/fit. */
+export const COLOR_PROPERTY_RE = /colou?r|цвет|farbe|couleur/i;
+export const SIZE_PROPERTY_RE = /size|尺寸|größe|taille|waist|length|fit/i;
+
 const GROUP_PROPERTY_PRIORITY: Array<{ test: RegExp; score: number }> = [
-  { test: /colou?r|colour|цвет|farbe|couleur/i, score: 100 },
+  { test: COLOR_PROPERTY_RE, score: 100 },
   { test: /style|pattern|print|design|model|type/i, score: 80 },
   { test: /material|fabric|finish/i, score: 60 },
-  { test: /size|尺寸|größe|taille|waist|length|fit/i, score: 20 },
+  { test: SIZE_PROPERTY_RE, score: 20 },
 ];
+
+export type VariantPropertyLike = {
+  propertyName: string;
+  value: string;
+  valueDefinitionName?: string | null;
+  image?: string | null;
+};
+
+export type ColorVariantOption = {
+  /** Colour / visual variant label stored on ProductImage.forVariant */
+  value: string;
+  image: string | null;
+};
+
+export function isColorLikePropertyName(propertyName: string): boolean {
+  return COLOR_PROPERTY_RE.test(propertyName);
+}
+
+export function isSizeLikePropertyName(propertyName: string): boolean {
+  return (
+    SIZE_PROPERTY_RE.test(propertyName) &&
+    !COLOR_PROPERTY_RE.test(propertyName)
+  );
+}
+
+/** Same label the variant grouping UI shows (definition name, else value). */
+export function propertyDisplayValue(prop: {
+  value: string;
+  valueDefinitionName?: string | null;
+}): string {
+  return prop.valueDefinitionName?.trim() || prop.value.trim() || '';
+}
+
+export function getColorVariantOptions(
+  skus: Array<{ properties?: VariantPropertyLike[] | null }>
+): ColorVariantOption[] {
+  const colorProps: VariantPropertyLike[] = [];
+  const visualProps: VariantPropertyLike[] = [];
+
+  for (const sku of skus) {
+    for (const prop of sku.properties ?? []) {
+      const name = prop.propertyName?.trim() ?? '';
+      if (!name) continue;
+      if (isSizeLikePropertyName(name)) continue;
+      if (isColorLikePropertyName(name)) {
+        colorProps.push(prop);
+      } else if (prop.image) {
+        visualProps.push(prop);
+      }
+    }
+  }
+
+  const source = colorProps.length > 0 ? colorProps : visualProps;
+  const seen = new Map<string, ColorVariantOption>();
+  for (const prop of source) {
+    const value = propertyDisplayValue(prop);
+    if (!value) continue;
+    const key = value.toLowerCase();
+    const existing = seen.get(key);
+    const image = prop.image?.trim() || null;
+    if (!existing) {
+      seen.set(key, { value, image });
+    } else if (!existing.image && image) {
+      existing.image = image;
+    }
+  }
+  return [...seen.values()];
+}
+
+export function getSkuColorValue(sku: {
+  properties?: VariantPropertyLike[] | null;
+}): string | undefined {
+  return getColorVariantOptions([sku])[0]?.value;
+}
+
+export function matchImageToColorOption(
+  image: { url?: string },
+  options: ColorVariantOption[]
+): ColorVariantOption | undefined {
+  const url = image.url?.trim();
+  if (!url) return undefined;
+  const key = getImageDedupeKey(url);
+  return options.find((o) => o.image && getImageDedupeKey(o.image) === key);
+}
+
+/**
+ * Fill `forVariant` from an explicit value, a matching colour swatch URL,
+ * or a legacy stored `alt`. `null` means the admin chose "no colour".
+ * Drops legacy `alt` so it is not persisted on the next save.
+ */
+export function hydrateImageForVariant<
+  T extends {
+    url: string;
+    forVariant?: string | null;
+    variantKeys?: string[];
+    alt?: string;
+  },
+>(image: T, options: ColorVariantOption[], productName: string): T {
+  const record = image as T & { alt?: string };
+  let forVariant: string | null | undefined = image.forVariant;
+  if (forVariant !== null) {
+    if (typeof forVariant === 'string' && forVariant.trim()) {
+      forVariant = forVariant.trim();
+    } else {
+      forVariant = inferForVariantFromLegacyAlt(image, options, productName);
+    }
+  }
+  const { alt: _legacy, ...rest } = record;
+  return { ...(rest as T), forVariant };
+}
+
+export function inferForVariantFromLegacyAlt(
+  image: {
+    forVariant?: string | null;
+    alt?: string;
+    url?: string;
+  },
+  options: ColorVariantOption[],
+  productName: string
+): string | undefined {
+  if (image.forVariant === null) return undefined;
+  if (typeof image.forVariant === 'string' && image.forVariant.trim()) {
+    return image.forVariant.trim();
+  }
+
+  const matched = matchImageToColorOption(image, options);
+  if (matched) return matched.value;
+
+  const legacy = image.alt?.trim();
+  if (!legacy || options.length === 0) return undefined;
+
+  const name = productName.trim();
+  if (name && legacy.toLowerCase() === name.toLowerCase()) return undefined;
+
+  if (name && legacy.toLowerCase().startsWith(name.toLowerCase())) {
+    const rest = legacy
+      .slice(name.length)
+      .replace(/^[\s\-–—,|:]+/, '')
+      .trim();
+    if (rest) {
+      const exact = options.find(
+        (o) => o.value.toLowerCase() === rest.toLowerCase()
+      );
+      if (exact) return exact.value;
+    }
+  }
+
+  let best: ColorVariantOption | undefined;
+  for (const option of options) {
+    const escaped = option.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?:^|\\W)${escaped}(?:$|\\W)`, 'i');
+    if (!re.test(legacy)) continue;
+    if (!best || option.value.length > best.value.length) best = option;
+  }
+  return best?.value;
+}
 
 export type SkuGroupDimension = {
   propertyName: string;
@@ -510,7 +672,7 @@ function getPropertyValue(sku: SkuDraft, propertyName: string): string | null {
     (p) => p.propertyName.toLowerCase() === propertyName.toLowerCase()
   );
   if (!prop) return null;
-  return prop.valueDefinitionName?.trim() || prop.value.trim() || null;
+  return propertyDisplayValue(prop) || null;
 }
 
 function getPropertyImage(sku: SkuDraft, propertyName: string): string | null {
@@ -891,7 +1053,7 @@ export function buildPublishPayload(form: ImportFormState) {
     .filter((i) => i.selected !== false)
     .map((img, index) => ({
       url: img.url,
-      alt: img.alt || form.name.slice(0, 120),
+      forVariant: img.forVariant?.trim() || undefined,
       variantKeys: img.variantKeys,
       position: index,
     }));
@@ -961,7 +1123,8 @@ export function buildPublishPayload(form: ImportFormState) {
         .filter((i) => i.selected !== false)
         .map((img, index) => ({
           url: img.url,
-          alt: img.alt || `${form.name} — ${sku.label}`.slice(0, 120),
+          forVariant:
+            img.forVariant?.trim() || getSkuColorValue(sku) || undefined,
           variantKeys: img.variantKeys ?? [sku.aeSkuId],
           position: img.position ?? index,
         })),

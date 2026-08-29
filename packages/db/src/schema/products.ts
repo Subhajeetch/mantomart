@@ -10,15 +10,22 @@ import { categories } from "./categories";
 import { users } from "./auth";
 
 // ─── Media types (JSON columns) ───────────────────────────────────────────────
-// Product gallery images carry alt text for SEO and optional variantKeys so the
-// storefront can filter the gallery when a variant (e.g. colour) is selected.
-// SKU rows also store their own images array for direct variant media.
+// Product gallery images carry an optional forVariant label so the storefront
+// can compose alt text as `productName + forVariant` (typically a colour name,
+// never a size like S/M/L). variantKeys let the gallery filter when a variant
+// is selected. SKU rows also store their own images array for variant media.
 
 export type ProductImage = {
   /** Absolute or protocol-relative image URL */
   url: string;
-  /** SEO / accessibility alt text */
-  alt: string;
+  /**
+   * Colour / visual-variant label used to compose image alt text as
+   * `productName + forVariant` (e.g. "Silk Scarf Red").
+   * Store only the colour (or other visual option) — not size values such as
+   * S, M, L, XXL. Omit when the image is not tied to a colour variant; alt
+   * then falls back to the product name alone.
+   */
+  forVariant?: string;
   /**
    * Optional keys that link this image to one or more variants.
    * Typical values: ae property value id, "propertyName:value", or aeSkuId.
@@ -29,6 +36,33 @@ export type ProductImage = {
   /** isOptimised — smaller card-sized copy hosted alongside the full image. */
   isOp?: boolean;
 };
+
+/**
+ * Images loaded from JSON may still carry a legacy `alt` field from products
+ * saved before `forVariant`. Never write `alt` on new/updated images.
+ */
+export type ProductImageRecord = ProductImage & {
+  alt?: string;
+};
+
+/**
+ * Compose the HTML `alt` attribute for a product image.
+ * Prefer `productName + forVariant`. Fall back to a legacy stored `alt`
+ * (pre-forVariant products) then the product name alone.
+ */
+export function composeProductImageAlt(
+  productName: string,
+  image: ProductImageRecord | null | undefined
+): string {
+  const name = (productName ?? "").trim();
+  const variant = image?.forVariant?.trim();
+  if (variant) {
+    return name ? `${name} ${variant}` : variant;
+  }
+  const legacy = typeof image?.alt === "string" ? image.alt.trim() : "";
+  if (legacy) return legacy;
+  return name;
+}
 
 export type ProductVideo = {
   url: string;
@@ -182,7 +216,8 @@ export const productSkus = sqliteTable("product_skus", {
   ),
 
   /**
-   * Images belonging to this variant (with alt text).
+   * Images belonging to this variant.
+   * Alt text is composed as `productName + forVariant` (see ProductImage).
    * Used on the storefront when a shopper selects this SKU.
    */
   images: text("images", { mode: "json" })

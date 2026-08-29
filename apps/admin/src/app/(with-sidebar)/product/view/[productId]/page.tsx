@@ -67,6 +67,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import {
+  composeProductImageAlt,
   formatCentsRange,
   formatDateTime,
   formatMoney,
@@ -356,7 +357,10 @@ function VariantsDialog({
                 <CustomImage
                   src={url}
                   alt={
-                    row.original.images?.[0]?.alt ||
+                    composeProductImageAlt(
+                      product?.name ?? '',
+                      row.original.images?.[0]
+                    ) ||
                     row.original.sku ||
                     `Variant ${row.original.index + 1}`
                   }
@@ -460,7 +464,7 @@ function VariantsDialog({
         ),
       },
     ],
-    []
+    [product?.name]
   );
 
   const table = useReactTable({
@@ -726,7 +730,12 @@ export default function ProductViewPage() {
                   {product.images[selectedImage]?.url ? (
                     <CustomImage
                       src={product.images[selectedImage].url}
-                      alt={product.images[selectedImage].alt || product.name}
+                      alt={
+                        composeProductImageAlt(
+                          product.name,
+                          product.images[selectedImage]
+                        ) || product.name
+                      }
                       priority
                       width={675}
                       height={675}
@@ -752,7 +761,10 @@ export default function ProductViewPage() {
                       >
                         <CustomImage
                           src={image.url}
-                          alt={image.alt || `${product.name} ${index + 1}`}
+                          alt={
+                            composeProductImageAlt(product.name, image) ||
+                            `${product.name} ${index + 1}`
+                          }
                           width={96}
                           height={96}
                           className="h-full w-full"

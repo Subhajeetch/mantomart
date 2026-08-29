@@ -143,7 +143,6 @@ export function mapAEProductToSchema(
 
   const images: ProductImage[] = imageUrls.map((url, index) => ({
     url,
-    alt: baseInfo.subject.slice(0, 120),
     position: index,
   }));
 
@@ -222,14 +221,26 @@ export function mapAEProductToSchema(
         .filter((v): v is string => Boolean(v)),
     ];
 
+    const colorProp = properties.find((p) =>
+      /colou?r|цвет|farbe|couleur/i.test(p.propertyName)
+    );
+    const visualProp =
+      colorProp ??
+      properties.find(
+        (p) =>
+          Boolean(p.image) &&
+          !/size|尺寸|größe|taille|waist|length|fit/i.test(p.propertyName)
+      );
+    const forVariant =
+      visualProp?.value?.trim() ||
+      visualProp?.valueDefinitionName?.trim() ||
+      undefined;
+
     const skuImages: ProductImage[] = properties
       .filter((p) => p.image)
       .map((p, index) => ({
         url: p.image as string,
-        alt: `${baseInfo.subject} — ${p.propertyName}: ${p.value}`.slice(
-          0,
-          120
-        ),
+        forVariant,
         variantKeys,
         position: index,
       }));
