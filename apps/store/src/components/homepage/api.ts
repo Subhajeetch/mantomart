@@ -73,7 +73,7 @@ function normalizeCardImages(
   return images.slice(0, MAX_PRODUCT_CARD_IMAGES);
 }
 
-function normalizeProductCard(raw: unknown): PublicProductCard | null {
+export function normalizeProductCard(raw: unknown): PublicProductCard | null {
   if (!isRecord(raw)) return null;
   const id = asString(raw.id);
   const slug = asString(raw.slug);

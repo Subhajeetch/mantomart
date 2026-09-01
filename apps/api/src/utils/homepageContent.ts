@@ -368,7 +368,7 @@ function normalizePayloadImages(
   return cleaned.slice(0, MAX_PRODUCT_CARD_IMAGES);
 }
 
-const PRODUCT_CARD_COLUMNS = {
+export const PRODUCT_CARD_COLUMNS = {
   id: products.id,
   slug: products.slug,
   name: products.name,
@@ -379,7 +379,7 @@ const PRODUCT_CARD_COLUMNS = {
   position: products.position,
 };
 
-type ProductCardRow = {
+export type ProductCardRow = {
   id: string;
   slug: string;
   name: string;
@@ -704,7 +704,7 @@ function toPublicProductCard(
   };
 }
 
-async function hydrateProductCards(
+export async function hydrateProductCards(
   db: Database,
   rows: ProductCardRow[],
   env: Env,

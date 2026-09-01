@@ -32,6 +32,7 @@ import {
   storeHeader,
   storeHomepage,
   storeImages,
+  storeProduct,
 } from "./routes";
 
 
@@ -119,6 +120,7 @@ app.route("/api/admin/account", getAdminAccount);
 app.route("/api/admin-stats", adminStats);
 app.route("/api/store/header", storeHeader);
 app.route("/api/store/homepage", storeHomepage);
+app.route("/api/store/product", storeProduct);
 /** Public R2 object serve — used when R2_PUBLIC_URL is unset (local + default prod). */
 app.route("/api/images", storeImages);
 

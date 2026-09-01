@@ -26,6 +26,7 @@ import adminStats from "./paths/admin/admin-stats";
 import storeHeader from "./paths/store/header";
 import storeHomepage from "./paths/store/homepage";
 import storeImages from "./paths/store/images";
+import storeProduct from "./paths/store/product";
 
 export {
   aeProduct,
@@ -49,4 +50,5 @@ export {
   storeHeader,
   storeHomepage,
   storeImages,
+  storeProduct,
 };

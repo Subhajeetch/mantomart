@@ -137,3 +137,45 @@ body {
     @apply font-sans;
 	}
 }
+
+@layer components {
+  .product-html {
+    word-break: break-word;
+  }
+  .product-html p {
+    margin-bottom: 0.75rem;
+  }
+  .product-html ul,
+  .product-html ol {
+    margin: 0.5rem 0 0.75rem;
+    padding-left: 1.25rem;
+  }
+  .product-html ul {
+    list-style: disc;
+  }
+  .product-html ol {
+    list-style: decimal;
+  }
+  .product-html img {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0.75rem 0;
+  }
+  .product-html table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75rem 0;
+    font-size: 0.8125rem;
+  }
+  .product-html th,
+  .product-html td {
+    border: 1px solid var(--border);
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+  }
+  .product-html a {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
