@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -18,9 +18,40 @@ type ProductGalleryProps = {
   activeVariant?: string | null;
 };
 
+/** Max dots on the mobile pager. Overflow is hinted with chevrons. */
+const DOT_WINDOW_SIZE = 7;
+
+type DotWindow = {
+  start: number;
+  end: number;
+  showPrev: boolean;
+  showNext: boolean;
+};
+
 function isDesktopViewport(): boolean {
   if (typeof window === 'undefined') return false;
-  return window.matchMedia('(min-width: 768px)').matches;
+  try {
+    return window.matchMedia('(min-width: 768px)').matches;
+  } catch {
+    return false;
+  }
+}
+
+function clampIndex(value: number, total: number): number {
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(Math.max(0, Math.trunc(value)), total - 1);
+}
+
+function sanitizeGalleryItems(items: PublicGalleryItem[]): PublicGalleryItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter(
+    (item): item is PublicGalleryItem =>
+      Boolean(item) &&
+      (item.type === 'image' || item.type === 'video') &&
+      typeof item.url === 'string' &&
+      item.url.trim().length > 0
+  );
 }
 
 function indexForVariant(
@@ -38,14 +69,119 @@ function indexForVariant(
   });
 }
 
+/**
+ * Sliding window of at most 7 dots.
+ * First 7: no "<". Last 7: no ">". Middle: both.
+ */
+function getDotWindow(activeIndex: number, total: number): DotWindow {
+  if (!Number.isFinite(total) || total <= 0) {
+    return { start: 0, end: 0, showPrev: false, showNext: false };
+  }
+
+  const index = clampIndex(activeIndex, total);
+
+  if (total <= DOT_WINDOW_SIZE) {
+    return { start: 0, end: total, showPrev: false, showNext: false };
+  }
+
+  if (index < DOT_WINDOW_SIZE) {
+    return {
+      start: 0,
+      end: DOT_WINDOW_SIZE,
+      showPrev: false,
+      showNext: true,
+    };
+  }
+
+  if (index >= total - DOT_WINDOW_SIZE) {
+    return {
+      start: total - DOT_WINDOW_SIZE,
+      end: total,
+      showPrev: true,
+      showNext: false,
+    };
+  }
+
+  const half = Math.floor(DOT_WINDOW_SIZE / 2);
+  const start = index - half;
+  return {
+    start,
+    end: start + DOT_WINDOW_SIZE,
+    showPrev: true,
+    showNext: true,
+  };
+}
+
+function GalleryDots({
+  items,
+  index,
+}: {
+  items: PublicGalleryItem[];
+  index: number;
+}) {
+  const total = items.length;
+  if (total <= 1) return null;
+
+  const dots = getDotWindow(index, total);
+  const hasOverflow = total > DOT_WINDOW_SIZE;
+  const visible = items.slice(dots.start, dots.end);
+  const safeIndex = clampIndex(index, total);
+
+  return (
+    <div
+      className="absolute inset-x-0 bottom-3 flex justify-center md:hidden"
+      role="status"
+      aria-live="polite"
+      aria-label={`Image ${safeIndex + 1} of ${total}`}
+    >
+      <div className="flex items-center gap-1 rounded-full bg-black/45 px-2 py-1.5 shadow-sm backdrop-blur-[2px]">
+        {hasOverflow ? (
+          <ChevronLeft
+            className={cn(
+              'size-3.5 shrink-0',
+              dots.showPrev ? 'text-white' : 'invisible'
+            )}
+            strokeWidth={2.5}
+            aria-hidden
+          />
+        ) : null}
+        {visible.map((item, offset) => {
+          const itemIndex = dots.start + offset;
+          const active = itemIndex === safeIndex;
+          return (
+            <span
+              key={`dot-${item.url}-${itemIndex}`}
+              className={cn(
+                'size-1.5 rounded-full transition-colors duration-200',
+                active ? 'bg-white' : 'bg-white/40'
+              )}
+            />
+          );
+        })}
+        {hasOverflow ? (
+          <ChevronRight
+            className={cn(
+              'size-3.5 shrink-0',
+              dots.showNext ? 'text-white' : 'invisible'
+            )}
+            strokeWidth={2.5}
+            aria-hidden
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function ProductGallery({
   items,
   productName,
   activeVariant,
 }: ProductGalleryProps) {
-  const safeItems = Array.isArray(items) ? items : [];
+  const safeItems = useMemo(() => sanitizeGalleryItems(items), [items]);
   const [index, setIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const label = productName?.trim() || 'Product';
 
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: false,
@@ -55,9 +191,19 @@ export function ProductGallery({
     dragFree: false,
   });
 
+  const goTo = useCallback(
+    (next: number) => {
+      if (!emblaApi || safeItems.length === 0) return;
+      emblaApi.scrollTo(clampIndex(next, safeItems.length));
+    },
+    [emblaApi, safeItems.length]
+  );
+
   useEffect(() => {
     if (!emblaApi) return;
-    const onSelect = () => setIndex(emblaApi.selectedScrollSnap());
+    const onSelect = () => {
+      setIndex(clampIndex(emblaApi.selectedScrollSnap(), safeItems.length));
+    };
     onSelect();
     emblaApi.on('select', onSelect);
     emblaApi.on('reInit', onSelect);
@@ -65,20 +211,21 @@ export function ProductGallery({
       emblaApi.off('select', onSelect);
       emblaApi.off('reInit', onSelect);
     };
-  }, [emblaApi]);
+  }, [emblaApi, safeItems.length]);
+
+  useEffect(() => {
+    if (safeItems.length === 0) {
+      setIndex(0);
+      return;
+    }
+    setIndex((current) => clampIndex(current, safeItems.length));
+  }, [safeItems.length]);
 
   useEffect(() => {
     const next = indexForVariant(safeItems, activeVariant);
     if (next < 0) return;
-    emblaApi?.scrollTo(next);
-  }, [activeVariant, emblaApi, safeItems]);
-
-  const goTo = useCallback(
-    (next: number) => {
-      emblaApi?.scrollTo(next);
-    },
-    [emblaApi]
-  );
+    goTo(next);
+  }, [activeVariant, goTo, safeItems]);
 
   const active = safeItems[index] ?? safeItems[0];
 
@@ -90,7 +237,7 @@ export function ProductGallery({
 
   if (safeItems.length === 0) {
     return (
-      <div className="flex aspect-[3/4] w-full items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
+      <div className="flex aspect-square w-full items-center justify-center bg-neutral-100 text-sm text-muted-foreground">
         No images
       </div>
     );
@@ -102,7 +249,7 @@ export function ProductGallery({
         <GalleryThumbs
           items={safeItems}
           index={index}
-          productName={productName}
+          productName={label}
           onSelect={goTo}
         />
       ) : null}
@@ -112,7 +259,7 @@ export function ProductGallery({
           ref={emblaRef}
           className="overflow-hidden bg-neutral-100"
           aria-roledescription="carousel"
-          aria-label={`${productName} gallery`}
+          aria-label={`${label} gallery`}
         >
           <div className="flex">
             {safeItems.map((item, itemIndex) => {
@@ -123,7 +270,7 @@ export function ProductGallery({
                   className="min-w-0 shrink-0 grow-0 basis-full"
                 >
                   <div
-                    className="relative aspect-[3/4] w-full cursor-zoom-in md:cursor-default"
+                    className="relative aspect-square w-full cursor-zoom-in overflow-hidden md:cursor-default"
                     onClick={item.type === 'image' ? onMainClick : undefined}
                     role={item.type === 'image' ? 'button' : undefined}
                     tabIndex={item.type === 'image' ? 0 : undefined}
@@ -139,7 +286,7 @@ export function ProductGallery({
                     }
                     aria-label={
                       item.type === 'image'
-                        ? `Open ${item.alt || productName}`
+                        ? `Open ${item.alt || label}`
                         : undefined
                     }
                   >
@@ -193,20 +340,7 @@ export function ProductGallery({
             >
               <ChevronRight className="size-5" />
             </button>
-            <div
-              className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5 md:hidden"
-              aria-hidden
-            >
-              {safeItems.map((item, itemIndex) => (
-                <span
-                  key={`dot-${item.url}-${itemIndex}`}
-                  className={cn(
-                    'size-1.5',
-                    itemIndex === index ? 'bg-foreground' : 'bg-white/80'
-                  )}
-                />
-              ))}
-            </div>
+            <GalleryDots items={safeItems} index={index} />
           </>
         ) : null}
       </div>
@@ -215,7 +349,7 @@ export function ProductGallery({
         open={lightboxOpen}
         items={safeItems}
         startIndex={index}
-        productName={productName}
+        productName={label}
         onClose={() => setLightboxOpen(false)}
       />
     </div>

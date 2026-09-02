@@ -44,7 +44,7 @@ export function ProductMedia({
       src={item.url}
       alt={item.alt}
       width={960}
-      height={1280}
+      height={960}
       draggable={false}
       decoding="async"
       loading={priority ? 'eager' : 'lazy'}

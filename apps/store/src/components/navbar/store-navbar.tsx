@@ -620,7 +620,7 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-border/50 bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
-        <div className="relative mx-auto flex h-16 max-w-450 items-center gap-3 px-3 sm:px-4 lg:px-6">
+        <div className="relative mx-auto flex h-16 max-w-7xl items-center gap-3 px-3 sm:px-4 lg:px-6">
           <Button
             type="button"
             variant="ghost"

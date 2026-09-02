@@ -83,7 +83,7 @@ export function MoreForYou({ slug, initial }: MoreForYouProps) {
       >
         More for you
       </h2>
-      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 sm:gap-4">
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 sm:gap-4">
         {items.map((product) => (
           <li key={product.id}>
             <ProductCard product={product} />

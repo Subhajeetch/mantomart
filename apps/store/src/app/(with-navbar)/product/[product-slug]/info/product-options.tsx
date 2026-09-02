@@ -35,7 +35,7 @@ export function ProductOptions({
             <legend className="mb-2 flex w-full items-center justify-between gap-3 text-sm">
               <span>
                 <span className="font-medium text-foreground">{group.name}:</span>{' '}
-                <span className="text-foreground/70">
+                <span className="text-foreground/70 uppercase">
                   {selectedValue || 'Select'}
                 </span>
               </span>

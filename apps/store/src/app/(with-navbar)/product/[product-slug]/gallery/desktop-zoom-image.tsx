@@ -71,7 +71,7 @@ export function DesktopZoomImage({
         src={src}
         alt={alt}
         width={960}
-        height={1280}
+        height={960}
         draggable={false}
         decoding="async"
         loading={priority ? 'eager' : 'lazy'}

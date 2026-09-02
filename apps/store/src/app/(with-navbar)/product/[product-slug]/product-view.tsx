@@ -82,7 +82,7 @@ export function ProductView({ product, more }: ProductViewProps) {
   const showFloating = !ctaInView && !lightboxOpen;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+    <div className="px-4 pt-4 pb-8 mx-auto max-w-7xl">
       <ProductBreadcrumbs product={product} />
       <div className="grid gap-8 lg:grid-cols-2 lg:gap-12">
         <ProductGallery

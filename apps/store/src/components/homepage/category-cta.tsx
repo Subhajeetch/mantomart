@@ -21,7 +21,7 @@ export function CategoryCta({ block }: CategoryCtaProps) {
   return (
     <section
       aria-labelledby={`cta-${block.id}-heading`}
-      className="px-4 py-10 mx-auto max-w-450"
+      className="px-4 py-10 mx-auto max-w-7xl"
     >
       <div className="mx-auto max-w-4xl text-center">
         <h2

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -33,6 +34,23 @@ function distance(a: Pointer, b: Pointer): number {
   return Math.hypot(dx, dy);
 }
 
+function clampIndex(value: number, total: number): number {
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(Math.max(0, Math.trunc(value)), total - 1);
+}
+
+function sanitizeItems(items: PublicGalleryItem[]): PublicGalleryItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter(
+    (item): item is PublicGalleryItem =>
+      Boolean(item) &&
+      (item.type === 'image' || item.type === 'video') &&
+      typeof item.url === 'string' &&
+      item.url.trim().length > 0
+  );
+}
+
 export function MobileLightbox({
   open,
   items,
@@ -40,7 +58,11 @@ export function MobileLightbox({
   productName,
   onClose,
 }: MobileLightboxProps) {
-  const [index, setIndex] = useState(startIndex);
+  const safeItems = useMemo(() => sanitizeItems(items), [items]);
+  const clampedStart = clampIndex(startIndex, safeItems.length);
+  const label = productName?.trim() || 'Product';
+
+  const [index, setIndex] = useState(clampedStart);
   const [mounted, setMounted] = useState(false);
   const scaleRef = useRef(1);
   const [scale, setScale] = useState(1);
@@ -56,7 +78,7 @@ export function MobileLightbox({
     align: 'center',
     duration: 18,
     watchDrag: () => scaleRef.current <= 1.05,
-    startIndex,
+    startIndex: clampedStart,
   });
 
   useEffect(() => setMounted(true), []);
@@ -76,14 +98,14 @@ export function MobileLightbox({
     setScale(1);
     panRef.current = { x: 0, y: 0 };
     setPan({ x: 0, y: 0 });
-    setIndex(startIndex);
-    emblaApi?.scrollTo(startIndex, true);
-  }, [open, startIndex, emblaApi]);
+    setIndex(clampedStart);
+    emblaApi?.scrollTo(clampedStart, true);
+  }, [open, clampedStart, emblaApi]);
 
   useEffect(() => {
     if (!emblaApi) return;
     const onSelect = () => {
-      setIndex(emblaApi.selectedScrollSnap());
+      setIndex(clampIndex(emblaApi.selectedScrollSnap(), safeItems.length));
       scaleRef.current = 1;
       setScale(1);
       panRef.current = { x: 0, y: 0 };
@@ -93,7 +115,7 @@ export function MobileLightbox({
     return () => {
       emblaApi.off('select', onSelect);
     };
-  }, [emblaApi]);
+  }, [emblaApi, safeItems.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -192,19 +214,20 @@ export function MobileLightbox({
 
   const goTo = useCallback(
     (next: number) => {
-      emblaApi?.scrollTo(next);
+      if (!emblaApi || safeItems.length === 0) return;
+      emblaApi.scrollTo(clampIndex(next, safeItems.length));
     },
-    [emblaApi]
+    [emblaApi, safeItems.length]
   );
 
-  if (!mounted || !open) return null;
+  if (!mounted || !open || safeItems.length === 0) return null;
 
   return createPortal(
     <div
       className="fixed inset-0 z-[80] flex flex-col bg-black text-white"
       role="dialog"
       aria-modal="true"
-      aria-label={`${productName} images`}
+      aria-label={`${label} images`}
     >
       <button
         ref={closeRef}
@@ -219,7 +242,7 @@ export function MobileLightbox({
       <div className="relative flex min-h-0 flex-1 items-center">
         <div ref={emblaRef} className="h-full w-full overflow-hidden">
           <div className="flex h-full">
-            {items.map((item, itemIndex) => {
+            {safeItems.map((item, itemIndex) => {
               const active = itemIndex === index;
               return (
                 <div
@@ -232,7 +255,7 @@ export function MobileLightbox({
                   onTouchEnd={active ? onTouchEnd : undefined}
                 >
                   <div
-                    className="max-h-[78svh] w-full max-w-lg"
+                    className="aspect-square w-full max-w-[min(100%,78svh)] overflow-hidden bg-neutral-950"
                     style={
                       active && item.type === 'image'
                         ? {
@@ -248,7 +271,7 @@ export function MobileLightbox({
                   >
                     <ProductMedia
                       item={item}
-                      className="max-h-[78svh] w-full object-contain"
+                      className="size-full object-contain"
                       contain
                     />
                   </div>
@@ -259,9 +282,9 @@ export function MobileLightbox({
         </div>
       </div>
 
-      {items.length > 1 ? (
+      {safeItems.length > 1 ? (
         <div className="flex shrink-0 items-center gap-2 overflow-x-auto px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          {items.map((item, itemIndex) => {
+          {safeItems.map((item, itemIndex) => {
             const thumb =
               item.type === 'image' ? item.url : item.poster || item.url;
             const active = itemIndex === index;

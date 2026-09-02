@@ -6,7 +6,7 @@ import {
   getProduct,
   ProductJsonLd,
   ProductView,
-} from '@/components/product';
+} from './';
 import { getStoreUrl } from '@/lib/app-urls';
 
 export const revalidate = 300;

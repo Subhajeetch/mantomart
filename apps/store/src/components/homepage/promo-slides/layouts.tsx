@@ -13,7 +13,7 @@ import {
 } from "./primitives";
 
 const SLIDE_PAD =
-  "mx-auto h-full w-full max-w-450 px-4 py-5 pb-10 sm:px-8 sm:py-6 sm:pb-11";
+  "mx-auto h-full w-full max-w-7xl px-4 py-5 pb-10 sm:px-8 sm:py-6 sm:pb-11";
 
 function take(products: PublicPromoSlideProduct[], count: number) {
   return products.slice(0, count);
