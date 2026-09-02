@@ -5,6 +5,13 @@ import { cn } from '@/lib/utils';
 import type { PublicOptionGroup } from '../types';
 import type { ProductSelection } from '../use-product-selection';
 import { SizeChartDialog } from './size-chart-dialog';
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from '@/components/ui/select';
 
 type ProductOptionsProps = {
   groups: PublicOptionGroup[];
@@ -29,14 +36,21 @@ export function ProductOptions({
     <div className="space-y-5">
       {groups.map((group) => {
         const selectedValue = selection.selected[group.name];
+        const selectedOption = group.values.find(
+          (option) => option.value === selectedValue
+        );
         const isSizeLike = /size/i.test(group.name);
         return (
           <fieldset key={group.name} className="min-w-0">
             <legend className="mb-2 flex w-full items-center justify-between gap-3 text-sm">
-              <span>
-                <span className="font-medium text-foreground">{group.name}:</span>{' '}
-                <span className="text-foreground/70 uppercase">
-                  {selectedValue || 'Select'}
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0">
+                  <span className="font-medium text-foreground">
+                    {group.name}:
+                  </span>{' '}
+                  <span className="text-foreground/70 uppercase">
+                    {selectedValue || 'Select'}
+                  </span>
                 </span>
               </span>
               {isSizeLike && hasSizeChart ? (
@@ -47,7 +61,52 @@ export function ProductOptions({
                 />
               ) : null}
             </legend>
-            {group.hasImages ? (
+
+            {group.values.length > 11 ? (
+              <Select
+                value={selectedValue || null}
+                onValueChange={(value) => {
+                  if (value) selection.selectOption(group.name, value);
+                }}
+                disabled={group.values.every(
+                  (option) =>
+                    !selection.isOptionAvailable(group.name, option.value) &&
+                    selectedValue !== option.value
+                )}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {group.values.map((option) => {
+                    const selected = selectedValue === option.value;
+                    const available = selection.isOptionAvailable(
+                      group.name,
+                      option.value
+                    );
+                    return (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        disabled={!available && !selected}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          {option.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- R2 / arbitrary product URLs
+                            <img
+                              src={option.image}
+                              alt=""
+                              className="size-6 shrink-0 rounded object-cover"
+                            />
+                          ) : null}
+                          <span className="truncate">{option.value}</span>
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            ) : group.hasImages ? (
               <div className="flex flex-wrap gap-2">
                 {group.values.map((option) => {
                   const selected = selectedValue === option.value;
@@ -66,7 +125,7 @@ export function ProductOptions({
                       aria-pressed={selected}
                       aria-label={option.value}
                       className={cn(
-                        'relative size-16 overflow-hidden bg-neutral-100 ring-1 ring-border',
+                        'relative size-14 overflow-hidden bg-neutral-100 ring-1 ring-border',
                         selected && 'ring-2 ring-foreground',
                         !available && 'opacity-40'
                       )}

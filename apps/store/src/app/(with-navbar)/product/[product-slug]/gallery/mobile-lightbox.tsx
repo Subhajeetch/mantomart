@@ -67,6 +67,7 @@ export function MobileLightbox({
   const scaleRef = useRef(1);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const thumbnailScrollerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef({ x: 0, y: 0 });
   const pointers = useRef<Pointer[]>([]);
   const pinchStart = useRef<{ dist: number; scale: number } | null>(null);
@@ -124,8 +125,12 @@ export function MobileLightbox({
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
-      if (event.key === 'ArrowRight') emblaApi?.scrollNext();
-      if (event.key === 'ArrowLeft') emblaApi?.scrollPrev();
+      if (event.key === 'ArrowRight') {
+        emblaApi?.scrollNext();
+      }
+      if (event.key === 'ArrowLeft') {
+        emblaApi?.scrollPrev();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -212,6 +217,25 @@ export function MobileLightbox({
     lastTap.current = now;
   };
 
+  useEffect(() => {
+    if (!open) return;
+    const scroller = thumbnailScrollerRef.current;
+    const thumb = scroller?.querySelector<HTMLElement>(
+      `[data-thumb-index="${index}"]`
+    );
+    if (!scroller || !thumb) return;
+
+    const frame = requestAnimationFrame(() => {
+      const left =
+        thumb.offsetLeft - (scroller.clientWidth - thumb.offsetWidth) / 2;
+      scroller.scrollTo({
+        left: Math.max(0, Math.min(left, scroller.scrollWidth - scroller.clientWidth)),
+        behavior: 'smooth',
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [index, open, safeItems.length]);
+
   const goTo = useCallback(
     (next: number) => {
       if (!emblaApi || safeItems.length === 0) return;
@@ -283,7 +307,10 @@ export function MobileLightbox({
       </div>
 
       {safeItems.length > 1 ? (
-        <div className="flex shrink-0 items-center gap-2 overflow-x-auto px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div
+          ref={thumbnailScrollerRef}
+          className="flex shrink-0 items-center gap-2 overflow-x-auto px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        >
           {safeItems.map((item, itemIndex) => {
             const thumb =
               item.type === 'image' ? item.url : item.poster || item.url;
@@ -292,6 +319,7 @@ export function MobileLightbox({
               <button
                 key={`thumb-${item.url}-${itemIndex}`}
                 type="button"
+                data-thumb-index={itemIndex}
                 onClick={() => goTo(itemIndex)}
                 aria-label={`View ${itemIndex + 1}`}
                 aria-current={active ? 'true' : undefined}

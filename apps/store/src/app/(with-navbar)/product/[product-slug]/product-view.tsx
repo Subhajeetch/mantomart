@@ -32,7 +32,9 @@ function colorVariant(
 export function ProductView({ product, more }: ProductViewProps) {
   const selection = useProductSelection(product);
   const ctaRef = useRef<HTMLDivElement>(null);
+  const moreForYouRef = useRef<HTMLElement>(null);
   const [ctaInView, setCtaInView] = useState(true);
+  const [moreForYouInView, setMoreForYouInView] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
   useEffect(() => {
@@ -43,6 +45,17 @@ export function ProductView({ product, more }: ProductViewProps) {
         setCtaInView(Boolean(entry?.isIntersecting));
       },
       { threshold: 0.2 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const el = moreForYouRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setMoreForYouInView(Boolean(entry?.isIntersecting)),
+      { rootMargin: '-40% 0px -40% 0px', threshold: 0 }
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -79,7 +92,7 @@ export function ProductView({ product, more }: ProductViewProps) {
 
   const outOfStock = !selection.sku || selection.sku.stock <= 0;
   const activeVariant = colorVariant(product, selection.selected);
-  const showFloating = !ctaInView && !lightboxOpen;
+  const showFloating = !ctaInView && !lightboxOpen && !moreForYouInView;
 
   return (
     <div className="px-4 pt-4 pb-8 mx-auto max-w-7xl">
@@ -101,7 +114,11 @@ export function ProductView({ product, more }: ProductViewProps) {
 
       <ProductDetailsTabs product={product} />
 
-      <MoreForYou slug={product.slug} initial={more} />
+      <MoreForYou
+        slug={product.slug}
+        initial={more}
+        sectionRef={moreForYouRef}
+      />
 
       <FloatingCta
         visible={showFloating}

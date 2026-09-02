@@ -85,7 +85,7 @@ export function GalleryThumbs({
     <div className="relative hidden w-16 shrink-0 md:block lg:w-20">
       <div
         ref={scrollerRef}
-        className="absolute inset-0 flex flex-col gap-2 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="absolute inset-0 flex flex-col gap-2 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden p-2"
         aria-label={`${productName} thumbnails`}
       >
         {items.map((item, itemIndex) => {
@@ -107,8 +107,8 @@ export function GalleryThumbs({
               className={cn(
                 'relative aspect-square w-full shrink-0 overflow-hidden bg-neutral-100 ring-1 ring-transparent',
                 selected
-                  ? 'ring-2 ring-foreground'
-                  : 'hover:ring-foreground/30'
+                  ? 'ring-2 ring-foreground p-0.5'
+                  : 'hover:ring-foreground/30 p-0.5'
               )}
             >
               {item.type === 'video' && !item.poster ? (

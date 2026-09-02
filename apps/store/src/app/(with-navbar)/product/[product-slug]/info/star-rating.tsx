@@ -45,13 +45,13 @@ export function StarRating({
             ))}
           </span>
           <span className="font-medium tabular-nums text-foreground/80">
-            {ratingLabel}
+            {ratingLabel}  <strong className="pl-1">&bull;</strong>
           </span>
         </span>
       ) : null}
       {reviewLabel ? (
         <span className="tabular-nums">
-          {reviewCount === 1 ? '1 review' : `${reviewLabel} reviews`}
+          {reviewCount === 1 ? '1 review' : `${reviewLabel} reviews`} <strong className="pl-1">&bull;</strong>
         </span>
       ) : null}
       {sold ? <span>{sold} sold</span> : null}

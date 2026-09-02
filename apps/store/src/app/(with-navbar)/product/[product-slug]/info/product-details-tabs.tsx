@@ -29,7 +29,7 @@ function SpecGrid({ attributes }: { attributes: PublicAttribute[] }) {
         {attributes.map((attr, index) => (
           <div
             key={`${attr.name}-${attr.value}-${index}`}
-            className="grid grid-cols-[minmax(7rem,32%)_1fr] gap-3 border-b border-border py-3 pr-4 sm:odd:pr-8 sm:even:pl-8"
+            className="grid grid-cols-[minmax(7rem,32%)_1fr] gap-3 py-3 pr-4 sm:odd:pr-8 sm:even:pl-8"
           >
             <dt className="text-sm font-medium text-foreground/55">{attr.name}</dt>
             <dd className="text-sm text-foreground">
@@ -51,23 +51,23 @@ export function ProductDetailsTabs({ product }: ProductDetailsTabsProps) {
       <Tabs defaultValue="info" className="w-full gap-0">
         <TabsList
           variant="line"
-          className="h-11 w-full justify-start gap-0 rounded-none border-b p-0"
+          className=" w-full justify-start gap-0 rounded-none p-0"
         >
           <TabsTrigger
             value="info"
-            className="h-11 flex-none px-4 text-sm data-active:text-foreground"
+            className="flex-none px-4 text-sm data-active:text-foreground"
           >
             Info
           </TabsTrigger>
           <TabsTrigger
             value="specs"
-            className="h-11 flex-none px-4 text-sm data-active:text-foreground"
+            className="flex-none px-4 text-sm data-active:text-foreground"
           >
             Specification
           </TabsTrigger>
           <TabsTrigger
             value="reviews"
-            className="h-11 flex-none px-4 text-sm data-active:text-foreground"
+            className="flex-none px-4 text-sm data-active:text-foreground"
           >
             Reviews
           </TabsTrigger>

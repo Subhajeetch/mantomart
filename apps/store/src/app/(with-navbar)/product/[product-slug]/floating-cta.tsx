@@ -19,7 +19,7 @@ export function FloatingCta({
 }: FloatingCtaProps) {
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-20 bottom-20 sm:bottom-0"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-20 lg:hidden"
       aria-hidden={!visible}
     >
       <div

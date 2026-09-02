@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 
 import {
   ProductCard,
@@ -14,9 +20,10 @@ import type { MoreForYouPage } from './types';
 type MoreForYouProps = {
   slug: string;
   initial: MoreForYouPage;
+  sectionRef?: RefObject<HTMLElement | null>;
 };
 
-export function MoreForYou({ slug, initial }: MoreForYouProps) {
+export function MoreForYou({ slug, initial, sectionRef }: MoreForYouProps) {
   const initialItems = Array.isArray(initial.items) ? initial.items : [];
   const [items, setItems] = useState<PublicProductCard[]>(initialItems);
   const [cursor, setCursor] = useState<string | null>(initial.nextCursor);
@@ -76,7 +83,11 @@ export function MoreForYou({ slug, initial }: MoreForYouProps) {
   if (items.length === 0 && !loading && !cursor) return null;
 
   return (
-    <section aria-labelledby="more-for-you-heading" className="mt-12 pb-8">
+    <section
+      ref={sectionRef}
+      aria-labelledby="more-for-you-heading"
+      className="mt-12 pb-8"
+    >
       <h2
         id="more-for-you-heading"
         className="mb-4 text-lg font-semibold tracking-tight sm:text-xl"
