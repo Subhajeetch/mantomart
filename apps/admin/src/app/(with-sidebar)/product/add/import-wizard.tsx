@@ -4,12 +4,14 @@ import '@uiw/react-md-editor/markdown-editor.css';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   AlertCircle,
   Check,
   ChevronLeft,
   ChevronRight,
   DollarSign,
+  ExternalLink,
   FolderPlus,
   ImageIcon,
   ImageOff,
@@ -22,6 +24,7 @@ import {
   Sparkles,
   Star,
   Tag,
+  Trash2,
   TrendingUp,
   X,
 } from 'lucide-react';
@@ -57,7 +60,7 @@ import config from '@/mine.config';
 import { cn } from '@/lib/utils';
 import { recordProductAdded } from '@/components/todo-progress';
 import { Progress } from '@/components/ui/progress';
-import { streamHostImages } from '../host-images-stream';
+import { HostImagesError, streamHostImages } from '../host-images-stream';
 
 import {
   fetchAliExpressProductDetail,
@@ -149,6 +152,66 @@ class ApiError extends Error {
   }
 }
 
+const AE_PRODUCT_ID_MAX_LENGTH = 64;
+
+type ExistingCatalogProduct = {
+  id: string;
+  slug: string;
+  name: string;
+  published: boolean;
+};
+
+type AeExistsResponse = {
+  success: true;
+  data: {
+    exists: boolean;
+    product: ExistingCatalogProduct | null;
+  };
+};
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+  );
+}
+
+function resolveAeProductId(
+  listItem: SavedAliExpressProduct | null,
+  resumeDraft: ProductImportDraft | null | undefined
+): string {
+  const candidates = [
+    listItem?.normalized.itemId,
+    typeof listItem?.product?.itemId === 'string'
+      ? listItem.product.itemId
+      : null,
+    resumeDraft?.aeProductId,
+    listItem?.id,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed) return trimmed;
+  }
+
+  return '';
+}
+
+function parseExistingCatalogProduct(
+  value: unknown
+): ExistingCatalogProduct | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.id !== 'string' || !rec.id.trim()) return null;
+  return {
+    id: rec.id.trim(),
+    slug: typeof rec.slug === 'string' ? rec.slug : '',
+    name: typeof rec.name === 'string' ? rec.name : '',
+    published: rec.published === true,
+  };
+}
+
 async function requestJson<T>(
   url: string,
   options: RequestInit = {}
@@ -165,7 +228,8 @@ async function requestJson<T>(
       },
       cache: 'no-store',
     });
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     throw new ApiError('Unable to reach the server. Please try again.', {
       status: 0,
       code: 'NETWORK_ERROR',
@@ -335,6 +399,12 @@ export default function ImportWizard({
   const [form, setForm] = useState<ImportFormState | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [checkingExists, setCheckingExists] = useState(false);
+  const [alreadyAdded, setAlreadyAdded] = useState(false);
+  const [existingProduct, setExistingProduct] =
+    useState<ExistingCatalogProduct | null>(null);
+  const [existsError, setExistsError] = useState<string | null>(null);
+  const [removingFromList, setRemovingFromList] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState<{
     current: number;
@@ -416,7 +486,7 @@ export default function ImportWizard({
 
   // Auto-save draft
   useEffect(() => {
-    if (!open || !form || !listItemId) return;
+    if (!open || !form || !listItemId || alreadyAdded) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
@@ -447,7 +517,7 @@ export default function ImportWizard({
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [form, step, open, listItemId, listItem, onDraftSaved]);
+  }, [form, step, open, listItemId, listItem, alreadyAdded, onDraftSaved]);
 
   const loadCategories = useCallback(async () => {
     setCategoriesLoading(true);
@@ -508,11 +578,12 @@ export default function ImportWizard({
           signal: controller.signal,
         });
       }
+      if (controller.signal.aborted) return;
       const initial = buildInitialForm(listItem, detail);
       setForm(normalizeImportForm(initial));
       void loadCategories();
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (isAbortError(err) || controller.signal.aborted) return;
       setDetailError(
         err instanceof Error ? err.message : 'Failed to load product details.'
       );
@@ -522,19 +593,100 @@ export default function ImportWizard({
         void loadCategories();
       }
     } finally {
-      setLoadingDetail(false);
+      if (!controller.signal.aborted) {
+        setLoadingDetail(false);
+      }
     }
   }, [listItem, resumeDraft, loadCategories]);
 
+  const bootstrapWizard = useCallback(async () => {
+    if (!listItem && !resumeDraft) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setCheckingExists(true);
+    setAlreadyAdded(false);
+    setExistingProduct(null);
+    setExistsError(null);
+    setRemovingFromList(false);
+    setDetailError(null);
+    setStepError(null);
+    setForm(null);
+    setStep(0);
+    setLoadingDetail(false);
+
+    const aeProductId = resolveAeProductId(listItem, resumeDraft);
+
+    if (!aeProductId) {
+      if (controller.signal.aborted) return;
+      setCheckingExists(false);
+      setExistsError(
+        'This product is missing an AliExpress product id, so it cannot be checked or imported.'
+      );
+      return;
+    }
+
+    if (aeProductId.length > AE_PRODUCT_ID_MAX_LENGTH) {
+      if (controller.signal.aborted) return;
+      setCheckingExists(false);
+      setExistsError('Invalid AliExpress product id.');
+      return;
+    }
+
+    try {
+      const res = await requestJson<AeExistsResponse>(
+        `/api/products/mylist/ae-exists/${encodeURIComponent(aeProductId)}`,
+        { signal: controller.signal }
+      );
+
+      if (controller.signal.aborted) return;
+
+      const payload = res?.data;
+      if (!payload || typeof payload.exists !== 'boolean') {
+        throw new ApiError(
+          'Could not verify whether this product is already added.',
+          { status: 500, code: 'INVALID_EXISTS_RESPONSE' }
+        );
+      }
+
+      if (payload.exists) {
+        setAlreadyAdded(true);
+        setExistingProduct(parseExistingCatalogProduct(payload.product));
+        setCheckingExists(false);
+        return;
+      }
+
+      setCheckingExists(false);
+      await initWizard();
+    } catch (err) {
+      if (isAbortError(err) || controller.signal.aborted) return;
+      setCheckingExists(false);
+      setAlreadyAdded(false);
+      setExistingProduct(null);
+      setExistsError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to check if this product is already added.'
+      );
+    }
+  }, [listItem, resumeDraft, initWizard]);
+
   useEffect(() => {
     if (open) {
-      void initWizard();
+      void bootstrapWizard();
     } else {
       abortRef.current?.abort();
       setForm(null);
       setStep(0);
       setDetailError(null);
       setStepError(null);
+      setCheckingExists(false);
+      setAlreadyAdded(false);
+      setExistingProduct(null);
+      setExistsError(null);
+      setRemovingFromList(false);
       setPublishing(false);
       setPublishProgress(null);
       setCategorySearch('');
@@ -764,6 +916,21 @@ export default function ImportWizard({
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to publish product.';
+      const code = err instanceof HostImagesError ? err.code : undefined;
+      const isDuplicate =
+        code === 'AE_PRODUCT_EXISTS' ||
+        (err instanceof ApiError && err.code === 'AE_PRODUCT_EXISTS');
+
+      if (isDuplicate) {
+        setAlreadyAdded(true);
+        setExistingProduct(null);
+        setForm(null);
+        setStepError(null);
+        setPublishProgress(null);
+        toast.error('This product is already been added');
+        return;
+      }
+
       setStepError(message);
       setPublishProgress(null);
       toast.error(message);
@@ -814,6 +981,25 @@ export default function ImportWizard({
       hasSizeChart: true,
     }));
     setSizeChartPickerOpen(false);
+  };
+
+  const handleRemoveFromList = () => {
+    if (!listItemId) return;
+    if (!confirm('Remove this product from your list?')) return;
+
+    setRemovingFromList(true);
+    try {
+      removeSavedProduct(listItemId);
+      removeDraft(listItemId);
+      handleClose(false);
+      toast.success('Removed from list.');
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to remove from list.'
+      );
+    } finally {
+      setRemovingFromList(false);
+    }
   };
 
   return (
@@ -925,11 +1111,109 @@ export default function ImportWizard({
                   </Button>
                 </div>
               </div>
-              <StepIndicator current={step} onJump={goToStep} />
+              {!checkingExists && !alreadyAdded && !existsError ? (
+                <StepIndicator current={step} onJump={goToStep} />
+              ) : null}
             </div>
           </FullscreenDialogHeader>
 
           <FullscreenDialogBody className="md:p-3">
+            {checkingExists ? (
+              <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <Loader2 className="h-7 w-7 animate-spin" />
+                <p className="text-sm">Checking product status…</p>
+              </div>
+            ) : null}
+
+            {alreadyAdded ? (
+              <div className="flex min-h-64 items-center justify-center p-4">
+                <Card className="w-full max-w-lg">
+                  <CardContent className="flex flex-col items-center gap-4 p-6 text-center sm:p-8">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-600">
+                      <PackageCheck className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-2">
+                      <h2 className="text-lg font-semibold">
+                        This product is already been added
+                      </h2>
+                    </div>
+                    {existingProduct ? (
+                      <Link
+                        href={`/product/view/${encodeURIComponent(existingProduct.id)}`}
+                        className="group w-full rounded-lg border text-left transition-colors hover:border-primary/50 hover:bg-muted/40"
+                      >
+                        <div className="flex items-center gap-3 p-3">
+                          {listItem?.normalized.imageUrl ? (
+                            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={listItem.normalized.imageUrl}
+                                alt={existingProduct.name || 'Product image'}
+                                className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
+                              <PackageCheck className="h-6 w-6" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="line-clamp-2 text-sm font-medium">
+                              {existingProduct.name || 'Added product'}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {existingProduct.published
+                                ? 'Published'
+                                : 'Draft'}
+                            </p>
+                          </div>
+                          <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                        </div>
+                      </Link>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        The product exists in the catalog, but its details could
+                        not be loaded.
+                      </p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={handleRemoveFromList}
+                      disabled={removingFromList}
+                    >
+                      {removingFromList ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="mr-2 h-4 w-4" />
+                      )}
+                      {removingFromList ? 'Removing…' : 'Remove From List'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
+
+            {existsError ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Could not check product status</AlertTitle>
+                <AlertDescription className="space-y-3">
+                  <p>{existsError}</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void bootstrapWizard()}
+                    disabled={checkingExists}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Try again
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
             {loadingDetail ? (
               <div className="flex h-64 flex-col items-center justify-center gap-2 text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin" />
@@ -1859,57 +2143,59 @@ export default function ImportWizard({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={publishing}
+                onClick={() => handleClose(false)}
+                disabled={publishing || removingFromList}
               >
                 Close
               </Button>
 
-              <div className="flex items-center gap-2">
-                {step > 0 ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={handleBack}
-                    disabled={publishing || loadingDetail}
-                  >
-                    <ChevronLeft className="mr-1 h-4 w-4" />
-                    Back
-                  </Button>
-                ) : null}
+              {!checkingExists && !alreadyAdded && !existsError ? (
+                <div className="flex items-center gap-2">
+                  {step > 0 ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleBack}
+                      disabled={publishing || loadingDetail}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      Back
+                    </Button>
+                  ) : null}
 
-                {step < WIZARD_STEPS.length - 1 ? (
-                  <Button
-                    type="button"
-                    onClick={handleNext}
-                    disabled={!form || loadingDetail || publishing}
-                  >
-                    Next
-                    <ChevronRight className="ml-1 h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    onClick={() => void handlePublish()}
-                    disabled={!form || publishing || loadingDetail}
-                    className="min-w-[140px]"
-                  >
-                    {publishing ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {publishProgress && publishProgress.total > 0
-                          ? `Uploading ${publishProgress.current}/${publishProgress.total}`
-                          : 'Publishing…'}
-                      </>
-                    ) : (
-                      <>
-                        <PackageCheck className="mr-2 h-4 w-4" />
-                        Publish product
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
+                  {step < WIZARD_STEPS.length - 1 ? (
+                    <Button
+                      type="button"
+                      onClick={handleNext}
+                      disabled={!form || loadingDetail || publishing}
+                    >
+                      Next
+                      <ChevronRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={() => void handlePublish()}
+                      disabled={!form || publishing || loadingDetail}
+                      className="min-w-[140px]"
+                    >
+                      {publishing ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          {publishProgress && publishProgress.total > 0
+                            ? `Uploading ${publishProgress.current}/${publishProgress.total}`
+                            : 'Publishing…'}
+                        </>
+                      ) : (
+                        <>
+                          <PackageCheck className="mr-2 h-4 w-4" />
+                          Publish product
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              ) : null}
             </div>
           </FullscreenDialogFooter>
         </FullscreenDialogContent>
