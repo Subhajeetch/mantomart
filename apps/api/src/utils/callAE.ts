@@ -1,5 +1,5 @@
-import type Env from "@/types/env";
-import config from "@/base.config";
+import type Env from '@/types/env';
+import config from '@/base.config';
 
 const { AE_API_BASE } = config;
 
@@ -8,25 +8,25 @@ async function generateSignature(
   secret: string
 ): Promise<string> {
   const sortedKeys = Object.keys(params).sort();
-  const paramString = sortedKeys.map((key) => `${key}${params[key]}`).join("");
+  const paramString = sortedKeys.map((key) => `${key}${params[key]}`).join('');
 
   const key = await crypto.subtle.importKey(
-    "raw",
+    'raw',
     new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
+    { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ["sign"]
+    ['sign']
   );
 
   const signature = await crypto.subtle.sign(
-    "HMAC",
+    'HMAC',
     key,
     new TextEncoder().encode(paramString)
   );
 
   return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
     .toUpperCase();
 }
 
@@ -34,16 +34,21 @@ export async function callAE(
   env: Env,
   method: string,
   params: Record<string, any>,
-  session?: string 
+  session?: string
 ) {
   const timestamp = Date.now();
 
   const requestParams: Record<string, string> = {
-    ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+    ...Object.fromEntries(
+      Object.entries(params).map(([k, v]) => [
+        k,
+        typeof v === 'object' ? JSON.stringify(v) : String(v),
+      ])
+    ),
     method,
     app_key: env.AE_APP_KEY,
     timestamp: String(timestamp),
-    sign_method: "sha256",
+    sign_method: 'sha256',
     ...(session ? { session } : {}),
   };
 
@@ -53,15 +58,17 @@ export async function callAE(
 
   const body = Object.entries(finalParams)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join("&");
+    .join('&');
 
   const res = await fetch(AE_API_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+    },
     body,
   });
 
   const data = await res.json();
- // console.log("response:", data);
+  // console.log("response:", data);
   return data;
 }
