@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, min, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import {
   categories,
@@ -713,19 +713,6 @@ export async function hydrateProductCards(
   if (rows.length === 0) return [];
 
   const productIds = rows.map((row) => row.id);
-  const skuRows = await db
-    .select({
-      productId: productSkus.productId,
-      minPrice: min(productSkus.price),
-      minCompareAtPrice: min(productSkus.compareAtPrice),
-    })
-    .from(productSkus)
-    .where(inArray(productSkus.productId, productIds))
-    .groupBy(productSkus.productId);
-
-  // Per-product cheapest SKU (price + that SKU's compareAt) is more honest
-  // than independent mins, but a grouped min is enough for the card badge.
-  // Follow-up query: pick the cheapest SKU row per product.
   const cheapest = await db
     .select({
       productId: productSkus.productId,
@@ -733,7 +720,23 @@ export async function hydrateProductCards(
       compareAtPrice: productSkus.compareAtPrice,
     })
     .from(productSkus)
-    .where(inArray(productSkus.productId, productIds));
+    .where(
+      and(
+        inArray(productSkus.productId, productIds),
+        sql`NOT EXISTS (
+          SELECT 1
+          FROM product_skus cheaper
+          WHERE cheaper.product_id = ${productSkus.productId}
+            AND (
+              cheaper.price < ${productSkus.price}
+              OR (
+                cheaper.price = ${productSkus.price}
+                AND cheaper.id < ${productSkus.id}
+              )
+            )
+        )`
+      )
+    );
 
   const bestByProduct = new Map<
     string,
@@ -749,17 +752,6 @@ export async function hydrateProductCards(
         compareAtPrice: toPrice(sku.compareAtPrice),
       });
     }
-  }
-
-  // If cheapest-SKU scan missed (empty), fall back to grouped mins.
-  for (const row of skuRows) {
-    if (bestByProduct.has(row.productId)) continue;
-    const price = toPrice(row.minPrice);
-    if (price === null) continue;
-    bestByProduct.set(row.productId, {
-      price,
-      compareAtPrice: toPrice(row.minCompareAtPrice),
-    });
   }
 
   const seen = new Set<string>();
@@ -799,31 +791,32 @@ async function loadPublishedProducts(
 
   if (options.source === 'category' && options.categoryId) {
     const categoryId = options.categoryId;
-    const [legacy, joined] = await Promise.all([
-      db
-        .select({ id: products.id })
-        .from(products)
-        .where(
-          and(eq(products.published, true), eq(products.categoryId, categoryId))
-        ),
-      db
-        .select({ productId: productCategories.productId })
-        .from(productCategories)
-        .where(eq(productCategories.categoryId, categoryId)),
-    ]);
-    const idSet = new Set<string>();
-    for (const row of legacy) idSet.add(row.id);
-    for (const row of joined) idSet.add(row.productId);
-    const ids = [...idSet];
-    if (ids.length === 0) return { items: [], nextCursor: null };
-
     const whereClause = cursorClause
       ? and(
           eq(products.published, true),
-          inArray(products.id, ids),
+          or(
+            eq(products.categoryId, categoryId),
+            sql`EXISTS (
+              SELECT 1
+              FROM product_categories pc
+              WHERE pc.product_id = ${products.id}
+                AND pc.category_id = ${categoryId}
+            )`
+          ),
           cursorClause
         )
-      : and(eq(products.published, true), inArray(products.id, ids));
+      : and(
+          eq(products.published, true),
+          or(
+            eq(products.categoryId, categoryId),
+            sql`EXISTS (
+              SELECT 1
+              FROM product_categories pc
+              WHERE pc.product_id = ${products.id}
+                AND pc.category_id = ${categoryId}
+            )`
+          )
+        );
 
     productRows = await db
       .select(PRODUCT_CARD_COLUMNS)

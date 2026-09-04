@@ -638,7 +638,23 @@ export async function loadPublishedProductCardsByIds(
       compareAtPrice: productSkus.compareAtPrice,
     })
     .from(productSkus)
-    .where(inArray(productSkus.productId, productIds));
+    .where(
+      and(
+        inArray(productSkus.productId, productIds),
+        sql`NOT EXISTS (
+          SELECT 1
+          FROM product_skus cheaper
+          WHERE cheaper.product_id = ${productSkus.productId}
+            AND (
+              cheaper.price < ${productSkus.price}
+              OR (
+                cheaper.price = ${productSkus.price}
+                AND cheaper.id < ${productSkus.id}
+              )
+            )
+        )`
+      )
+    );
 
   const bestByProduct = new Map<
     string,

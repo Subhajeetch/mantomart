@@ -26,6 +26,7 @@ import {
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
 } from '@/utils/auditLog';
+import { invalidatePublicProductCache } from '@/utils/storeProduct';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1230,6 +1231,9 @@ categoriesRouter.patch(
           changes,
         }).then(() => undefined)
       );
+      c.executionCtx.waitUntil(
+        invalidatePublicProductCache(c.env.KV).then(() => undefined)
+      );
 
       return c.json({
         success: true,
@@ -1382,6 +1386,9 @@ categoriesRouter.delete(
             slug: existing.slug,
           },
         }).then(() => undefined)
+      );
+      c.executionCtx.waitUntil(
+        invalidatePublicProductCache(c.env.KV).then(() => undefined)
       );
 
       return c.json({

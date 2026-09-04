@@ -153,7 +153,21 @@ export const products = sqliteTable("products", {
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-});
+}, (table) => [
+  index("products_category_id_idx").on(table.categoryId),
+  index("products_product_added_by_idx").on(table.productAddedBy),
+  index("products_published_position_id_idx").on(
+    table.published,
+    table.position,
+    table.id
+  ),
+  index("products_published_featured_position_id_idx").on(
+    table.published,
+    table.featured,
+    table.position,
+    table.id
+  ),
+]);
 
 // ─── Product ↔ Category (many-to-many) ────────────────────────────────────────
 // A product can belong to multiple categories (e.g. Fashion + Fashion>Women>Jewellery).
@@ -225,7 +239,14 @@ export const productSkus = sqliteTable("product_skus", {
     .default([]),
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+}, (table) => [
+  index("product_skus_product_id_idx").on(table.productId),
+  index("product_skus_product_id_price_id_idx").on(
+    table.productId,
+    table.price,
+    table.id
+  ),
+]);
 
 // ─── SKU Properties ───────────────────────────────────────────────────────────
 // Each SKU has multiple properties. e.g. one row for Size:L, one row for Color:Beige
@@ -245,7 +266,9 @@ export const skuProperties = sqliteTable("sku_properties", {
   valueDefinitionName: text("value_definition_name"),
   // ae: sku_image — only present on the property that has an image (usually colour)
   image: text("image"),
-});
+}, (table) => [
+  index("sku_properties_sku_id_idx").on(table.skuId),
+]);
 
 // ─── Product Attributes ───────────────────────────────────────────────────────
 // Generic key-value product specs like Brand, Material, Style, etc.
@@ -263,4 +286,11 @@ export const productAttributes = sqliteTable("product_attributes", {
   attrValue: text("attr_value").notNull(), // ae: attr_value e.g. "COTTON"
   attrValueUnit: text("attr_value_unit"), // ae: attr_value_unit e.g. "piece"
   position: integer("position").notNull().default(0),
-});
+}, (table) => [
+  index("product_attributes_product_id_idx").on(table.productId),
+  index("product_attributes_product_id_position_idx").on(
+    table.productId,
+    table.position,
+    table.attrName
+  ),
+]);

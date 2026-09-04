@@ -27,6 +27,7 @@ import {
   logAuditFromContext,
 } from '@/utils/auditLog';
 import { incrementAdminProductsAdded } from '@/utils/adminStats';
+import { invalidatePublicProductCache } from '@/utils/storeProduct';
 import {
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
@@ -1437,6 +1438,9 @@ addProductMyList.post(
           },
         },
       });
+      c.executionCtx.waitUntil(
+        invalidatePublicProductCache(c.env.KV).then(() => undefined)
+      );
     });
   }
 );

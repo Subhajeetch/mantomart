@@ -10,8 +10,8 @@ import {
 } from '@/utils/homepageContent';
 import {
   isValidProductSlug,
+  getPublicProduct,
   loadMoreForYou,
-  loadPublicProduct,
   PUBLIC_PRODUCT_CACHE_TTL_SECONDS,
 } from '@/utils/storeProduct';
 
@@ -97,8 +97,9 @@ storeProduct.get('/:slug', async (c) => {
 
   try {
     const db = createDb(c.env.DB);
-    const result = await loadPublicProduct(
+    const result = await getPublicProduct(
       db,
+      c.env.KV,
       slug,
       c.env,
       requestOriginFromUrl(c.req.url)

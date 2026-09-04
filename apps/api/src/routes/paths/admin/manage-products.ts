@@ -44,6 +44,7 @@ import {
   logAuditFromContext,
 } from '@/utils/auditLog';
 import { decrementAdminProductContribution } from '@/utils/adminStats';
+import { invalidatePublicProductCache } from '@/utils/storeProduct';
 import {
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
@@ -1380,6 +1381,9 @@ manageProducts.post(
             imageCount: hostedImages.length,
           },
         });
+        c.executionCtx.waitUntil(
+          invalidatePublicProductCache(c.env.KV).then(() => undefined)
+        );
       });
     } catch (error) {
       console.error('Error hosting product images:', error);
@@ -1525,6 +1529,9 @@ manageProducts.patch(
           },
         }).then(() => undefined)
       );
+      c.executionCtx.waitUntil(
+        invalidatePublicProductCache(c.env.KV).then(() => undefined)
+      );
 
       return c.json({
         success: true,
@@ -1612,6 +1619,9 @@ manageProducts.delete(
             },
           },
         }).then(() => undefined)
+      );
+      c.executionCtx.waitUntil(
+        invalidatePublicProductCache(c.env.KV).then(() => undefined)
       );
 
       return c.json({ success: true, message: `Product "${product.name}" deleted.` });
