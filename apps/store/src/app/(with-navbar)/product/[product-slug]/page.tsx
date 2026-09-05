@@ -67,7 +67,7 @@ export default async function ProductPage({ params }: PageProps) {
   const product = await getProduct(slug);
   if (!product) notFound();
 
-  const more = await getMoreForYou(product.slug);
+  const more = await getMoreForYou(product.slug, null, 24);
 
   return (
     <>

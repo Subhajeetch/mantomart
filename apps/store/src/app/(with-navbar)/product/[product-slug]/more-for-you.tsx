@@ -42,7 +42,7 @@ export function MoreForYou({ slug, initial, sectionRef }: MoreForYouProps) {
     setLoading(true);
     setError(null);
     try {
-      const page = await fetchMoreForYou(slug, cursor);
+      const page = await fetchMoreForYou(slug, cursor, 12);
       if (gen !== generation.current) return;
       const next: PublicProductCard[] = [];
       for (const item of page.items) {

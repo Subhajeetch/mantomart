@@ -33,6 +33,7 @@ const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_CATEGORY_WALK = 8;
 const QUERY_CHUNK = 80;
 const MAX_HTML_LENGTH = 200_000;
+const MAX_MORE_FOR_YOU_ITEMS = 36;
 
 const PRODUCT_CACHE_TTL_SECONDS = 300;
 const PRODUCT_CACHE_VERSION_KEY = 'store:product:version:v1';
@@ -497,8 +498,11 @@ function pickPrimaryCategoryId(
   assigned: CategoryRow[],
   byId: Map<string, CategoryRow>
 ): string | null {
-  if (productCategoryId && byId.has(productCategoryId)) return productCategoryId;
-  if (assigned.length === 0) return null;
+  if (assigned.length === 0) {
+    return productCategoryId && byId.has(productCategoryId)
+      ? productCategoryId
+      : null;
+  }
   let best = assigned[0]!;
   let bestDepth = categoryDepth(best.id, byId);
   for (let i = 1; i < assigned.length; i++) {
@@ -552,35 +556,62 @@ function categoryMembership(
 export function encodeMoreCursor(
   level: number,
   position?: number,
-  id?: string
+  id?: string,
+  served = 0
 ): string {
   if (position === undefined || !id) {
-    return Buffer.from(String(level), 'utf8').toString('base64');
+    return Buffer.from(`${level}:${Math.max(0, served)}`, 'utf8').toString(
+      'base64'
+    );
   }
-  return Buffer.from(`${level}:${position}:${id}`, 'utf8').toString('base64');
+  return Buffer.from(
+    `${level}:${position}:${id}:${Math.max(0, served)}`,
+    'utf8'
+  ).toString('base64');
 }
 
 export function decodeMoreCursor(
   raw: string | null | undefined
-): { level: number; position: number | null; id: string | null } | null {
+): {
+  level: number;
+  position: number | null;
+  id: string | null;
+  served: number;
+} | null {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   try {
     const decoded = Buffer.from(raw.trim(), 'base64').toString('utf8');
     if (/^\d+$/.test(decoded)) {
       const level = Number.parseInt(decoded, 10);
       if (!Number.isFinite(level) || level < 0) return null;
-      return { level, position: null, id: null };
+      return { level, position: null, id: null, served: 0 };
     }
     const sep1 = decoded.indexOf(':');
     if (sep1 <= 0) return null;
     const sep2 = decoded.indexOf(':', sep1 + 1);
+    if (sep2 === -1) {
+      const level = Number.parseInt(decoded.slice(0, sep1), 10);
+      const served = Number.parseInt(decoded.slice(sep1 + 1), 10);
+      if (
+        !Number.isFinite(level) ||
+        level < 0 ||
+        !Number.isFinite(served) ||
+        served < 0
+      ) {
+        return null;
+      }
+      return { level, position: null, id: null, served };
+    }
     if (sep2 <= sep1) return null;
+    const sep3 = decoded.indexOf(':', sep2 + 1);
     const level = Number.parseInt(decoded.slice(0, sep1), 10);
     const position = Number.parseInt(decoded.slice(sep1 + 1, sep2), 10);
-    const id = decoded.slice(sep2 + 1);
+    const id = decoded.slice(sep2 + 1, sep3 === -1 ? undefined : sep3);
+    const served = sep3 === -1 ? 0 : Number.parseInt(decoded.slice(sep3 + 1), 10);
     if (!Number.isFinite(level) || level < 0) return null;
     if (!Number.isFinite(position) || !isValidId(id)) return null;
-    return { level, position, id };
+    if (!Number.isFinite(served) || served < 0) return null;
+    return { level, position, id, served };
   } catch {
     return null;
   }
@@ -998,6 +1029,14 @@ export async function loadMoreForYou(
     const maxLevel = chain.length === 0 ? 0 : chain.length;
 
     const decoded = decodeMoreCursor(cursor);
+    const served = Math.min(
+      MAX_MORE_FOR_YOU_ITEMS,
+      Math.max(0, decoded?.served ?? 0)
+    );
+    if (served >= MAX_MORE_FOR_YOU_ITEMS) {
+      return { ok: true, page: { items: [], nextCursor: null } };
+    }
+    const remaining = Math.min(take, MAX_MORE_FOR_YOU_ITEMS - served);
     let level = decoded?.level ?? 0;
     if (level < 0) level = 0;
     let inner: { position: number; id: string } | null =
@@ -1010,8 +1049,8 @@ export async function loadMoreForYou(
     const collected: ProductCardRow[] = [];
     let nextCursor: string | null = null;
 
-    while (collected.length < take && level <= maxLevel) {
-      const need = take - collected.length + 1;
+    while (collected.length < remaining && level <= maxLevel) {
+      const need = remaining - collected.length + 1;
       const rows = await queryMoreLevel(db, {
         level,
         chain,
@@ -1019,13 +1058,20 @@ export async function loadMoreForYou(
         inner,
         limit: need,
       });
-      const room = take - collected.length;
+      const room = remaining - collected.length;
       const used = rows.slice(0, room);
       collected.push(...used);
 
       if (rows.length > room) {
         const last = used[used.length - 1];
-        if (last) nextCursor = encodeMoreCursor(level, last.position, last.id);
+        if (last) {
+          nextCursor = encodeMoreCursor(
+            level,
+            last.position,
+            last.id,
+            served + collected.length
+          );
+        }
         break;
       }
 
@@ -1034,7 +1080,12 @@ export async function loadMoreForYou(
     }
 
     if (!nextCursor && level <= maxLevel) {
-      nextCursor = encodeMoreCursor(level);
+      nextCursor = encodeMoreCursor(
+        level,
+        undefined,
+        undefined,
+        served + collected.length
+      );
     }
 
     const items = await hydrateProductCards(db, collected, env, {
