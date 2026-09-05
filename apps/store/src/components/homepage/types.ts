@@ -8,6 +8,16 @@ export type PublicProductCardImage = {
   fullUrl?: string;
 };
 
+export type ProductPriceRange = {
+  from: number | null;
+  to: number | null;
+};
+
+export type ProductDefaultPrice = {
+  normalPrice: ProductPriceRange;
+  comparedPrice: ProductPriceRange;
+};
+
 export type PublicProductCard = {
   id: string;
   slug: string;
@@ -15,6 +25,7 @@ export type PublicProductCard = {
   imageUrl: string | null;
   imageAlt: string | null;
   images: PublicProductCardImage[];
+  defaultPrice: ProductDefaultPrice | null;
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;

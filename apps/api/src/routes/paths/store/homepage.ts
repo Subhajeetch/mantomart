@@ -5,8 +5,9 @@ import { errorJson } from '@/utils/errorJson';
 import {
   DEFAULT_FEED_PAGE_SIZE,
   getPublicHomepage,
+  getPublicProductFeedPage,
   HOMEPAGE_CACHE_TTL_SECONDS,
-  loadProductFeedPage,
+  HOMEPAGE_FEED_CACHE_TTL_SECONDS,
 } from '@/utils/homepageContent';
 import { requestOriginFromUrl } from '@/utils/productImageHost';
 
@@ -24,11 +25,13 @@ const storeHomepage = new Hono<{ Bindings: Env }>();
 
 function cacheHeaders(
   c: { header: (name: string, value: string) => void },
-  source: string
+  source: string,
+  ttl = HOMEPAGE_CACHE_TTL_SECONDS,
+  staleWhileRevalidate = 86400
 ) {
   c.header(
     'Cache-Control',
-    `public, max-age=${HOMEPAGE_CACHE_TTL_SECONDS}, s-maxage=${HOMEPAGE_CACHE_TTL_SECONDS}, stale-while-revalidate=86400`
+    `public, max-age=${ttl}, s-maxage=${ttl}, stale-while-revalidate=${staleWhileRevalidate}`
   );
   c.header('X-Cache-Source', source);
   c.header('Vary', 'Origin');
@@ -75,15 +78,16 @@ storeHomepage.get('/feed', async (c) => {
       if (Number.isFinite(parsed)) pageSize = parsed;
     }
 
-    const data = await loadProductFeedPage(
+    const { data, source } = await getPublicProductFeedPage(
       db,
+      c.env.KV,
       cursor,
       pageSize,
       c.env,
       requestOriginFromUrl(c.req.url)
     );
 
-    cacheHeaders(c, 'db');
+    cacheHeaders(c, source, HOMEPAGE_FEED_CACHE_TTL_SECONDS, 60);
 
     return c.json({
       success: true,

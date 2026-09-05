@@ -103,12 +103,19 @@ export type ProductSummary = {
   name: string;
   images: ProductImage[];
   published: boolean;
-  minPrice: number | null;
-  maxPrice: number | null;
-  minCompareAtPrice?: number | null;
-  maxCompareAtPrice?: number | null;
+  defaultPrice: ProductDefaultPrice | null;
   minEstProfit?: number | null;
   maxEstProfit?: number | null;
+};
+
+export type ProductPriceRange = {
+  from: number | null;
+  to: number | null;
+};
+
+export type ProductDefaultPrice = {
+  normalPrice: ProductPriceRange;
+  comparedPrice: ProductPriceRange;
 };
 
 /** Full product payload for view / edit flows. */
@@ -116,6 +123,7 @@ export type ProductDetail = {
   id: string;
   slug: string;
   name: string;
+  defaultPrice: ProductDefaultPrice | null;
   description: string | null;
   images: ProductImage[];
   tags: string[];
@@ -327,7 +335,10 @@ export async function requestCategories<T>(
     cache: 'no-store',
   });
 
-  const data = (await response.json().catch(() => null)) as ApiErrorBody | T | null;
+  const data = (await response.json().catch(() => null)) as
+    | ApiErrorBody
+    | T
+    | null;
   if (!response.ok || (data as ApiErrorBody | null)?.success === false) {
     const error = data as ApiErrorBody | null;
     throw new ApiError(
@@ -348,7 +359,9 @@ export function formatMoney(cents: number | null | undefined) {
   }).format(cents / 100);
 }
 
-export function formatDateTime(value: string | number | Date | null | undefined) {
+export function formatDateTime(
+  value: string | number | Date | null | undefined
+) {
   if (!value) return 'Never';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return 'Unknown';
@@ -358,15 +371,12 @@ export function formatDateTime(value: string | number | Date | null | undefined)
   }).format(date);
 }
 
-export function formatPriceRange(product: {
-  minPrice: number | null;
-  maxPrice: number | null;
-}) {
-  if (product.minPrice === null || product.minPrice === undefined) return 'No price';
-  if (product.maxPrice !== null && product.maxPrice !== undefined && product.maxPrice !== product.minPrice) {
-    return `${formatMoney(product.minPrice)} - ${formatMoney(product.maxPrice)}`;
+export function formatPriceRange(range: ProductPriceRange | null | undefined) {
+  if (range?.from === null || range?.from === undefined) return 'No price';
+  if (range.to !== null && range.to !== undefined && range.to !== range.from) {
+    return `${formatMoney(range.from)} - ${formatMoney(range.to)}`;
   }
-  return formatMoney(product.minPrice);
+  return formatMoney(range.from);
 }
 
 /** Format a min/max cents range the same way as selling price. */
@@ -406,7 +416,12 @@ export function flattenCategories(
   nodes: CategoryNode[],
   prefix = ''
 ): Array<{ id: string; label: string; depth: number; name: string }> {
-  const result: Array<{ id: string; label: string; depth: number; name: string }> = [];
+  const result: Array<{
+    id: string;
+    label: string;
+    depth: number;
+    name: string;
+  }> = [];
   for (const node of nodes) {
     const label = prefix ? `${prefix} > ${node.name}` : node.name;
     result.push({ id: node.id, label, depth: node.depth, name: node.name });
@@ -417,7 +432,9 @@ export function flattenCategories(
   return result;
 }
 
-export function normalizeProductPayload(product: ProductDetail): ProductPayload {
+export function normalizeProductPayload(
+  product: ProductDetail
+): ProductPayload {
   return {
     name: product.name,
     slug: product.slug,

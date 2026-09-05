@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import {
   categories,
@@ -7,7 +7,6 @@ import {
   isHomepageBlockType,
   productCategories,
   products,
-  productSkus,
   type Category,
   type Database,
   type HomepageBlock,
@@ -15,6 +14,7 @@ import {
   type HomepageBlockType,
   type ProductImage,
   type ProductImageRecord,
+  type ProductDefaultPrice,
 } from '@repo/db';
 import kvManager from '@/utils/kvManager';
 import {
@@ -38,9 +38,12 @@ export type {
 
 /** Public storefront homepage cache key. Bump when the product-card payload changes. */
 export const HOMEPAGE_KV_KEY = 'store:homepage:v4';
+const HOMEPAGE_FEED_VERSION_KEY = 'store:homepage:feed:version:v1';
 
 /** 5 days in seconds — homepage blocks change infrequently. */
 export const HOMEPAGE_CACHE_TTL_SECONDS = 5 * 24 * 60 * 60;
+/** Feed pages are cached briefly because product prices and availability can change. */
+export const HOMEPAGE_FEED_CACHE_TTL_SECONDS = 5 * 60;
 
 export const MAX_BLOCKS = 40;
 export const MAX_SLIDES_PER_SLIDER = 12;
@@ -90,6 +93,7 @@ export type PublicProductCard = {
   imageUrl: string | null;
   imageAlt: string | null;
   images: PublicProductCardImage[];
+  defaultPrice: ProductDefaultPrice | null;
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;
@@ -373,6 +377,7 @@ export const PRODUCT_CARD_COLUMNS = {
   slug: products.slug,
   name: products.name,
   images: products.images,
+  defaultPrice: products.defaultPrice,
   aeSalesCount: products.aeSalesCount,
   aeRating: products.aeRating,
   aeReviewCount: products.aeReviewCount,
@@ -388,6 +393,7 @@ export type ProductCardRow = {
   aeRating: number | null;
   aeReviewCount: number | null;
   position: number;
+  defaultPrice: ProductDefaultPrice | null;
 };
 
 export function encodeFeedCursor(position: number, id: string): string {
@@ -674,7 +680,6 @@ export function configNeedsRepair(
 
 function toPublicProductCard(
   row: ProductCardRow,
-  pricing: { price: number; compareAtPrice: number | null } | undefined,
   env: Env,
   options?: R2UrlOptions
 ): PublicProductCard {
@@ -683,8 +688,8 @@ function toPublicProductCard(
   const imageUrl = img?.url
     ? resolveProductImageUrlForClient(img.url, env, options)
     : null;
-  const price = pricing?.price ?? null;
-  const compareAtPrice = pricing?.compareAtPrice ?? null;
+  const price = row.defaultPrice?.normalPrice.from ?? null;
+  const compareAtPrice = row.defaultPrice?.comparedPrice.from ?? null;
   const onSale =
     price !== null && compareAtPrice !== null && compareAtPrice > price;
   return {
@@ -694,6 +699,7 @@ function toPublicProductCard(
     imageUrl,
     imageAlt: img?.alt ?? null,
     images,
+    defaultPrice: row.defaultPrice ?? null,
     price,
     compareAtPrice,
     onSale,
@@ -712,56 +718,12 @@ export async function hydrateProductCards(
 ): Promise<PublicProductCard[]> {
   if (rows.length === 0) return [];
 
-  const productIds = rows.map((row) => row.id);
-  const cheapest = await db
-    .select({
-      productId: productSkus.productId,
-      price: productSkus.price,
-      compareAtPrice: productSkus.compareAtPrice,
-    })
-    .from(productSkus)
-    .where(
-      and(
-        inArray(productSkus.productId, productIds),
-        sql`NOT EXISTS (
-          SELECT 1
-          FROM product_skus cheaper
-          WHERE cheaper.product_id = ${productSkus.productId}
-            AND (
-              cheaper.price < ${productSkus.price}
-              OR (
-                cheaper.price = ${productSkus.price}
-                AND cheaper.id < ${productSkus.id}
-              )
-            )
-        )`
-      )
-    );
-
-  const bestByProduct = new Map<
-    string,
-    { price: number; compareAtPrice: number | null }
-  >();
-  for (const sku of cheapest) {
-    const price = toPrice(sku.price);
-    if (price === null) continue;
-    const current = bestByProduct.get(sku.productId);
-    if (!current || price < current.price) {
-      bestByProduct.set(sku.productId, {
-        price,
-        compareAtPrice: toPrice(sku.compareAtPrice),
-      });
-    }
-  }
-
   const seen = new Set<string>();
   const cards: PublicProductCard[] = [];
   for (const row of rows) {
     if (seen.has(row.id)) continue;
     seen.add(row.id);
-    cards.push(
-      toPublicProductCard(row, bestByProduct.get(row.id), env, options)
-    );
+    cards.push(toPublicProductCard(row, env, options));
   }
   return cards;
 }
@@ -881,6 +843,82 @@ export async function loadProductFeedPage(
     console.error('Failed to load product feed page:', error);
     return { items: [], nextCursor: null };
   }
+}
+
+function productFeedCacheKey(
+  version: string,
+  cursor: string | null | undefined,
+  pageSize: number,
+  origin?: string
+): string {
+  return [
+    'store:homepage:feed:v1',
+    version,
+    String(pageSize),
+    encodeURIComponent(cursor ?? 'first'),
+    encodeURIComponent(origin ?? 'relative'),
+  ].join(':');
+}
+
+/**
+ * Resolve a feed page from KV before querying D1. KV failures are intentionally
+ * non-fatal so the feed remains available when the cache is unavailable.
+ */
+export async function getPublicProductFeedPage(
+  db: Database,
+  kv: KVNamespace,
+  cursor: string | null | undefined,
+  pageSize: number | null | undefined,
+  env: Env,
+  origin?: string
+): Promise<{ data: ProductFeedPage; source: 'kv' | 'db' }> {
+  const size = clampInt(
+    typeof pageSize === 'number' && Number.isFinite(pageSize)
+      ? pageSize
+      : DEFAULT_FEED_PAGE_SIZE,
+    MIN_FEED_PAGE_SIZE,
+    MAX_FEED_PAGE_SIZE
+  );
+  const manager = kvManager(kv);
+  let version = 'v1';
+  try {
+    version = (await manager.get(HOMEPAGE_FEED_VERSION_KEY)) ?? 'v1';
+  } catch (error) {
+    console.error('Failed to read homepage feed cache version:', error);
+  }
+  const key = productFeedCacheKey(version, cursor, size, origin);
+
+  try {
+    const cached = await manager.getJson<ProductFeedPage>(key);
+    if (
+      cached &&
+      Array.isArray(cached.items) &&
+      cached.items.every((item) => normalizeProductCard(item) !== null) &&
+      (cached.nextCursor === null || typeof cached.nextCursor === 'string')
+    ) {
+      return {
+        data: {
+          items: cached.items
+            .map((item) => normalizeProductCard(item))
+            .filter((item): item is PublicProductCard => item !== null),
+          nextCursor: cached.nextCursor,
+        },
+        source: 'kv',
+      };
+    }
+  } catch (error) {
+    console.error('Failed to read homepage feed from KV:', error);
+  }
+
+  const data = await loadProductFeedPage(db, cursor, size, env, origin);
+  try {
+    await manager.setJson(key, data, {
+      expirationTtl: HOMEPAGE_FEED_CACHE_TTL_SECONDS,
+    });
+  } catch (error) {
+    console.error('Failed to write homepage feed to KV:', error);
+  }
+  return { data, source: 'db' };
 }
 
 // ─── Public homepage ──────────────────────────────────────────────────────────
@@ -1194,6 +1232,7 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
   if (!id || !slug || !name) return null;
   const price = toPrice(raw.price as number | string | null);
   const compareAtPrice = toPrice(raw.compareAtPrice as number | string | null);
+  const defaultPrice = normalizeDefaultPrice(raw.defaultPrice);
   const onSale =
     typeof raw.onSale === 'boolean'
       ? raw.onSale
@@ -1214,6 +1253,7 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
   if (images.length === 0 && imageUrl) {
     images = [{ url: imageUrl, alt: imageAlt ?? name }];
   }
+
   return {
     id,
     slug,
@@ -1221,6 +1261,7 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
     imageUrl: images[0]?.url ?? imageUrl,
     imageAlt: images[0]?.alt ?? imageAlt,
     images,
+    defaultPrice,
     price,
     compareAtPrice,
     onSale,
@@ -1229,6 +1270,31 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
     aeRating: toRating(raw.aeRating),
     aeReviewCount: toReviewCount(raw.aeReviewCount),
   };
+}
+
+function normalizeDefaultPrice(raw: unknown): ProductDefaultPrice | null {
+  if (!isRecord(raw)) return null;
+
+  const normalizeRange = (value: unknown) => {
+    if (!isRecord(value)) return { from: null, to: null };
+    return {
+      from: toPrice(value.from as number | string | null | undefined),
+      to: toPrice(value.to as number | string | null | undefined),
+    };
+  };
+
+  const normalPrice = normalizeRange(raw.normalPrice);
+  const comparedPrice = normalizeRange(raw.comparedPrice);
+  if (
+    normalPrice.from === null &&
+    normalPrice.to === null &&
+    comparedPrice.from === null &&
+    comparedPrice.to === null
+  ) {
+    return null;
+  }
+
+  return { normalPrice, comparedPrice };
 }
 
 export function normalizePublicPayload(raw: HomepagePayload): HomepagePayload {
@@ -1283,8 +1349,12 @@ export async function getPublicHomepage(
 
 /** Drop the public homepage cache so the next store request rebuilds from D1. */
 export async function invalidateHomepageCache(kv: KVNamespace): Promise<void> {
+  const manager = kvManager(kv);
   try {
-    await kvManager(kv).delete(HOMEPAGE_KV_KEY);
+    await Promise.all([
+      manager.delete(HOMEPAGE_KV_KEY),
+      manager.set(HOMEPAGE_FEED_VERSION_KEY, nanoid()),
+    ]);
   } catch (error) {
     console.error('Failed to invalidate homepage KV cache:', error);
   }

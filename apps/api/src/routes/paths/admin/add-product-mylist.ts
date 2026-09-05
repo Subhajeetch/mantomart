@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import type { BatchItem } from 'drizzle-orm/batch';
 import { nanoid } from 'nanoid';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
@@ -12,6 +13,7 @@ import {
   type Database,
   type ProductImage,
   type ProductVideo,
+  calculateProductDefaultPrice,
 } from '@repo/db';
 import { errorJson, type AppEnv, type AppContext } from '@/utils/errorJson';
 import {
@@ -28,6 +30,7 @@ import {
 } from '@/utils/auditLog';
 import { incrementAdminProductsAdded } from '@/utils/adminStats';
 import { invalidatePublicProductCache } from '@/utils/storeProduct';
+import { invalidateHomepageCache } from '@/utils/homepageContent';
 import {
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
@@ -70,6 +73,7 @@ const MAX_PROPERTY_VALUE_LENGTH = 200;
 const MAX_AE_ID_LENGTH = 64;
 const MAX_BODY_BYTES = 2_500_000; // ~2.5MB
 const INSERT_CHUNK_SIZE = 5;
+const D1_BATCH_SIZE = 100;
 
 const SAFE_URL_RE = /^(https?:\/\/|\/\/)/i;
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -1244,48 +1248,53 @@ addProductMyList.post(
       const hostedSizeChart = hosted.sizeChartImage;
 
       try {
-        await db.insert(products).values({
-          id: productId,
-          slug,
-          name,
-          description,
-          mobileDetail,
-          hasSizeChart: hasSizeChart || Boolean(hostedSizeChart),
-          sizeChartImage: hostedSizeChart ?? null,
-          sizeChartDescription: sizeChartDescription ?? null,
+        // D1 does not support SQL BEGIN/SAVEPOINT statements. Drizzle's batch
+        // API uses D1-native atomic batches; large imports are split into
+        // bounded batches to stay within D1's statement limit.
+        const queries: BatchItem<'sqlite'>[] = [];
+        queries.push(
+          db.insert(products).values({
+            id: productId,
+            slug,
+            name,
+            description,
+            mobileDetail,
+            hasSizeChart: hasSizeChart || Boolean(hostedSizeChart),
+            sizeChartImage: hostedSizeChart ?? null,
+            sizeChartDescription: sizeChartDescription ?? null,
+            defaultPrice: calculateProductDefaultPrice(skus),
 
-          isAEProduct,
-          aeProductId: aeProductId ?? null,
-          aeCategoryId: aeCategoryId ?? null,
-          aeRating: aeRating ?? null,
-          aeReviewCount: aeReviewCount ?? null,
-          aeSalesCount: aeSalesCount ?? null,
-          aeStatus: aeStatus ?? null,
-          aeLastSynced: isAEProduct ? now : null,
+            isAEProduct,
+            aeProductId: aeProductId ?? null,
+            aeCategoryId: aeCategoryId ?? null,
+            aeRating: aeRating ?? null,
+            aeReviewCount: aeReviewCount ?? null,
+            aeSalesCount: aeSalesCount ?? null,
+            aeStatus: aeStatus ?? null,
+            aeLastSynced: isAEProduct ? now : null,
 
-          images: hostedImages,
-          videos,
-          mainVideo: mainVideo ?? videos[0]?.url ?? null,
+            images: hostedImages,
+            videos,
+            mainVideo: mainVideo ?? videos[0]?.url ?? null,
 
-          categoryId: primaryCategoryId,
-          published,
-          featured,
-          position: 0,
+            categoryId: primaryCategoryId,
+            published,
+            featured,
+            position: 0,
 
-          metaTitle: metaTitle ?? name.slice(0, MAX_META_TITLE_LENGTH),
-          metaDescription: metaDescription ?? null,
-          tags,
+            metaTitle: metaTitle ?? name.slice(0, MAX_META_TITLE_LENGTH),
+            metaDescription: metaDescription ?? null,
+            tags,
 
-          revenueInProfit: 0,
+            revenueInProfit: 0,
 
-          productAddedBy: actor.id,
-          productNotes: productNotes ?? null,
+            productAddedBy: actor.id,
+            productNotes: productNotes ?? null,
 
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        await incrementAdminProductsAdded(db, actor.id, now);
+            createdAt: now,
+            updatedAt: now,
+          })
+        );
 
         if (categoryIds.length > 0) {
           const categoryRows = categoryIds.map((categoryId) => ({
@@ -1295,7 +1304,7 @@ addProductMyList.post(
             createdAt: now,
           }));
           for (const chunk of chunkArray(categoryRows)) {
-            await db.insert(productCategories).values(chunk);
+            queries.push(db.insert(productCategories).values(chunk));
           }
         }
 
@@ -1307,36 +1316,40 @@ addProductMyList.post(
           );
           const hostedProps = hosted.propertyImages[skuIndex];
 
-          await db.insert(productSkus).values({
-            id: skuId,
-            productId,
-            aeSkuId: parsedSku.aeSkuId,
-            aeSkuAttr: parsedSku.aeSkuAttr,
-            price: parsedSku.price,
-            compareAtPrice: parsedSku.compareAtPrice,
-            aePrice: parsedSku.aePrice,
-            aeSalePrice: parsedSku.aeSalePrice,
-            estProfit: parsedSku.estProfit,
-            stock: parsedSku.stock,
-            sku: parsedSku.sku,
-            priceIncludesTax: parsedSku.priceIncludesTax,
-            images: hostedSkuImages,
-            createdAt: now,
-          });
+          queries.push(
+            db.insert(productSkus).values({
+              id: skuId,
+              productId,
+              aeSkuId: parsedSku.aeSkuId,
+              aeSkuAttr: parsedSku.aeSkuAttr,
+              price: parsedSku.price,
+              compareAtPrice: parsedSku.compareAtPrice,
+              aePrice: parsedSku.aePrice,
+              aeSalePrice: parsedSku.aeSalePrice,
+              estProfit: parsedSku.estProfit,
+              stock: parsedSku.stock,
+              sku: parsedSku.sku,
+              priceIncludesTax: parsedSku.priceIncludesTax,
+              images: hostedSkuImages,
+              createdAt: now,
+            })
+          );
 
           if (parsedSku.properties.length > 0) {
-            const propertyRows = parsedSku.properties.map((prop, propIndex) => ({
-              id: nanoid(),
-              skuId,
-              aePropertyId: prop.aePropertyId,
-              propertyName: prop.propertyName,
-              aeValueId: prop.aeValueId,
-              value: prop.value,
-              valueDefinitionName: prop.valueDefinitionName,
-              image: hostedProps?.[propIndex] ?? prop.image,
-            }));
+            const propertyRows = parsedSku.properties.map(
+              (prop, propIndex) => ({
+                id: nanoid(),
+                skuId,
+                aePropertyId: prop.aePropertyId,
+                propertyName: prop.propertyName,
+                aeValueId: prop.aeValueId,
+                value: prop.value,
+                valueDefinitionName: prop.valueDefinitionName,
+                image: hostedProps?.[propIndex] ?? prop.image,
+              })
+            );
             for (const chunk of chunkArray(propertyRows)) {
-              await db.insert(skuProperties).values(chunk);
+              queries.push(db.insert(skuProperties).values(chunk));
             }
           }
         }
@@ -1353,9 +1366,18 @@ addProductMyList.post(
             position: attr.position,
           }));
           for (const chunk of chunkArray(attributeRows)) {
-            await db.insert(productAttributes).values(chunk);
+            queries.push(db.insert(productAttributes).values(chunk));
           }
         }
+
+        for (let offset = 0; offset < queries.length; offset += D1_BATCH_SIZE) {
+          const batch = queries.slice(offset, offset + D1_BATCH_SIZE);
+          await db.batch(
+            batch as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]]
+          );
+        }
+
+        await incrementAdminProductsAdded(db, actor.id, now);
       } catch (error) {
         console.error('Error creating product from my-list:', error);
         await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
@@ -1439,7 +1461,10 @@ addProductMyList.post(
         },
       });
       c.executionCtx.waitUntil(
-        invalidatePublicProductCache(c.env.KV).then(() => undefined)
+        Promise.all([
+          invalidatePublicProductCache(c.env.KV),
+          invalidateHomepageCache(c.env.KV),
+        ]).then(() => undefined)
       );
     });
   }

@@ -1,11 +1,10 @@
-import { and, asc, eq, inArray, like, min, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import {
   isPromoLinkKind,
   isPromoSlideLayout,
   isPromoSlideTheme,
   products,
-  productSkus,
   PROMO_SLIDE_LAYOUT_META,
   type Category,
   type Database,
@@ -18,6 +17,7 @@ import {
   type PromoSlideProductSlot,
   type PromoSliderConfig,
   type PromoSlideTheme,
+  type ProductDefaultPrice,
 } from '@repo/db';
 import type Env from '@/types/env';
 import { productCardImagesForClient } from '@/utils/productImageHost';
@@ -40,6 +40,7 @@ type PublicProductCard = {
   imageUrl: string | null;
   imageAlt: string | null;
   images: PublicProductCardImage[];
+  defaultPrice: ProductDefaultPrice | null;
   price: number | null;
   compareAtPrice: number | null;
   onSale: boolean;
@@ -624,63 +625,12 @@ export async function loadPublishedProductCardsByIds(
       slug: products.slug,
       name: products.name,
       images: products.images,
+      defaultPrice: products.defaultPrice,
     })
     .from(products)
     .where(and(eq(products.published, true), inArray(products.id, unique)));
 
   if (rows.length === 0) return map;
-
-  const productIds = rows.map((row) => row.id);
-  const skuRows = await db
-    .select({
-      productId: productSkus.productId,
-      price: productSkus.price,
-      compareAtPrice: productSkus.compareAtPrice,
-    })
-    .from(productSkus)
-    .where(
-      and(
-        inArray(productSkus.productId, productIds),
-        sql`NOT EXISTS (
-          SELECT 1
-          FROM product_skus cheaper
-          WHERE cheaper.product_id = ${productSkus.productId}
-            AND (
-              cheaper.price < ${productSkus.price}
-              OR (
-                cheaper.price = ${productSkus.price}
-                AND cheaper.id < ${productSkus.id}
-              )
-            )
-        )`
-      )
-    );
-
-  const bestByProduct = new Map<
-    string,
-    { price: number; compareAtPrice: number | null }
-  >();
-  for (const sku of skuRows) {
-    const price =
-      typeof sku.price === 'number' && Number.isFinite(sku.price)
-        ? sku.price
-        : Number(sku.price);
-    if (!Number.isFinite(price)) continue;
-    const compare =
-      sku.compareAtPrice === null || sku.compareAtPrice === undefined
-        ? null
-        : typeof sku.compareAtPrice === 'number'
-          ? sku.compareAtPrice
-          : Number(sku.compareAtPrice);
-    const current = bestByProduct.get(sku.productId);
-    if (!current || price < current.price) {
-      bestByProduct.set(sku.productId, {
-        price,
-        compareAtPrice:
-          compare !== null && Number.isFinite(compare) ? compare : null,
-      });
-    }
-  }
 
   for (const row of rows) {
     const images = productCardImagesForClient(
@@ -690,9 +640,8 @@ export async function loadPublishedProductCardsByIds(
       row.name
     );
     const img = images[0] ?? null;
-    const pricing = bestByProduct.get(row.id);
-    const price = pricing?.price ?? null;
-    const compareAtPrice = pricing?.compareAtPrice ?? null;
+    const price = row.defaultPrice?.normalPrice.from ?? null;
+    const compareAtPrice = row.defaultPrice?.comparedPrice.from ?? null;
     const onSale =
       price !== null && compareAtPrice !== null && compareAtPrice > price;
     map.set(row.id, {
@@ -702,6 +651,7 @@ export async function loadPublishedProductCardsByIds(
       imageUrl: img?.url ?? null,
       imageAlt: img?.alt ?? null,
       images,
+      defaultPrice: row.defaultPrice ?? null,
       price,
       compareAtPrice,
       onSale,
@@ -1044,6 +994,7 @@ export async function searchHomepageProducts(
       slug: products.slug,
       name: products.name,
       images: products.images,
+      defaultPrice: products.defaultPrice,
     })
     .from(products)
     .where(
@@ -1061,32 +1012,6 @@ export async function searchHomepageProducts(
 
   if (rows.length === 0) return [];
 
-  const ids = rows.map((row) => row.id);
-  const skuRows = await db
-    .select({
-      productId: productSkus.productId,
-      minPrice: min(productSkus.price),
-      minCompareAtPrice: min(productSkus.compareAtPrice),
-    })
-    .from(productSkus)
-    .where(inArray(productSkus.productId, ids))
-    .groupBy(productSkus.productId);
-
-  const priceByProduct = new Map(
-    skuRows.map((row) => {
-      const price =
-        typeof row.minPrice === 'number' && Number.isFinite(row.minPrice)
-          ? row.minPrice
-          : null;
-      const compare =
-        typeof row.minCompareAtPrice === 'number' &&
-        Number.isFinite(row.minCompareAtPrice)
-          ? row.minCompareAtPrice
-          : null;
-      return [row.productId, { price, compareAtPrice: compare }] as const;
-    })
-  );
-
   return rows.map((row) => {
     const images = productCardImagesForClient(
       row.images,
@@ -1095,7 +1020,8 @@ export async function searchHomepageProducts(
       row.name
     );
     const img = images[0] ?? null;
-    const pricing = priceByProduct.get(row.id);
+    const price = row.defaultPrice?.normalPrice.from ?? null;
+    const compareAtPrice = row.defaultPrice?.comparedPrice.from ?? null;
     return {
       id: row.id,
       slug: row.slug,
@@ -1103,8 +1029,9 @@ export async function searchHomepageProducts(
       imageUrl: img?.url ?? null,
       imageAlt: img?.alt ?? null,
       images,
-      price: pricing?.price ?? null,
-      compareAtPrice: pricing?.compareAtPrice ?? null,
+      defaultPrice: row.defaultPrice ?? null,
+      price,
+      compareAtPrice,
     };
   });
 }

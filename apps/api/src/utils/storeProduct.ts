@@ -9,6 +9,7 @@ import {
   type Database,
   type ProductImage,
   type ProductVideo,
+  type ProductDefaultPrice,
 } from '@repo/db';
 import type Env from '@/types/env';
 import kvManager from '@/utils/kvManager';
@@ -105,6 +106,7 @@ export type PublicProduct = {
   id: string;
   slug: string;
   name: string;
+  defaultPrice: ProductDefaultPrice | null;
   description: string | null;
   mobileDetail: string | null;
   hasSizeChart: boolean;
@@ -790,6 +792,7 @@ export async function loadPublicProduct(
         id: products.id,
         slug: products.slug,
         name: products.name,
+        defaultPrice: products.defaultPrice,
         description: products.description,
         mobileDetail: products.mobileDetail,
         hasSizeChart: products.hasSizeChart,
@@ -853,6 +856,7 @@ export async function loadPublicProduct(
       id: row.id,
       slug: row.slug,
       name: row.name,
+      defaultPrice: row.defaultPrice ?? null,
       description: sanitizeHtml(row.description),
       mobileDetail: sanitizeHtml(row.mobileDetail),
       hasSizeChart: Boolean(row.hasSizeChart) && Boolean(sizeChartImage || row.sizeChartDescription),

@@ -5,6 +5,7 @@ import {
   count,
   desc,
   eq,
+  gt,
   inArray,
   like,
   max,
@@ -27,6 +28,7 @@ import {
   type Database,
   type ProductImage,
   type ProductVideo,
+  calculateProductDefaultPrice,
 } from '@repo/db';
 import { errorJson, type AppContext, type AppEnv } from '@/utils/errorJson';
 import { adminHasPermission } from '@/utils/permissions';
@@ -45,6 +47,7 @@ import {
 } from '@/utils/auditLog';
 import { decrementAdminProductContribution } from '@/utils/adminStats';
 import { invalidatePublicProductCache } from '@/utils/storeProduct';
+import { invalidateHomepageCache } from '@/utils/homepageContent';
 import {
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
@@ -89,6 +92,8 @@ const MAX_AE_ID_LENGTH = 64;
 const MAX_BODY_BYTES = 2_500_000;
 const INSERT_CHUNK_SIZE = 10;
 const QUERY_CHUNK_SIZE = 80;
+const PRICE_RECALC_BATCH_SIZE = 25;
+const MAX_PRICE_RECALC_BATCH_SIZE = 100;
 const ADMIN_ROLES = ['admin', 'owner'] as const;
 /** Fixed buffer for payment-processor fees / tax leakage ($1.50 in cents). */
 const PAYMENT_PROCESSOR_FEE_CENTS = 150;
@@ -205,7 +210,8 @@ function isValidId(id: string): boolean {
 
 function chunkArray<T>(items: T[], size = INSERT_CHUNK_SIZE): T[][] {
   const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  for (let i = 0; i < items.length; i += size)
+    chunks.push(items.slice(i, i + size));
   return chunks;
 }
 
@@ -310,7 +316,10 @@ function sanitizeUrl(value: unknown): string | null | undefined {
   return truncate(trimmed, MAX_URL_LENGTH);
 }
 
-function sanitizeProductImage(value: unknown, index: number): ProductImage | null {
+function sanitizeProductImage(
+  value: unknown,
+  index: number
+): ProductImage | null {
   if (!isRecord(value)) return null;
   const url = sanitizeUrl(value.url);
   if (!url) return null;
@@ -414,9 +423,7 @@ function resolveStoredImageUrl(
   return resolved || url;
 }
 
-function firstGalleryImage(
-  images: ProductImage[]
-): ProductImage | undefined {
+function firstGalleryImage(images: ProductImage[]): ProductImage | undefined {
   return images.find((img) => img.isOp !== true) ?? images[0];
 }
 
@@ -476,7 +483,12 @@ async function readJsonObject(
     if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
       return {
         ok: false,
-        response: errorJson(c, 400, 'PAYLOAD_TOO_LARGE', 'Request body is too large.'),
+        response: errorJson(
+          c,
+          400,
+          'PAYLOAD_TOO_LARGE',
+          'Request body is too large.'
+        ),
       };
     }
   }
@@ -487,21 +499,33 @@ async function readJsonObject(
   } catch {
     return {
       ok: false,
-      response: errorJson(c, 400, 'INVALID_BODY', 'Request body must be valid JSON.'),
+      response: errorJson(
+        c,
+        400,
+        'INVALID_BODY',
+        'Request body must be valid JSON.'
+      ),
     };
   }
 
   if (!isRecord(body)) {
     return {
       ok: false,
-      response: errorJson(c, 400, 'INVALID_BODY', 'Request body must be a JSON object.'),
+      response: errorJson(
+        c,
+        400,
+        'INVALID_BODY',
+        'Request body must be a JSON object.'
+      ),
     };
   }
 
   return { ok: true, body };
 }
 
-async function readOptionalJsonObject(c: AppContext): Promise<Record<string, unknown>> {
+async function readOptionalJsonObject(
+  c: AppContext
+): Promise<Record<string, unknown>> {
   const contentType = c.req.header('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) return {};
   try {
@@ -512,8 +536,12 @@ async function readOptionalJsonObject(c: AppContext): Promise<Record<string, unk
   }
 }
 
-function parseSku(value: unknown, index: number): ParsedSku | { error: string } {
-  if (!isRecord(value)) return { error: `SKU at index ${index} must be an object.` };
+function parseSku(
+  value: unknown,
+  index: number
+): ParsedSku | { error: string } {
+  if (!isRecord(value))
+    return { error: `SKU at index ${index} must be an object.` };
   const price = sanitizeInteger(value.price, {
     min: 0,
     max: 1_000_000_000,
@@ -529,7 +557,10 @@ function parseSku(value: unknown, index: number): ParsedSku | { error: string } 
   if (compareAtPrice === undefined && value.compareAtPrice !== undefined) {
     return { error: `SKU at index ${index} has an invalid compareAtPrice.` };
   }
-  const aePrice = sanitizeInteger(value.aePrice, { min: 0, max: 1_000_000_000 });
+  const aePrice = sanitizeInteger(value.aePrice, {
+    min: 0,
+    max: 1_000_000_000,
+  });
   if (aePrice === undefined && value.aePrice !== undefined) {
     return { error: `SKU at index ${index} has an invalid aePrice.` };
   }
@@ -541,7 +572,8 @@ function parseSku(value: unknown, index: number): ParsedSku | { error: string } 
     return { error: `SKU at index ${index} has an invalid aeSalePrice.` };
   }
   const stock = sanitizeInteger(value.stock, { min: 0, max: 100_000_000 }) ?? 0;
-  if (stock === null) return { error: `SKU at index ${index} has invalid stock.` };
+  if (stock === null)
+    return { error: `SKU at index ${index} has invalid stock.` };
 
   const aeSkuId = sanitizeOptionalString(value.aeSkuId, MAX_AE_ID_LENGTH);
   const aeSkuAttr = sanitizeOptionalString(value.aeSkuAttr, 500);
@@ -551,7 +583,9 @@ function parseSku(value: unknown, index: number): ParsedSku | { error: string } 
     (aeSkuAttr === undefined && value.aeSkuAttr !== undefined) ||
     (skuCode === undefined && value.sku !== undefined)
   ) {
-    return { error: `SKU at index ${index} contains invalid source or SKU fields.` };
+    return {
+      error: `SKU at index ${index} contains invalid source or SKU fields.`,
+    };
   }
 
   const imagesRaw = Array.isArray(value.images) ? value.images : [];
@@ -573,13 +607,18 @@ function parseSku(value: unknown, index: number): ParsedSku | { error: string } 
   for (let i = 0; i < propsRaw.length; i++) {
     const prop = propsRaw[i];
     if (!isRecord(prop)) {
-      return { error: `SKU at index ${index}, property ${i} must be an object.` };
+      return {
+        error: `SKU at index ${index}, property ${i} must be an object.`,
+      };
     }
     const propertyName = sanitizeRequiredString(
       prop.propertyName,
       MAX_PROPERTY_NAME_LENGTH
     );
-    const propValue = sanitizeRequiredString(prop.value, MAX_PROPERTY_VALUE_LENGTH);
+    const propValue = sanitizeRequiredString(
+      prop.value,
+      MAX_PROPERTY_VALUE_LENGTH
+    );
     if (!propertyName || !propValue) {
       return {
         error: `SKU at index ${index}, property ${i} requires propertyName and value.`,
@@ -587,16 +626,22 @@ function parseSku(value: unknown, index: number): ParsedSku | { error: string } 
     }
     const image = sanitizeUrl(prop.image);
     if (image === undefined && prop.image !== undefined) {
-      return { error: `SKU at index ${index}, property ${i} has invalid image.` };
+      return {
+        error: `SKU at index ${index}, property ${i} has invalid image.`,
+      };
     }
     properties.push({
-      aePropertyId: sanitizeOptionalString(prop.aePropertyId, MAX_AE_ID_LENGTH) ?? null,
+      aePropertyId:
+        sanitizeOptionalString(prop.aePropertyId, MAX_AE_ID_LENGTH) ?? null,
       propertyName,
-      aeValueId: sanitizeOptionalString(prop.aeValueId, MAX_AE_ID_LENGTH) ?? null,
+      aeValueId:
+        sanitizeOptionalString(prop.aeValueId, MAX_AE_ID_LENGTH) ?? null,
       value: propValue,
       valueDefinitionName:
-        sanitizeOptionalString(prop.valueDefinitionName, MAX_PROPERTY_VALUE_LENGTH) ??
-        null,
+        sanitizeOptionalString(
+          prop.valueDefinitionName,
+          MAX_PROPERTY_VALUE_LENGTH
+        ) ?? null,
       image:
         image === undefined || image === null
           ? null
@@ -628,16 +673,24 @@ function parseAttribute(
   value: unknown,
   index: number
 ): ParsedAttribute | { error: string } {
-  if (!isRecord(value)) return { error: `Attribute at index ${index} must be an object.` };
+  if (!isRecord(value))
+    return { error: `Attribute at index ${index} must be an object.` };
   const attrName = sanitizeRequiredString(value.attrName, MAX_ATTR_NAME_LENGTH);
-  const attrValue = sanitizeRequiredString(value.attrValue, MAX_ATTR_VALUE_LENGTH);
+  const attrValue = sanitizeRequiredString(
+    value.attrValue,
+    MAX_ATTR_VALUE_LENGTH
+  );
   if (!attrName || !attrValue) {
-    return { error: `Attribute at index ${index} requires attrName and attrValue.` };
+    return {
+      error: `Attribute at index ${index} requires attrName and attrValue.`,
+    };
   }
   return {
-    aeAttrNameId: sanitizeOptionalString(value.aeAttrNameId, MAX_AE_ID_LENGTH) ?? null,
+    aeAttrNameId:
+      sanitizeOptionalString(value.aeAttrNameId, MAX_AE_ID_LENGTH) ?? null,
     attrName,
-    aeAttrValueId: sanitizeOptionalString(value.aeAttrValueId, MAX_AE_ID_LENGTH) ?? null,
+    aeAttrValueId:
+      sanitizeOptionalString(value.aeAttrValueId, MAX_AE_ID_LENGTH) ?? null,
     attrValue,
     attrValueUnit: sanitizeOptionalString(value.attrValueUnit, 40) ?? null,
     position: sanitizeInteger(value.position, { min: 0, max: 10_000 }) ?? index,
@@ -650,47 +703,87 @@ function parseProductPayload(
 ): ProductPayload | Response {
   const name = sanitizeRequiredString(body.name, MAX_NAME_LENGTH);
   if (!name) {
-    return errorJson(c, 400, 'INVALID_NAME', `Name is required (1-${MAX_NAME_LENGTH} characters).`);
+    return errorJson(
+      c,
+      400,
+      'INVALID_NAME',
+      `Name is required (1-${MAX_NAME_LENGTH} characters).`
+    );
   }
 
-  const rawSlug = sanitizeOptionalString(body.slug, MAX_SLUG_LENGTH) ?? slugify(name);
+  const rawSlug =
+    sanitizeOptionalString(body.slug, MAX_SLUG_LENGTH) ?? slugify(name);
   if (rawSlug === undefined || rawSlug === null) {
     return errorJson(c, 400, 'INVALID_SLUG', 'Invalid slug.');
   }
   const slug = slugify(rawSlug);
   if (!slug || !SLUG_RE.test(slug)) {
-    return errorJson(c, 400, 'INVALID_SLUG', 'Slug must use lowercase letters, numbers, and hyphens.');
+    return errorJson(
+      c,
+      400,
+      'INVALID_SLUG',
+      'Slug must use lowercase letters, numbers, and hyphens.'
+    );
   }
 
-  const descriptionRaw = sanitizeOptionalString(body.description, MAX_DESCRIPTION_LENGTH);
+  const descriptionRaw = sanitizeOptionalString(
+    body.description,
+    MAX_DESCRIPTION_LENGTH
+  );
   if (descriptionRaw === undefined && body.description !== undefined) {
     return errorJson(c, 400, 'INVALID_DESCRIPTION', 'Description is too long.');
   }
-  const mobileDetailRaw = sanitizeOptionalString(body.mobileDetail, MAX_MOBILE_DETAIL_LENGTH);
+  const mobileDetailRaw = sanitizeOptionalString(
+    body.mobileDetail,
+    MAX_MOBILE_DETAIL_LENGTH
+  );
   if (mobileDetailRaw === undefined && body.mobileDetail !== undefined) {
-    return errorJson(c, 400, 'INVALID_MOBILE_DETAIL', 'Mobile detail is too long.');
+    return errorJson(
+      c,
+      400,
+      'INVALID_MOBILE_DETAIL',
+      'Mobile detail is too long.'
+    );
   }
 
-  const metaTitle = sanitizeOptionalString(body.metaTitle, MAX_META_TITLE_LENGTH);
+  const metaTitle = sanitizeOptionalString(
+    body.metaTitle,
+    MAX_META_TITLE_LENGTH
+  );
   const metaDescription = sanitizeOptionalString(
     body.metaDescription,
     MAX_META_DESCRIPTION_LENGTH
   );
-  const productNotes = sanitizeOptionalString(body.productNotes, MAX_NOTES_LENGTH);
+  const productNotes = sanitizeOptionalString(
+    body.productNotes,
+    MAX_NOTES_LENGTH
+  );
   if (
     (metaTitle === undefined && body.metaTitle !== undefined) ||
     (metaDescription === undefined && body.metaDescription !== undefined) ||
     (productNotes === undefined && body.productNotes !== undefined)
   ) {
-    return errorJson(c, 400, 'INVALID_TEXT_FIELD', 'One or more text fields are invalid.');
+    return errorJson(
+      c,
+      400,
+      'INVALID_TEXT_FIELD',
+      'One or more text fields are invalid.'
+    );
   }
 
   const tags = sanitizeTags(body.tags);
-  if (tags === null) return errorJson(c, 400, 'INVALID_TAGS', 'Tags must be an array.');
+  if (tags === null)
+    return errorJson(c, 400, 'INVALID_TAGS', 'Tags must be an array.');
 
   const isAEProduct = sanitizeBoolean(body.isAEProduct, false);
-  const aeProductId = sanitizeOptionalString(body.aeProductId, MAX_AE_ID_LENGTH);
-  const aeCategoryId = sanitizeOptionalString(body.aeCategoryId, MAX_AE_ID_LENGTH);
+  const aeProductId = sanitizeOptionalString(
+    body.aeProductId,
+    MAX_AE_ID_LENGTH
+  );
+  const aeCategoryId = sanitizeOptionalString(
+    body.aeCategoryId,
+    MAX_AE_ID_LENGTH
+  );
   const aeRating = sanitizeFloat(body.aeRating);
   const aeReviewCount = sanitizeInteger(body.aeReviewCount, {
     min: 0,
@@ -706,54 +799,107 @@ function parseProductPayload(
     (aeSalesCount === undefined && body.aeSalesCount !== undefined) ||
     (aeStatus === undefined && body.aeStatus !== undefined)
   ) {
-    return errorJson(c, 400, 'INVALID_AE_FIELD', 'One or more AliExpress fields are invalid.');
+    return errorJson(
+      c,
+      400,
+      'INVALID_AE_FIELD',
+      'One or more AliExpress fields are invalid.'
+    );
   }
 
   const sizeChartImage = sanitizeUrl(body.sizeChartImage);
-  const sizeChartDescription = sanitizeOptionalString(body.sizeChartDescription, 5000);
+  const sizeChartDescription = sanitizeOptionalString(
+    body.sizeChartDescription,
+    5000
+  );
   const mainVideo = sanitizeUrl(body.mainVideo);
   if (
     (sizeChartImage === undefined && body.sizeChartImage !== undefined) ||
-    (sizeChartDescription === undefined && body.sizeChartDescription !== undefined) ||
+    (sizeChartDescription === undefined &&
+      body.sizeChartDescription !== undefined) ||
     (mainVideo === undefined && body.mainVideo !== undefined)
   ) {
-    return errorJson(c, 400, 'INVALID_MEDIA_URL', 'One or more media fields are invalid.');
+    return errorJson(
+      c,
+      400,
+      'INVALID_MEDIA_URL',
+      'One or more media fields are invalid.'
+    );
   }
 
   const imagesRaw = Array.isArray(body.images) ? body.images : [];
   if (imagesRaw.length > MAX_IMAGES) {
-    return errorJson(c, 400, 'TOO_MANY_IMAGES', `At most ${MAX_IMAGES} images are allowed.`);
+    return errorJson(
+      c,
+      400,
+      'TOO_MANY_IMAGES',
+      `At most ${MAX_IMAGES} images are allowed.`
+    );
   }
   const images: ProductImage[] = [];
   for (let i = 0; i < imagesRaw.length; i++) {
     const img = sanitizeProductImage(imagesRaw[i], i);
-    if (!img) return errorJson(c, 400, 'INVALID_IMAGE', `Image at index ${i} is invalid.`);
+    if (!img)
+      return errorJson(
+        c,
+        400,
+        'INVALID_IMAGE',
+        `Image at index ${i} is invalid.`
+      );
     images.push(img);
   }
 
   const videosRaw = Array.isArray(body.videos) ? body.videos : [];
   if (videosRaw.length > MAX_VIDEOS) {
-    return errorJson(c, 400, 'TOO_MANY_VIDEOS', `At most ${MAX_VIDEOS} videos are allowed.`);
+    return errorJson(
+      c,
+      400,
+      'TOO_MANY_VIDEOS',
+      `At most ${MAX_VIDEOS} videos are allowed.`
+    );
   }
   const videos: ProductVideo[] = [];
   for (let i = 0; i < videosRaw.length; i++) {
     const video = sanitizeProductVideo(videosRaw[i]);
-    if (!video) return errorJson(c, 400, 'INVALID_VIDEO', `Video at index ${i} is invalid.`);
+    if (!video)
+      return errorJson(
+        c,
+        400,
+        'INVALID_VIDEO',
+        `Video at index ${i} is invalid.`
+      );
     videos.push(video);
   }
 
-  const categoryIdsRaw = Array.isArray(body.categoryIds) ? body.categoryIds : [];
+  const categoryIdsRaw = Array.isArray(body.categoryIds)
+    ? body.categoryIds
+    : [];
   if (categoryIdsRaw.length === 0) {
-    return errorJson(c, 400, 'MISSING_CATEGORIES', 'At least one category is required.');
+    return errorJson(
+      c,
+      400,
+      'MISSING_CATEGORIES',
+      'At least one category is required.'
+    );
   }
   if (categoryIdsRaw.length > MAX_CATEGORIES) {
-    return errorJson(c, 400, 'TOO_MANY_CATEGORIES', `At most ${MAX_CATEGORIES} categories are allowed.`);
+    return errorJson(
+      c,
+      400,
+      'TOO_MANY_CATEGORIES',
+      `At most ${MAX_CATEGORIES} categories are allowed.`
+    );
   }
   const categoryIds: string[] = [];
   const seenCategory = new Set<string>();
   for (const raw of categoryIdsRaw) {
     if (typeof raw !== 'string' || !isValidId(raw.trim())) {
-      return errorJson(c, 400, 'INVALID_CATEGORY_ID', 'One or more category ids are invalid.');
+      return errorJson(
+        c,
+        400,
+        'INVALID_CATEGORY_ID',
+        'One or more category ids are invalid.'
+      );
     }
     const id = raw.trim();
     if (!seenCategory.has(id)) {
@@ -767,7 +913,12 @@ function parseProductPayload(
     return errorJson(c, 400, 'MISSING_SKUS', 'At least one SKU is required.');
   }
   if (skusRaw.length > MAX_SKUS) {
-    return errorJson(c, 400, 'TOO_MANY_SKUS', `At most ${MAX_SKUS} SKUs are allowed.`);
+    return errorJson(
+      c,
+      400,
+      'TOO_MANY_SKUS',
+      `At most ${MAX_SKUS} SKUs are allowed.`
+    );
   }
   const skus: ParsedSku[] = [];
   for (let i = 0; i < skusRaw.length; i++) {
@@ -778,12 +929,18 @@ function parseProductPayload(
 
   const attrsRaw = Array.isArray(body.attributes) ? body.attributes : [];
   if (attrsRaw.length > MAX_ATTRIBUTES) {
-    return errorJson(c, 400, 'TOO_MANY_ATTRIBUTES', `At most ${MAX_ATTRIBUTES} attributes are allowed.`);
+    return errorJson(
+      c,
+      400,
+      'TOO_MANY_ATTRIBUTES',
+      `At most ${MAX_ATTRIBUTES} attributes are allowed.`
+    );
   }
   const attributes: ParsedAttribute[] = [];
   for (let i = 0; i < attrsRaw.length; i++) {
     const attr = parseAttribute(attrsRaw[i], i);
-    if ('error' in attr) return errorJson(c, 400, 'INVALID_ATTRIBUTE', attr.error);
+    if ('error' in attr)
+      return errorJson(c, 400, 'INVALID_ATTRIBUTE', attr.error);
     attributes.push(attr);
   }
 
@@ -792,7 +949,8 @@ function parseProductPayload(
     slug,
     description: descriptionRaw ? sanitizeHtml(descriptionRaw) : null,
     mobileDetail: mobileDetailRaw ? sanitizeHtml(mobileDetailRaw) : null,
-    hasSizeChart: sanitizeBoolean(body.hasSizeChart, false) || Boolean(sizeChartImage),
+    hasSizeChart:
+      sanitizeBoolean(body.hasSizeChart, false) || Boolean(sizeChartImage),
     sizeChartImage:
       sizeChartImage === undefined || sizeChartImage === null
         ? null
@@ -808,12 +966,15 @@ function parseProductPayload(
     aeStatus: aeStatus === undefined ? null : aeStatus,
     images,
     videos,
-    mainVideo: mainVideo === undefined ? videos[0]?.url ?? null : mainVideo,
+    mainVideo: mainVideo === undefined ? (videos[0]?.url ?? null) : mainVideo,
     categoryIds,
     published: sanitizeBoolean(body.published, false),
     featured: sanitizeBoolean(body.featured, false),
     position: sanitizeInteger(body.position, { min: 0, max: 1_000_000 }) ?? 0,
-    metaTitle: metaTitle === undefined ? name.slice(0, MAX_META_TITLE_LENGTH) : metaTitle,
+    metaTitle:
+      metaTitle === undefined
+        ? name.slice(0, MAX_META_TITLE_LENGTH)
+        : metaTitle,
     metaDescription: metaDescription === undefined ? null : metaDescription,
     tags,
     productNotes: productNotes === undefined ? null : productNotes,
@@ -847,9 +1008,12 @@ function buildWhere(args: {
       )!
     );
   }
-  if (args.status) conditions.push(eq(products.published, args.status === 'published'));
-  if (args.source) conditions.push(eq(products.isAEProduct, args.source === 'ae'));
-  if (args.featured !== null) conditions.push(eq(products.featured, args.featured));
+  if (args.status)
+    conditions.push(eq(products.published, args.status === 'published'));
+  if (args.source)
+    conditions.push(eq(products.isAEProduct, args.source === 'ae'));
+  if (args.featured !== null)
+    conditions.push(eq(products.featured, args.featured));
   if (args.addedBy) conditions.push(eq(products.productAddedBy, args.addedBy));
   if (args.categoryId) {
     conditions.push(sql`EXISTS (
@@ -906,7 +1070,10 @@ async function loadNestedProductData(db: Database, productId: string) {
       .select()
       .from(productAttributes)
       .where(eq(productAttributes.productId, productId))
-      .orderBy(asc(productAttributes.position), asc(productAttributes.attrName)),
+      .orderBy(
+        asc(productAttributes.position),
+        asc(productAttributes.attrName)
+      ),
   ]);
 
   const skuIds = skuRows.map((sku) => sku.id);
@@ -954,8 +1121,12 @@ async function replaceNestedProductData(
     }
   }
   await db.delete(productSkus).where(eq(productSkus.productId, productId));
-  await db.delete(productAttributes).where(eq(productAttributes.productId, productId));
-  await db.delete(productCategories).where(eq(productCategories.productId, productId));
+  await db
+    .delete(productAttributes)
+    .where(eq(productAttributes.productId, productId));
+  await db
+    .delete(productCategories)
+    .where(eq(productCategories.productId, productId));
 
   const categoryRows = payload.categoryIds.map((categoryId) => ({
     id: nanoid(),
@@ -1025,57 +1196,84 @@ manageProducts.get(
   async (c) => {
     const actor = getActor(c);
     const db = getDb(c);
-    const page = Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1);
+    const page = Math.max(
+      1,
+      Number.parseInt(c.req.query('page') ?? '1', 10) || 1
+    );
     const pageSize = Math.min(
       MAX_PAGE_SIZE,
-      Math.max(1, Number.parseInt(c.req.query('pageSize') ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE)
+      Math.max(
+        1,
+        Number.parseInt(
+          c.req.query('pageSize') ?? String(DEFAULT_PAGE_SIZE),
+          10
+        ) || DEFAULT_PAGE_SIZE
+      )
     );
     const search = sanitizeSearch(c.req.query('search'));
     const status = sanitizeStatus(c.req.query('status'));
     const source = sanitizeSource(c.req.query('source'));
     const categoryParam = c.req.query('categoryId')?.trim() ?? '';
-    const categoryId = categoryParam && isValidId(categoryParam) ? categoryParam : null;
+    const categoryId =
+      categoryParam && isValidId(categoryParam) ? categoryParam : null;
     const addedByParam = c.req.query('addedBy')?.trim() ?? '';
-    const addedBy = addedByParam && isValidId(addedByParam) ? addedByParam : null;
+    const addedBy =
+      addedByParam && isValidId(addedByParam) ? addedByParam : null;
     const featuredQuery = c.req.query('featured');
     const featured =
-      featuredQuery === 'true' ? true : featuredQuery === 'false' ? false : null;
+      featuredQuery === 'true'
+        ? true
+        : featuredQuery === 'false'
+          ? false
+          : null;
     const sortBy = sanitizeSortBy(c.req.query('sortBy'));
     const sortOrder = c.req.query('sortOrder') === 'asc' ? 'asc' : 'desc';
 
     try {
-      const where = buildWhere({ search, status, source, categoryId, featured, addedBy });
-      const [capabilities, totalRows, rows, addedByOptions] = await Promise.all([
-        resolveActorCapabilities(db, actor.id, actor.role),
-        db.select({ value: count() }).from(products).where(where),
-        // Lightweight list projection — only fields the manage grid needs.
-        db
-          .select({
-            id: products.id,
-            name: products.name,
-            images: products.images,
-            published: products.published,
-          })
-          .from(products)
-          .where(where)
-          .orderBy(buildOrderBy(sortBy, sortOrder))
-          .limit(pageSize)
-          .offset((page - 1) * pageSize),
-        db
-          .select({
-            id: users.id,
-            name: users.name,
-            email: users.email,
-            image: users.image,
-            role: users.role,
-          })
-          .from(users)
-          .where(and(inArray(users.role, ADMIN_ROLES), eq(users.isDeleted, false)))
-          .orderBy(
-            sql`CASE WHEN ${users.role} = 'owner' THEN 0 ELSE 1 END`,
-            asc(users.name)
-          ),
-      ]);
+      const where = buildWhere({
+        search,
+        status,
+        source,
+        categoryId,
+        featured,
+        addedBy,
+      });
+      const [capabilities, totalRows, rows, addedByOptions] = await Promise.all(
+        [
+          resolveActorCapabilities(db, actor.id, actor.role),
+          db.select({ value: count() }).from(products).where(where),
+          // Lightweight list projection — only fields the manage grid needs.
+          db
+            .select({
+              id: products.id,
+              name: products.name,
+              images: products.images,
+              published: products.published,
+              defaultPrice: products.defaultPrice,
+            })
+            .from(products)
+            .where(where)
+            .orderBy(buildOrderBy(sortBy, sortOrder))
+            .limit(pageSize)
+            .offset((page - 1) * pageSize),
+          db
+            .select({
+              id: users.id,
+              name: users.name,
+              email: users.email,
+              image: users.image,
+              role: users.role,
+            })
+            .from(users)
+            .where(
+              and(inArray(users.role, ADMIN_ROLES), eq(users.isDeleted, false))
+            )
+            .orderBy(
+              sql`CASE WHEN ${users.role} = 'owner' THEN 0 ELSE 1 END`,
+              asc(users.name)
+            ),
+        ]
+      );
 
       const productIds = rows.map((row) => row.id);
       const priceRows =
@@ -1083,10 +1281,6 @@ manageProducts.get(
           ? await db
               .select({
                 productId: productSkus.productId,
-                minPrice: min(productSkus.price),
-                maxPrice: max(productSkus.price),
-                minCompareAtPrice: min(productSkus.compareAtPrice),
-                maxCompareAtPrice: max(productSkus.compareAtPrice),
                 minEstProfit: min(productSkus.estProfit),
                 maxEstProfit: max(productSkus.estProfit),
               })
@@ -1095,7 +1289,9 @@ manageProducts.get(
               .groupBy(productSkus.productId)
           : [];
 
-      const toPrice = (value: number | string | null | undefined): number | null => {
+      const toPrice = (
+        value: number | string | null | undefined
+      ): number | null => {
         if (value === null || value === undefined) return null;
         const n = typeof value === 'number' ? value : Number(value);
         return Number.isFinite(n) ? n : null;
@@ -1105,10 +1301,6 @@ manageProducts.get(
         priceRows.map((row) => [
           row.productId,
           {
-            minPrice: toPrice(row.minPrice),
-            maxPrice: toPrice(row.maxPrice),
-            minCompareAtPrice: toPrice(row.minCompareAtPrice),
-            maxCompareAtPrice: toPrice(row.maxCompareAtPrice),
             minEstProfit: toPrice(row.minEstProfit),
             maxEstProfit: toPrice(row.maxEstProfit),
           },
@@ -1131,16 +1323,14 @@ manageProducts.get(
               ? [
                   {
                     url:
-                      resolveStoredImageUrl(firstImage.url, c) ?? firstImage.url,
+                      resolveStoredImageUrl(firstImage.url, c) ??
+                      firstImage.url,
                     forVariant: firstImage.forVariant,
                     isOp: firstImage.isOp === true ? true : undefined,
                   },
                 ]
               : [],
-            minPrice: prices?.minPrice ?? null,
-            maxPrice: prices?.maxPrice ?? null,
-            minCompareAtPrice: prices?.minCompareAtPrice ?? null,
-            maxCompareAtPrice: prices?.maxCompareAtPrice ?? null,
+            defaultPrice: row.defaultPrice ?? null,
             minEstProfit: prices?.minEstProfit ?? null,
             maxEstProfit: prices?.maxEstProfit ?? null,
           };
@@ -1170,7 +1360,8 @@ manageProducts.get(
     const actor = getActor(c);
     const db = getDb(c);
     const id = c.req.param('id');
-    if (!isValidId(id)) return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
+    if (!isValidId(id))
+      return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
 
     try {
       const [product] = await db
@@ -1178,13 +1369,23 @@ manageProducts.get(
         .from(products)
         .where(eq(products.id, id))
         .limit(1);
-      if (!product) return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
+      if (!product)
+        return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
 
       const nested = await loadNestedProductData(db, id);
-      const capabilities = await resolveActorCapabilities(db, actor.id, actor.role);
+      const capabilities = await resolveActorCapabilities(
+        db,
+        actor.id,
+        actor.role
+      );
       const [addedBy] = product.productAddedBy
         ? await db
-            .select({ id: users.id, name: users.name, email: users.email, image: users.image })
+            .select({
+              id: users.id,
+              name: users.name,
+              email: users.email,
+              image: users.image,
+            })
             .from(users)
             .where(eq(users.id, product.productAddedBy))
             .limit(1)
@@ -1203,7 +1404,9 @@ manageProducts.get(
           ...nested,
           skus: nested.skus.map((sku) => ({
             ...sku,
-            images: resolveProductImagesForClient(sku.images, c.env, { origin }),
+            images: resolveProductImagesForClient(sku.images, c.env, {
+              origin,
+            }),
             properties: sku.properties.map((prop) => ({
               ...prop,
               image: resolveStoredImageUrl(prop.image, c),
@@ -1220,6 +1423,104 @@ manageProducts.get(
     } catch (error) {
       console.error('Error loading product:', error);
       return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load product.');
+    }
+  }
+);
+
+manageProducts.post(
+  '/recalculate-prices',
+  requireAnyPermission(PERMISSIONS.PRODUCT_UPDATE),
+  async (c) => {
+    const db = getDb(c);
+    try {
+      const rawCursor = c.req.query('cursor')?.trim() || null;
+      const rawBatchSize = Number(c.req.query('batchSize'));
+      const batchSize = Number.isFinite(rawBatchSize)
+        ? Math.min(
+            MAX_PRICE_RECALC_BATCH_SIZE,
+            Math.max(1, Math.floor(rawBatchSize))
+          )
+        : PRICE_RECALC_BATCH_SIZE;
+
+      if (rawCursor && !isValidId(rawCursor)) {
+        return errorJson(
+          c,
+          400,
+          'INVALID_CURSOR',
+          'Invalid price recalculation cursor.'
+        );
+      }
+
+      const productRows = await db
+        .select({ id: products.id, updatedAt: products.updatedAt })
+        .from(products)
+        .where(rawCursor ? gt(products.id, rawCursor) : undefined)
+        .orderBy(asc(products.id))
+        .limit(batchSize);
+
+      let updated = 0;
+      let skipped = 0;
+      for (const product of productRows) {
+        const skuRows = await db
+          .select({
+            price: productSkus.price,
+            compareAtPrice: productSkus.compareAtPrice,
+          })
+          .from(productSkus)
+          .where(eq(productSkus.productId, product.id));
+
+        const result = await db
+          .update(products)
+          .set({
+            defaultPrice: calculateProductDefaultPrice(
+              skuRows.map((sku) => ({
+                price: Number(sku.price),
+                compareAtPrice:
+                  sku.compareAtPrice === null
+                    ? null
+                    : Number(sku.compareAtPrice),
+              }))
+            ),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(products.id, product.id),
+              eq(products.updatedAt, product.updatedAt)
+            )
+          );
+        const wasUpdated = result.meta.changes > 0;
+        if (wasUpdated) updated += 1;
+        else skipped += 1;
+      }
+
+      if (updated > 0) {
+        await Promise.all([
+          invalidatePublicProductCache(c.env.KV),
+          invalidateHomepageCache(c.env.KV),
+        ]);
+      }
+
+      const nextCursor =
+        productRows.length === batchSize
+          ? (productRows[productRows.length - 1]?.id ?? null)
+          : null;
+      return c.json({
+        success: true,
+        processed: productRows.length,
+        updated,
+        skipped,
+        nextCursor,
+        done: nextCursor === null,
+      });
+    } catch (error) {
+      console.error('Error recalculating product prices:', error);
+      return errorJson(
+        c,
+        500,
+        'INTERNAL_ERROR',
+        'Failed to update product prices.'
+      );
     }
   }
 );
@@ -1343,7 +1644,8 @@ manageProducts.post(
           write('error', {
             success: false,
             code: 'INTERNAL_ERROR',
-            message: 'Images uploaded but saving the product failed. Please try again.',
+            message:
+              'Images uploaded but saving the product failed. Please try again.',
             error:
               'Images uploaded but saving the product failed. Please try again.',
           });
@@ -1382,7 +1684,10 @@ manageProducts.post(
           },
         });
         c.executionCtx.waitUntil(
-          invalidatePublicProductCache(c.env.KV).then(() => undefined)
+          Promise.all([
+            invalidatePublicProductCache(c.env.KV),
+            invalidateHomepageCache(c.env.KV),
+          ]).then(() => undefined)
         );
       });
     } catch (error) {
@@ -1404,7 +1709,8 @@ manageProducts.patch(
     const actor = getActor(c);
     const db = getDb(c);
     const id = c.req.param('id');
-    if (!isValidId(id)) return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
+    if (!isValidId(id))
+      return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
 
     const parsedBody = await readJsonObject(c);
     if (!parsedBody.ok) return parsedBody.response;
@@ -1417,13 +1723,19 @@ manageProducts.patch(
         .from(products)
         .where(eq(products.id, id))
         .limit(1);
-      if (!existing) return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
+      if (!existing)
+        return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
 
       if (payload.aeProductId) {
         const [duplicateAe] = await db
           .select({ id: products.id, name: products.name })
           .from(products)
-          .where(and(eq(products.aeProductId, payload.aeProductId), ne(products.id, id)))
+          .where(
+            and(
+              eq(products.aeProductId, payload.aeProductId),
+              ne(products.id, id)
+            )
+          )
           .limit(1);
         if (duplicateAe) {
           return errorJson(
@@ -1440,9 +1752,18 @@ manageProducts.patch(
         .from(categories)
         .where(inArray(categories.id, payload.categoryIds));
       if (existingCategories.length !== payload.categoryIds.length) {
-        const found = new Set(existingCategories.map((category) => category.id));
-        const missing = payload.categoryIds.filter((categoryId) => !found.has(categoryId));
-        return errorJson(c, 400, 'CATEGORY_NOT_FOUND', `Category not found: ${missing[0]}`);
+        const found = new Set(
+          existingCategories.map((category) => category.id)
+        );
+        const missing = payload.categoryIds.filter(
+          (categoryId) => !found.has(categoryId)
+        );
+        return errorJson(
+          c,
+          400,
+          'CATEGORY_NOT_FOUND',
+          `Category not found: ${missing[0]}`
+        );
       }
 
       const beforeNested = await loadNestedProductData(db, id);
@@ -1452,6 +1773,8 @@ manageProducts.patch(
 
       // AE identity + catalog position are immutable on edit — set at import time only.
       // Client cannot flip isAEProduct, re-link aeProductId, or change list position here.
+      // D1 rejects SQL BEGIN/SAVEPOINT. Keep writes ordered because nested
+      // SKU properties depend on the SKU rows being removed/created first.
       await db
         .update(products)
         .set({
@@ -1462,6 +1785,7 @@ manageProducts.patch(
           hasSizeChart: payload.hasSizeChart,
           sizeChartImage: payload.sizeChartImage,
           sizeChartDescription: payload.sizeChartDescription,
+          defaultPrice: calculateProductDefaultPrice(payload.skus),
           isAEProduct: existing.isAEProduct,
           aeProductId: existing.aeProductId,
           aeCategoryId: existing.aeCategoryId,
@@ -1486,7 +1810,6 @@ manageProducts.patch(
         .where(eq(products.id, id));
 
       // Nested SKUs/attrs/categories still come from the edit payload.
-      // Preserve AE cost fields on SKUs when the client omits them (safety).
       await replaceNestedProductData(db, id, payload, now);
 
       c.executionCtx.waitUntil(
@@ -1530,7 +1853,10 @@ manageProducts.patch(
         }).then(() => undefined)
       );
       c.executionCtx.waitUntil(
-        invalidatePublicProductCache(c.env.KV).then(() => undefined)
+        Promise.all([
+          invalidatePublicProductCache(c.env.KV),
+          invalidateHomepageCache(c.env.KV),
+        ]).then(() => undefined)
       );
 
       return c.json({
@@ -1542,7 +1868,12 @@ manageProducts.patch(
       console.error('Error updating product:', error);
       const message = error instanceof Error ? error.message.toLowerCase() : '';
       if (message.includes('unique') || message.includes('constraint')) {
-        return errorJson(c, 409, 'CONFLICT', 'A product with this slug or AliExpress id already exists.');
+        return errorJson(
+          c,
+          409,
+          'CONFLICT',
+          'A product with this slug or AliExpress id already exists.'
+        );
       }
       return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to update product.');
     }
@@ -1556,7 +1887,8 @@ manageProducts.delete(
     const actor = getActor(c);
     const db = getDb(c);
     const id = c.req.param('id');
-    if (!isValidId(id)) return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
+    if (!isValidId(id))
+      return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
 
     try {
       const [product] = await db
@@ -1564,7 +1896,8 @@ manageProducts.delete(
         .from(products)
         .where(eq(products.id, id))
         .limit(1);
-      if (!product) return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
+      if (!product)
+        return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
 
       const body = await readOptionalJsonObject(c);
       if (body.confirm !== true) {
@@ -1576,17 +1909,25 @@ manageProducts.delete(
         );
       }
 
+      // D1 rejects SQL BEGIN/SAVEPOINT. Delete dependents before the product
+      // so foreign-key cascades are not relied on for this ordered cleanup.
       const skuRows = await db
         .select({ id: productSkus.id })
         .from(productSkus)
         .where(eq(productSkus.productId, id));
       const skuIds = skuRows.map((sku) => sku.id);
       for (const chunk of chunkArray(skuIds, QUERY_CHUNK_SIZE)) {
-        await db.delete(skuProperties).where(inArray(skuProperties.skuId, chunk));
+        await db
+          .delete(skuProperties)
+          .where(inArray(skuProperties.skuId, chunk));
       }
       await db.delete(productSkus).where(eq(productSkus.productId, id));
-      await db.delete(productAttributes).where(eq(productAttributes.productId, id));
-      await db.delete(productCategories).where(eq(productCategories.productId, id));
+      await db
+        .delete(productAttributes)
+        .where(eq(productAttributes.productId, id));
+      await db
+        .delete(productCategories)
+        .where(eq(productCategories.productId, id));
       await db.delete(products).where(eq(products.id, id));
 
       // Reverse this product's contribution on the admin leaderboard.
@@ -1621,10 +1962,16 @@ manageProducts.delete(
         }).then(() => undefined)
       );
       c.executionCtx.waitUntil(
-        invalidatePublicProductCache(c.env.KV).then(() => undefined)
+        Promise.all([
+          invalidatePublicProductCache(c.env.KV),
+          invalidateHomepageCache(c.env.KV),
+        ]).then(() => undefined)
       );
 
-      return c.json({ success: true, message: `Product "${product.name}" deleted.` });
+      return c.json({
+        success: true,
+        message: `Product "${product.name}" deleted.`,
+      });
     } catch (error) {
       console.error('Error deleting product:', error);
       return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to delete product.');

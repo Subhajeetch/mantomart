@@ -1,4 +1,7 @@
-import type { PublicProductCard } from '@/components/homepage/types';
+import type {
+  ProductDefaultPrice,
+  PublicProductCard,
+} from '@/components/homepage/types';
 
 export type PublicGalleryImage = {
   type: 'image';
@@ -54,6 +57,7 @@ export type PublicProduct = {
   id: string;
   slug: string;
   name: string;
+  defaultPrice: ProductDefaultPrice | null;
   description: string | null;
   mobileDetail: string | null;
   hasSizeChart: boolean;

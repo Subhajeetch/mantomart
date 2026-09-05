@@ -15,6 +15,7 @@ import type {
   PublicPromoSliderBlock,
   PromoSlideLayout,
   PromoSlideTheme,
+  ProductDefaultPrice,
 } from './types';
 
 const HOMEPAGE_REVALIDATE_SECONDS = 5 * 24 * 60 * 60;
@@ -90,6 +91,8 @@ export function normalizeProductCard(raw: unknown): PublicProductCard | null {
   const imageAlt = asString(raw.imageAlt);
   const images = normalizeCardImages(raw.images, imageUrl, imageAlt, name);
 
+  const defaultPrice = normalizeDefaultPrice(raw.defaultPrice);
+
   return {
     id,
     slug,
@@ -112,6 +115,22 @@ export function normalizeProductCard(raw: unknown): PublicProductCard | null {
       if (n === null || n < 0) return null;
       return Math.floor(n);
     })(),
+    defaultPrice,
+  };
+}
+
+function normalizeDefaultPrice(raw: unknown): ProductDefaultPrice | null {
+  if (!isRecord(raw)) return null;
+  const normalizeRange = (value: unknown) => {
+    if (!isRecord(value)) return { from: null, to: null };
+    return {
+      from: asNullableNumber(value.from),
+      to: asNullableNumber(value.to),
+    };
+  };
+  return {
+    normalPrice: normalizeRange(raw.normalPrice),
+    comparedPrice: normalizeRange(raw.comparedPrice),
   };
 }
 
@@ -456,7 +475,7 @@ export async function getHomepage(): Promise<PublicHomepageBlock[]> {
 }
 
 /**
- * Client-side infinite-scroll page fetch. Never throws.
+ * Client-side infinite-scroll page fetch.
  */
 export async function fetchFeedPage(
   cursor: string | null,
@@ -487,6 +506,7 @@ export async function fetchFeedPage(
       | FeedResponse
       | HomepageErrorResponse;
     if (!body || typeof body !== 'object' || body.success !== true) {
+      console.warn('fetchFeedPage: Feed response was invalid');
       return { items: [], nextCursor: null };
     }
     const items = (Array.isArray(body.data?.items) ? body.data.items : [])

@@ -83,8 +83,8 @@ function ProductCard({
 }) {
   const image = product.images?.[0]?.url;
   const compareAtLabel = formatCentsRange(
-    product.minCompareAtPrice,
-    product.maxCompareAtPrice
+    product.defaultPrice?.comparedPrice.from,
+    product.defaultPrice?.comparedPrice.to
   );
   const estProfitLabel = formatEstProfitRange(product);
 
@@ -124,7 +124,7 @@ function ProductCard({
           )}
           {estProfitLabel && (
             <span
-              className="absolute bottom-2 left-2 z-[1] max-w-[calc(100%-1rem)] truncate rounded-md border border-emerald-500/20 bg-background/90 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-emerald-700 shadow-sm backdrop-blur-sm dark:text-emerald-400"
+              className="absolute bottom-2 left-2 z-1 max-w-[calc(100%-1rem)] truncate rounded-md border border-emerald-500/20 bg-background/90 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-emerald-700 shadow-sm backdrop-blur-sm dark:text-emerald-400"
               title={`Estimated profit: ${estProfitLabel}`}
             >
               Est. Profit: {estProfitLabel}
@@ -133,12 +133,15 @@ function ProductCard({
         </div>
 
         <CardContent className="space-y-2 p-3">
-          <h3 className="truncate text-sm font-medium leading-snug" title={product.name}>
+          <h3
+            className="truncate text-sm font-medium leading-snug"
+            title={product.name}
+          >
             {product.name}
           </h3>
           <div className="flex items-center justify-between gap-2">
             <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 truncate text-sm font-semibold tabular-nums">
-              <span>{formatPriceRange(product)}</span>
+              <span>{formatPriceRange(product.defaultPrice?.normalPrice)}</span>
               {compareAtLabel && (
                 <span
                   className="text-muted-foreground text-xs font-normal line-through"
@@ -167,6 +170,7 @@ export default function ManageProductsPage() {
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [updatingPrices, setUpdatingPrices] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
@@ -179,7 +183,10 @@ export default function ManageProductsPage() {
   const [sortBy, setSortBy] = useState('updatedAt');
   const [page, setPage] = useState(1);
 
-  const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
+  const flatCategories = useMemo(
+    () => flattenCategories(categories),
+    [categories]
+  );
   const canUpdate = meta?.canUpdate ?? false;
   const canCreate = meta?.canCreate ?? false;
 
@@ -243,7 +250,16 @@ export default function ManageProductsPage() {
         setRefreshing(false);
       }
     },
-    [addedBy, categoryId, debouncedSearch, featured, page, sortBy, source, status]
+    [
+      addedBy,
+      categoryId,
+      debouncedSearch,
+      featured,
+      page,
+      sortBy,
+      source,
+      status,
+    ]
   );
 
   useEffect(() => {
@@ -306,6 +322,61 @@ export default function ManageProductsPage() {
               />
               Refresh
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                setUpdatingPrices(true);
+                try {
+                  let cursor: string | null = null;
+                  let processed = 0;
+                  do {
+                    const params = new URLSearchParams({ batchSize: '50' });
+                    if (cursor) params.set('cursor', cursor);
+                    const result = await requestJson<{
+                      success: true;
+                      processed: number;
+                      nextCursor: string | null;
+                      done: boolean;
+                    }>(`recalculate-prices?${params.toString()}`, {
+                      method: 'POST',
+                    });
+                    processed += result.processed;
+                    if (result.done) {
+                      cursor = null;
+                    } else if (
+                      result.nextCursor &&
+                      result.nextCursor !== cursor
+                    ) {
+                      cursor = result.nextCursor;
+                    } else {
+                      throw new Error(
+                        'Price update stopped because the server returned an invalid cursor.'
+                      );
+                    }
+                  } while (cursor);
+                  toast.success(
+                    processed === 1
+                      ? 'Updated prices for 1 product.'
+                      : `Updated prices for ${processed} products.`
+                  );
+                  await loadProducts(true);
+                } catch (err) {
+                  toast.error(
+                    err instanceof Error
+                      ? err.message
+                      : 'Failed to update product prices.'
+                  );
+                } finally {
+                  setUpdatingPrices(false);
+                }
+              }}
+              disabled={loading || refreshing || updatingPrices || !canUpdate}
+              className="gap-1.5"
+            >
+              <RefreshCw className="size-3.5" />
+              Update prices
+            </Button>
             <Button asChild size="sm" disabled={!canCreate} className="gap-1.5">
               <Link href="/product/add">
                 <Plus className="size-3.5" />
@@ -345,7 +416,10 @@ export default function ManageProductsPage() {
                 />
               </div>
 
-              <Select value={status} onValueChange={(value) => setStatus(value as typeof status)}>
+              <Select
+                value={status}
+                onValueChange={(value) => setStatus(value as typeof status)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -356,7 +430,10 @@ export default function ManageProductsPage() {
                 </SelectContent>
               </Select>
 
-              <Select value={source} onValueChange={(value) => setSource(value as typeof source)}>
+              <Select
+                value={source}
+                onValueChange={(value) => setSource(value as typeof source)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Source" />
                 </SelectTrigger>
@@ -381,7 +458,10 @@ export default function ManageProductsPage() {
                 </SelectContent>
               </Select>
 
-              <Select value={featured} onValueChange={(value) => setFeatured(value as typeof featured)}>
+              <Select
+                value={featured}
+                onValueChange={(value) => setFeatured(value as typeof featured)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Featured" />
                 </SelectTrigger>
@@ -403,7 +483,9 @@ export default function ManageProductsPage() {
                       <span className="flex items-center gap-2">
                         <Avatar size="sm" className="size-5">
                           <AvatarImage src={admin.image ?? undefined} />
-                          <AvatarFallback>{getInitials(admin.name)}</AvatarFallback>
+                          <AvatarFallback>
+                            {getInitials(admin.name)}
+                          </AvatarFallback>
                         </Avatar>
                         <span>{admin.name}</span>
                       </span>
@@ -444,7 +526,11 @@ export default function ManageProductsPage() {
                 <p className="font-medium">Could not load products</p>
                 <p className="text-muted-foreground mt-1 text-sm">{error}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => void loadProducts()}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadProducts()}
+              >
                 Try again
               </Button>
             </CardContent>

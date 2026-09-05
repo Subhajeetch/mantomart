@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `default_price` text DEFAULT 'null';

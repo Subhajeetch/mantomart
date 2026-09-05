@@ -1,6 +1,7 @@
 import { asString, isRecord } from '@/components/homepage/format';
 import { normalizeProductCard } from '@/components/homepage/api';
 import type { PublicProductCard } from '@/components/homepage/types';
+import type { ProductDefaultPrice } from '@/components/homepage/types';
 
 import type {
   MoreForYouPage,
@@ -168,6 +169,7 @@ function normalizeProduct(raw: unknown): PublicProduct | null {
     id,
     slug,
     name,
+    defaultPrice: normalizeDefaultPrice(raw.defaultPrice),
     description: asString(raw.description),
     mobileDetail: asString(raw.mobileDetail),
     hasSizeChart: raw.hasSizeChart === true,
@@ -186,6 +188,18 @@ function normalizeProduct(raw: unknown): PublicProduct | null {
     attributes,
     category: normalizeCategory(raw.category),
     breadcrumbs,
+  };
+}
+
+function normalizeDefaultPrice(raw: unknown): ProductDefaultPrice | null {
+  if (!isRecord(raw)) return null;
+  const range = (value: unknown) =>
+    isRecord(value)
+      ? { from: asNullableNumber(value.from), to: asNullableNumber(value.to) }
+      : { from: null, to: null };
+  return {
+    normalPrice: range(raw.normalPrice),
+    comparedPrice: range(raw.comparedPrice),
   };
 }
 
