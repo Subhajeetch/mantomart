@@ -60,7 +60,7 @@ function CopyBlock({
       <SlideTitle
         slide={slide}
         chevron={chevron}
-        className="text-[24px] leading-tight font-semibold tracking-tight sm:text-3xl lg:text-5xl xl:text-7xl"
+        className="text-[24px] leading-tight font-semibold tracking-tight sm:text-3xl lg:text-5xl"
       />
       {slide.subtitle ? (
         <p

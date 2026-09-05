@@ -5,7 +5,6 @@ import {
   count,
   desc,
   eq,
-  gt,
   inArray,
   like,
   ne,
@@ -13,7 +12,6 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import type { BatchItem } from 'drizzle-orm/batch';
 import { nanoid } from 'nanoid';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
@@ -92,8 +90,6 @@ const MAX_AE_ID_LENGTH = 64;
 const MAX_BODY_BYTES = 2_500_000;
 const INSERT_CHUNK_SIZE = 10;
 const QUERY_CHUNK_SIZE = 80;
-const EST_PROFIT_RECALC_BATCH_SIZE = 50;
-const MAX_EST_PROFIT_RECALC_BATCH_SIZE = 100;
 const ADMIN_ROLES = ['admin', 'owner'] as const;
 /** Fixed buffer for payment-processor fees / tax leakage ($1.50 in cents). */
 const PAYMENT_PROCESSOR_FEE_CENTS = 150;
@@ -1316,103 +1312,6 @@ manageProducts.get(
     } catch (error) {
       console.error('Error listing products:', error);
       return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load products.');
-    }
-  }
-);
-
-manageProducts.post(
-  '/recalculate-est-profits',
-  requireAnyPermission(PERMISSIONS.PRODUCT_UPDATE),
-  async (c) => {
-    const db = getDb(c);
-
-    try {
-      const rawCursor = c.req.query('cursor')?.trim() || null;
-      const rawBatchSize = Number(c.req.query('batchSize'));
-      const batchSize = Number.isFinite(rawBatchSize)
-        ? Math.min(
-            MAX_EST_PROFIT_RECALC_BATCH_SIZE,
-            Math.max(1, Math.floor(rawBatchSize))
-          )
-        : EST_PROFIT_RECALC_BATCH_SIZE;
-
-      if (rawCursor && !isValidId(rawCursor)) {
-        return errorJson(
-          c,
-          400,
-          'INVALID_CURSOR',
-          'Invalid estimated profit recalculation cursor.'
-        );
-      }
-
-      const productRows = await db
-        .select({ id: products.id })
-        .from(products)
-        .where(rawCursor ? gt(products.id, rawCursor) : undefined)
-        .orderBy(asc(products.id))
-        .limit(batchSize);
-      const productIds = productRows.map((product) => product.id);
-
-      if (productIds.length > 0) {
-        const skuRows = await db
-          .select({
-            productId: productSkus.productId,
-            estProfit: productSkus.estProfit,
-          })
-          .from(productSkus)
-          .where(inArray(productSkus.productId, productIds));
-        const profitsByProduct = new Map<
-          string,
-          Array<{ estProfit: number | null }>
-        >();
-
-        for (const row of skuRows) {
-          const estProfit =
-            row.estProfit === null ? null : Number(row.estProfit);
-          const list = profitsByProduct.get(row.productId) ?? [];
-          list.push({
-            estProfit: Number.isFinite(estProfit) ? estProfit : null,
-          });
-          profitsByProduct.set(row.productId, list);
-        }
-
-        const updates: BatchItem<'sqlite'>[] = productIds.map((productId) =>
-          db
-            .update(products)
-            .set({
-              defaultEstProfit: calculateProductDefaultEstProfit(
-                profitsByProduct.get(productId) ?? []
-              ),
-            })
-            .where(eq(products.id, productId))
-        );
-
-        for (const chunk of chunkArray(updates, QUERY_CHUNK_SIZE)) {
-          await db.batch(
-            chunk as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]]
-          );
-        }
-      }
-
-      const nextCursor =
-        productRows.length === batchSize
-          ? (productRows[productRows.length - 1]?.id ?? null)
-          : null;
-
-      return c.json({
-        success: true,
-        processed: productRows.length,
-        nextCursor,
-        done: nextCursor === null,
-      });
-    } catch (error) {
-      console.error('Error recalculating estimated product profits:', error);
-      return errorJson(
-        c,
-        500,
-        'INTERNAL_ERROR',
-        'Failed to update estimated product profits.'
-      );
     }
   }
 );
