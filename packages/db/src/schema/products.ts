@@ -88,9 +88,15 @@ export type ProductDefaultPrice = {
   comparedPrice: ProductPriceRange;
 };
 
+export type ProductDefaultEstProfit = ProductPriceRange;
+
 export type ProductSkuPriceInput = {
   price: number;
   compareAtPrice: number | null;
+};
+
+export type ProductSkuEstProfitInput = {
+  estProfit: number | null;
 };
 
 export function calculateProductDefaultPrice(
@@ -116,6 +122,22 @@ export function calculateProductDefaultPrice(
       from: comparedPrices.length > 0 ? Math.min(...comparedPrices) : null,
       to: comparedPrices.length > 0 ? Math.max(...comparedPrices) : null,
     },
+  };
+}
+
+export function calculateProductDefaultEstProfit(
+  skus: readonly ProductSkuEstProfitInput[]
+): ProductDefaultEstProfit | null {
+  const profits = skus
+    .map((sku) => sku.estProfit)
+    .filter(
+      (profit): profit is number => profit !== null && Number.isFinite(profit)
+    );
+  if (profits.length === 0) return null;
+
+  return {
+    from: Math.min(...profits),
+    to: Math.max(...profits),
   };
 }
 
@@ -145,6 +167,9 @@ export const products = sqliteTable(
      */
     defaultPrice: text('default_price', { mode: 'json' })
       .$type<ProductDefaultPrice | null>()
+      .default(null),
+    defaultEstProfit: text('default_est_profit', { mode: 'json' })
+      .$type<ProductDefaultEstProfit | null>()
       .default(null),
 
     // ── AliExpress source info ──

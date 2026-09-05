@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `default_est_profit` text DEFAULT 'null';

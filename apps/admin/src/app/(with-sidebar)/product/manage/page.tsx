@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Edit,
   Filter,
+  RefreshCcw,
   PackageSearch,
   Plus,
   RefreshCw,
@@ -170,7 +171,7 @@ export default function ManageProductsPage() {
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [updatingPrices, setUpdatingPrices] = useState(false);
+  const [updatingEstProfits, setUpdatingEstProfits] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
@@ -326,7 +327,7 @@ export default function ManageProductsPage() {
               variant="outline"
               size="sm"
               onClick={async () => {
-                setUpdatingPrices(true);
+                setUpdatingEstProfits(true);
                 try {
                   let cursor: string | null = null;
                   let processed = 0;
@@ -338,7 +339,7 @@ export default function ManageProductsPage() {
                       processed: number;
                       nextCursor: string | null;
                       done: boolean;
-                    }>(`recalculate-prices?${params.toString()}`, {
+                    }>(`recalculate-est-profits?${params.toString()}`, {
                       method: 'POST',
                     });
                     processed += result.processed;
@@ -351,31 +352,35 @@ export default function ManageProductsPage() {
                       cursor = result.nextCursor;
                     } else {
                       throw new Error(
-                        'Price update stopped because the server returned an invalid cursor.'
+                        'Estimated profit update stopped because the server returned an invalid cursor.'
                       );
                     }
                   } while (cursor);
                   toast.success(
                     processed === 1
-                      ? 'Updated prices for 1 product.'
-                      : `Updated prices for ${processed} products.`
+                      ? 'Updated estimated profit for 1 product.'
+                      : `Updated estimated profit for ${processed} products.`
                   );
                   await loadProducts(true);
                 } catch (err) {
                   toast.error(
                     err instanceof Error
                       ? err.message
-                      : 'Failed to update product prices.'
+                      : 'Failed to update estimated product profits.'
                   );
                 } finally {
-                  setUpdatingPrices(false);
+                  setUpdatingEstProfits(false);
                 }
               }}
-              disabled={loading || refreshing || updatingPrices || !canUpdate}
+              disabled={
+                loading || refreshing || updatingEstProfits || !canUpdate
+              }
               className="gap-1.5"
             >
-              <RefreshCw className="size-3.5" />
-              Update prices
+              <RefreshCcw
+                className={cn('size-3.5', updatingEstProfits && 'animate-spin')}
+              />
+              Update profits
             </Button>
             <Button asChild size="sm" disabled={!canCreate} className="gap-1.5">
               <Link href="/product/add">

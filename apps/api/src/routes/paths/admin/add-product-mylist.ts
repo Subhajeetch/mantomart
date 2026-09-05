@@ -14,6 +14,7 @@ import {
   type ProductImage,
   type ProductVideo,
   calculateProductDefaultPrice,
+  calculateProductDefaultEstProfit,
 } from '@repo/db';
 import { errorJson, type AppEnv, type AppContext } from '@/utils/errorJson';
 import {
@@ -1263,6 +1264,7 @@ addProductMyList.post(
             sizeChartImage: hostedSizeChart ?? null,
             sizeChartDescription: sizeChartDescription ?? null,
             defaultPrice: calculateProductDefaultPrice(skus),
+            defaultEstProfit: calculateProductDefaultEstProfit(skus),
 
             isAEProduct,
             aeProductId: aeProductId ?? null,

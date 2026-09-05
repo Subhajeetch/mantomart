@@ -8,13 +8,12 @@ import {
   gt,
   inArray,
   like,
-  max,
-  min,
   ne,
   or,
   sql,
   type SQL,
 } from 'drizzle-orm';
+import type { BatchItem } from 'drizzle-orm/batch';
 import { nanoid } from 'nanoid';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
@@ -29,6 +28,7 @@ import {
   type ProductImage,
   type ProductVideo,
   calculateProductDefaultPrice,
+  calculateProductDefaultEstProfit,
 } from '@repo/db';
 import { errorJson, type AppContext, type AppEnv } from '@/utils/errorJson';
 import { adminHasPermission } from '@/utils/permissions';
@@ -92,8 +92,8 @@ const MAX_AE_ID_LENGTH = 64;
 const MAX_BODY_BYTES = 2_500_000;
 const INSERT_CHUNK_SIZE = 10;
 const QUERY_CHUNK_SIZE = 80;
-const PRICE_RECALC_BATCH_SIZE = 25;
-const MAX_PRICE_RECALC_BATCH_SIZE = 100;
+const EST_PROFIT_RECALC_BATCH_SIZE = 50;
+const MAX_EST_PROFIT_RECALC_BATCH_SIZE = 100;
 const ADMIN_ROLES = ['admin', 'owner'] as const;
 /** Fixed buffer for payment-processor fees / tax leakage ($1.50 in cents). */
 const PAYMENT_PROCESSOR_FEE_CENTS = 150;
@@ -1250,6 +1250,7 @@ manageProducts.get(
               images: products.images,
               published: products.published,
               defaultPrice: products.defaultPrice,
+              defaultEstProfit: products.defaultEstProfit,
             })
             .from(products)
             .where(where)
@@ -1275,43 +1276,10 @@ manageProducts.get(
         ]
       );
 
-      const productIds = rows.map((row) => row.id);
-      const priceRows =
-        productIds.length > 0
-          ? await db
-              .select({
-                productId: productSkus.productId,
-                minEstProfit: min(productSkus.estProfit),
-                maxEstProfit: max(productSkus.estProfit),
-              })
-              .from(productSkus)
-              .where(inArray(productSkus.productId, productIds))
-              .groupBy(productSkus.productId)
-          : [];
-
-      const toPrice = (
-        value: number | string | null | undefined
-      ): number | null => {
-        if (value === null || value === undefined) return null;
-        const n = typeof value === 'number' ? value : Number(value);
-        return Number.isFinite(n) ? n : null;
-      };
-
-      const priceByProduct = new Map(
-        priceRows.map((row) => [
-          row.productId,
-          {
-            minEstProfit: toPrice(row.minEstProfit),
-            maxEstProfit: toPrice(row.maxEstProfit),
-          },
-        ])
-      );
-
       const total = Number(totalRows[0]?.value ?? 0);
       return c.json({
         success: true,
         data: rows.map((row) => {
-          const prices = priceByProduct.get(row.id);
           const images = Array.isArray(row.images) ? row.images : [];
           // Only ship the first gallery image for the card thumbnail.
           const firstImage = firstGalleryImage(images);
@@ -1331,8 +1299,7 @@ manageProducts.get(
                 ]
               : [],
             defaultPrice: row.defaultPrice ?? null,
-            minEstProfit: prices?.minEstProfit ?? null,
-            maxEstProfit: prices?.maxEstProfit ?? null,
+            defaultEstProfit: row.defaultEstProfit ?? null,
           };
         }),
         meta: {
@@ -1349,6 +1316,103 @@ manageProducts.get(
     } catch (error) {
       console.error('Error listing products:', error);
       return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load products.');
+    }
+  }
+);
+
+manageProducts.post(
+  '/recalculate-est-profits',
+  requireAnyPermission(PERMISSIONS.PRODUCT_UPDATE),
+  async (c) => {
+    const db = getDb(c);
+
+    try {
+      const rawCursor = c.req.query('cursor')?.trim() || null;
+      const rawBatchSize = Number(c.req.query('batchSize'));
+      const batchSize = Number.isFinite(rawBatchSize)
+        ? Math.min(
+            MAX_EST_PROFIT_RECALC_BATCH_SIZE,
+            Math.max(1, Math.floor(rawBatchSize))
+          )
+        : EST_PROFIT_RECALC_BATCH_SIZE;
+
+      if (rawCursor && !isValidId(rawCursor)) {
+        return errorJson(
+          c,
+          400,
+          'INVALID_CURSOR',
+          'Invalid estimated profit recalculation cursor.'
+        );
+      }
+
+      const productRows = await db
+        .select({ id: products.id })
+        .from(products)
+        .where(rawCursor ? gt(products.id, rawCursor) : undefined)
+        .orderBy(asc(products.id))
+        .limit(batchSize);
+      const productIds = productRows.map((product) => product.id);
+
+      if (productIds.length > 0) {
+        const skuRows = await db
+          .select({
+            productId: productSkus.productId,
+            estProfit: productSkus.estProfit,
+          })
+          .from(productSkus)
+          .where(inArray(productSkus.productId, productIds));
+        const profitsByProduct = new Map<
+          string,
+          Array<{ estProfit: number | null }>
+        >();
+
+        for (const row of skuRows) {
+          const estProfit =
+            row.estProfit === null ? null : Number(row.estProfit);
+          const list = profitsByProduct.get(row.productId) ?? [];
+          list.push({
+            estProfit: Number.isFinite(estProfit) ? estProfit : null,
+          });
+          profitsByProduct.set(row.productId, list);
+        }
+
+        const updates: BatchItem<'sqlite'>[] = productIds.map((productId) =>
+          db
+            .update(products)
+            .set({
+              defaultEstProfit: calculateProductDefaultEstProfit(
+                profitsByProduct.get(productId) ?? []
+              ),
+            })
+            .where(eq(products.id, productId))
+        );
+
+        for (const chunk of chunkArray(updates, QUERY_CHUNK_SIZE)) {
+          await db.batch(
+            chunk as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]]
+          );
+        }
+      }
+
+      const nextCursor =
+        productRows.length === batchSize
+          ? (productRows[productRows.length - 1]?.id ?? null)
+          : null;
+
+      return c.json({
+        success: true,
+        processed: productRows.length,
+        nextCursor,
+        done: nextCursor === null,
+      });
+    } catch (error) {
+      console.error('Error recalculating estimated product profits:', error);
+      return errorJson(
+        c,
+        500,
+        'INTERNAL_ERROR',
+        'Failed to update estimated product profits.'
+      );
     }
   }
 );
@@ -1423,104 +1487,6 @@ manageProducts.get(
     } catch (error) {
       console.error('Error loading product:', error);
       return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load product.');
-    }
-  }
-);
-
-manageProducts.post(
-  '/recalculate-prices',
-  requireAnyPermission(PERMISSIONS.PRODUCT_UPDATE),
-  async (c) => {
-    const db = getDb(c);
-    try {
-      const rawCursor = c.req.query('cursor')?.trim() || null;
-      const rawBatchSize = Number(c.req.query('batchSize'));
-      const batchSize = Number.isFinite(rawBatchSize)
-        ? Math.min(
-            MAX_PRICE_RECALC_BATCH_SIZE,
-            Math.max(1, Math.floor(rawBatchSize))
-          )
-        : PRICE_RECALC_BATCH_SIZE;
-
-      if (rawCursor && !isValidId(rawCursor)) {
-        return errorJson(
-          c,
-          400,
-          'INVALID_CURSOR',
-          'Invalid price recalculation cursor.'
-        );
-      }
-
-      const productRows = await db
-        .select({ id: products.id, updatedAt: products.updatedAt })
-        .from(products)
-        .where(rawCursor ? gt(products.id, rawCursor) : undefined)
-        .orderBy(asc(products.id))
-        .limit(batchSize);
-
-      let updated = 0;
-      let skipped = 0;
-      for (const product of productRows) {
-        const skuRows = await db
-          .select({
-            price: productSkus.price,
-            compareAtPrice: productSkus.compareAtPrice,
-          })
-          .from(productSkus)
-          .where(eq(productSkus.productId, product.id));
-
-        const result = await db
-          .update(products)
-          .set({
-            defaultPrice: calculateProductDefaultPrice(
-              skuRows.map((sku) => ({
-                price: Number(sku.price),
-                compareAtPrice:
-                  sku.compareAtPrice === null
-                    ? null
-                    : Number(sku.compareAtPrice),
-              }))
-            ),
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(products.id, product.id),
-              eq(products.updatedAt, product.updatedAt)
-            )
-          );
-        const wasUpdated = result.meta.changes > 0;
-        if (wasUpdated) updated += 1;
-        else skipped += 1;
-      }
-
-      if (updated > 0) {
-        await Promise.all([
-          invalidatePublicProductCache(c.env.KV),
-          invalidateHomepageCache(c.env.KV),
-        ]);
-      }
-
-      const nextCursor =
-        productRows.length === batchSize
-          ? (productRows[productRows.length - 1]?.id ?? null)
-          : null;
-      return c.json({
-        success: true,
-        processed: productRows.length,
-        updated,
-        skipped,
-        nextCursor,
-        done: nextCursor === null,
-      });
-    } catch (error) {
-      console.error('Error recalculating product prices:', error);
-      return errorJson(
-        c,
-        500,
-        'INTERNAL_ERROR',
-        'Failed to update product prices.'
-      );
     }
   }
 );
@@ -1786,6 +1752,7 @@ manageProducts.patch(
           sizeChartImage: payload.sizeChartImage,
           sizeChartDescription: payload.sizeChartDescription,
           defaultPrice: calculateProductDefaultPrice(payload.skus),
+          defaultEstProfit: calculateProductDefaultEstProfit(payload.skus),
           isAEProduct: existing.isAEProduct,
           aeProductId: existing.aeProductId,
           aeCategoryId: existing.aeCategoryId,

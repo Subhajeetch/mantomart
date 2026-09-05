@@ -104,8 +104,7 @@ export type ProductSummary = {
   images: ProductImage[];
   published: boolean;
   defaultPrice: ProductDefaultPrice | null;
-  minEstProfit?: number | null;
-  maxEstProfit?: number | null;
+  defaultEstProfit: ProductPriceRange | null;
 };
 
 export type ProductPriceRange = {
@@ -392,12 +391,11 @@ export function formatCentsRange(
 }
 
 export function formatEstProfitRange(product: {
-  minEstProfit?: number | null;
-  maxEstProfit?: number | null;
+  defaultEstProfit?: ProductPriceRange | null;
 }): string | null {
   return formatCentsRange(
-    product.minEstProfit ?? null,
-    product.maxEstProfit ?? null
+    product.defaultEstProfit?.from,
+    product.defaultEstProfit?.to
   );
 }
 
