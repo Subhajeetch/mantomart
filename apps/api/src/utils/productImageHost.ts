@@ -26,6 +26,7 @@ import {
   uploadToR2,
   type R2UrlOptions,
 } from '@/utils/r2';
+import config from '@/mine.config';
 
 // ─── Public constants ─────────────────────────────────────────────────────────
 
@@ -173,7 +174,7 @@ function tryParseUrl(url: string): URL | null {
     const normalized = normalizeImageUrl(url);
     if (!normalized) return null;
     if (normalized.startsWith('/')) {
-      return new URL(normalized, 'https://mantomart.com');
+      return new URL(normalized, config.storeFrontURI);
     }
     return new URL(normalized);
   } catch {
@@ -458,7 +459,7 @@ async function fetchAliExpressImage(
     const headers = new Headers();
     headers.set(
       'User-Agent',
-      'Mozilla/5.0 (compatible; MantoMartImageHost/1.0; +https://mantomart.com)'
+      `Mozilla/5.0 (compatible; ${config.brandName}ImageHost/1.0; +${config.brandDomain})`
     );
     headers.set('Accept', 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8');
     headers.set('Accept-Language', 'en-US,en;q=0.9');

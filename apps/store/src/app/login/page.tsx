@@ -1,10 +1,11 @@
 import { Metadata } from "next";
 import { Suspense } from "react";
 import LoginClient from "./LoginClient";
+import config from "@/mine.config";
 
 export const metadata: Metadata = {
-  title: "Login / Sign up — Mantomart",
-  description: "Log in or create an account to access your Mantomart account",
+  title: `Login / Sign up — ${config.brandName}`,
+  description: `Log in or create an account to access your ${config.brandName} account`,
 };
 
 function LoginFallback() {

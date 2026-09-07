@@ -144,7 +144,7 @@ export function NavUser({
                         width={16}
                         height={16}
                       />
-                    Storefront
+                    {config.brandDomain}
                   </div>
                   <CircleArrowOutUpRight />
                 </Link>

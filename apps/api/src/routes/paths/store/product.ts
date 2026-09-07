@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cache } from 'hono/cache';
 import { createDb } from '@repo/db';
 import type Env from '@/types/env';
 import { errorJson } from '@/utils/errorJson';
@@ -20,13 +21,26 @@ import {
  *
  * GET /:slug        — published product, public-safe fields only
  * GET /:slug/more   — "More for you" infinite feed (category → parent → rest)
+ *
+ * Responses are cached in the Cloudflare Cache API for five days. Product
+ * responses intentionally do not use KV, avoiding one KV entry and read per
+ * product.
  */
 const storeProduct = new Hono<{ Bindings: Env }>();
+
+storeProduct.use(
+  '*',
+  cache({
+    cacheName: 'store-product',
+    cacheControl: `public, max-age=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+    vary: 'Origin',
+  })
+);
 
 function cacheHeaders(c: { header: (name: string, value: string) => void }) {
   c.header(
     'Cache-Control',
-    `public, max-age=60, s-maxage=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, stale-while-revalidate=3600`
+    `public, max-age=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, stale-while-revalidate=86400`
   );
   c.header('Vary', 'Origin');
 }
@@ -99,7 +113,6 @@ storeProduct.get('/:slug', async (c) => {
     const db = createDb(c.env.DB);
     const result = await getPublicProduct(
       db,
-      c.env.KV,
       slug,
       c.env,
       requestOriginFromUrl(c.req.url)

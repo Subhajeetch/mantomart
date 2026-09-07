@@ -1,5 +1,6 @@
 import { markdownToHtml } from '../../add/import-wizard-utils';
 import type { ProductPayload } from '../../manage/utils';
+import config from '@/mine.config';
 
 /**
  * Convert stored product HTML back into Markdown for the MD editor.
@@ -157,7 +158,7 @@ export function serializeFormSnapshot(
 
 export function imageDedupeKey(url: string): string {
   try {
-    const parsed = new URL(url, 'https://mantomart.com');
+    const parsed = new URL(url, config.storeFrontURI ?? undefined);
     const pathname = parsed.pathname.replace(
       /\.(jpe?g|png|webp|gif)(?:_.+)$/i,
       '.$1'

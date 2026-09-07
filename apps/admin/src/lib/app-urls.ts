@@ -2,6 +2,7 @@
  * Canonical frontend origins for store + admin.
  * Admin has no login UI — unauthenticated users are sent to the store login.
  */
+import config from "@/mine.config";
 
 function stripTrailingSlash(url: string): string {
   return url.replace(/\/$/, "");
@@ -12,7 +13,7 @@ export function getStoreUrl(): string {
   if (fromEnv?.trim()) return stripTrailingSlash(fromEnv.trim());
 
   if (process.env.NODE_ENV === "production") {
-    return "https://mantomart.com";
+    return config.storeFrontURI.replace(/\/$/, "");
   }
   return "http://localhost:8000";
 }
@@ -22,7 +23,7 @@ export function getAdminUrl(): string {
   if (fromEnv?.trim()) return stripTrailingSlash(fromEnv.trim());
 
   if (process.env.NODE_ENV === "production") {
-    return "https://admin.mantomart.com";
+    return config.adminURI.replace(/\/$/, "");
   }
   return "http://localhost:8001";
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import config from "@/mine.config";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { TailwindThemeProvider } from "@/components/theme-provider"
@@ -19,7 +20,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
 	title: "Admin Dashboard",
-	description: "Mantomart Admin Dashboard",
+	description: `${config.brandName} Admin Dashboard`,
 };
 
 export default function RootLayout({

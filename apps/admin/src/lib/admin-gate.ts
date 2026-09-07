@@ -19,6 +19,7 @@
  */
 
 export const ADMIN_GATE_COOKIE = "mm_admin_gate";
+import config from "@/mine.config";
 
 /**
  * Edge gate lifetime. Keep short so demotion/ban converge quickly even when
@@ -228,7 +229,7 @@ export function resolveStoreRedirectUrl(): string {
   if (fromEnv) return fromEnv.replace(/\/$/, "");
 
   if (process.env.NODE_ENV === "production") {
-    return "https://mantomart.com";
+    return config.storeFrontURI.replace(/\/$/, "");
   }
   return "http://localhost:8000";
 }
@@ -239,7 +240,7 @@ export function resolveApiOrigin(): string {
   if (fromEnv) return fromEnv.replace(/\/$/, "");
 
   if (process.env.NODE_ENV === "production") {
-    return "https://api.mantomart.com";
+    return config.apiURI.replace(/\/$/, "");
   }
   return "http://localhost:8002";
 }

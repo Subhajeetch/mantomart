@@ -30,7 +30,6 @@ import {
   logAuditFromContext,
 } from '@/utils/auditLog';
 import { incrementAdminProductsAdded } from '@/utils/adminStats';
-import { invalidatePublicProductCache } from '@/utils/storeProduct';
 import { invalidateHomepageCache } from '@/utils/homepageContent';
 import {
   createProductHostSseResponse,
@@ -1464,7 +1463,6 @@ addProductMyList.post(
       });
       c.executionCtx.waitUntil(
         Promise.all([
-          invalidatePublicProductCache(c.env.KV),
           invalidateHomepageCache(c.env.KV),
         ]).then(() => undefined)
       );

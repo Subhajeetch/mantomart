@@ -17,7 +17,7 @@ import type {
   PublicSku,
 } from './types';
 
-const PRODUCT_REVALIDATE_SECONDS = 300;
+const PRODUCT_REVALIDATE_SECONDS = 5 * 24 * 60 * 60;
 
 function getApiBaseUrl(): string {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
@@ -263,7 +263,12 @@ async function fetchMore(
   try {
     const response = await fetch(url, {
       headers: { Accept: 'application/json' },
-      cache: 'no-store',
+      next: {
+        revalidate: PRODUCT_REVALIDATE_SECONDS,
+        tags: [
+          `store-product-more-${slug}-${cursor ?? 'initial'}-${pageSize ?? 'default'}`,
+        ],
+      },
     });
     if (!response.ok) {
       console.warn(`fetchMoreForYou: API responded ${response.status}`);

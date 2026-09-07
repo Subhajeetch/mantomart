@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import config from "@/mine.config";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -141,10 +142,10 @@ function normalizeCollections(
 
 function Logo() {
   return (
-    <Link href="/" className="flex shrink-0 items-center" aria-label="Mantomart home">
+    <Link href="/" className="flex shrink-0 items-center" aria-label={`${config.brandName} home`}>
       <Image
-        src="/logos/mantomart-logo.png"
-        alt="Mantomart"
+        src={config.logoLong}
+        alt={config.brandName}
         width={158}
         height={40}
         priority

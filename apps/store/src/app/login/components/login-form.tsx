@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import config from "@/mine.config";
 import PassCheck from "./pass-check";
 import { cn } from "@/lib/utils";
 
@@ -43,10 +44,10 @@ type Props = {
   onSuccess: () => void;
 };
 
-const shortLogoUrl = "/logos/mantomart-logo-short.png";
-const fullLogoUrl = "/logos/mantomart-logo.png";
-const heroImageUrl = "/images/login-hero-image.webp";
-const brandName = "Mantomart";
+const shortLogoUrl = config.logoShort;
+const fullLogoUrl = config.logoLong;
+const heroImageUrl = config.heroImageUrl;
+const brandName = config.brandName;
 
 const fieldInputClass =
   "w-full appearance-none rounded-none border-0 border-b-[1.5px] border-solid border-[#ccc] bg-transparent pt-2.5 pr-10 pb-1.5 pl-0 text-base text-[#111] outline-none transition-[border-color] duration-[180ms] ease-in-out placeholder:text-base placeholder:text-[#aaa] focus:border-[#555]";
@@ -203,7 +204,7 @@ export default function LoginForm({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={fullLogoUrl}
-            alt="Mantomart"
+            alt={brandName}
             className="h-auto w-[240px] object-contain"
           />
         </div>
@@ -565,7 +566,7 @@ export default function LoginForm({
 
                 <p className="mb-7 text-[12.5px] leading-[1.6] text-[#888]">
                   By {mode === "login" ? "logging in" : "creating an account"},
-                  you agree to mantomart&apos;s{" "}
+                  you agree to {brandName}&apos;s{" "}
                   <a
                     href="#"
                     className="text-[#2d7ff9] no-underline hover:underline"

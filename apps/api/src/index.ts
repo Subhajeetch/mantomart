@@ -34,6 +34,7 @@ import {
   storeImages,
   storeProduct,
 } from "./routes";
+import config from "./mine.config";
 
 
 const app = new Hono<{ Bindings: Env }>();
@@ -43,8 +44,8 @@ app.use("*", async (c, next) => {
     c.env.ORIGINS
       ? c.env.ORIGINS.split(",")
       : [
-          "https://mantomart.com",
-          "https://admin.mantomart.com",
+          config.storeFrontURI,
+          config.adminURI,
           "http://localhost:8000",
           "http://localhost:8001",
         ]

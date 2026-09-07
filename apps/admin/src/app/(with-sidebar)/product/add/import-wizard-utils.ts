@@ -1,4 +1,5 @@
 import type { AliExpressProductDetailResponse } from './product-dialog';
+import config from '@/mine.config';
 import {
   applyMarkupCents,
   dollarsToCents,
@@ -36,7 +37,7 @@ function normalizeUrl(value: unknown): string | null {
 
 function getImageDedupeKey(url: string) {
   try {
-    const parsed = new URL(url, 'https://mantomart.com');
+    const parsed = new URL(url, config.storeFrontURI ?? undefined);
     const pathname = parsed.pathname.replace(
       /\.(jpe?g|png|webp|gif)(?:_.+)$/i,
       '.$1'

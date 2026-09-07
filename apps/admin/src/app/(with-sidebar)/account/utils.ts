@@ -1,5 +1,5 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
-
+import config from '@/mine.config';
 export type AdminRole = 'admin' | 'owner';
 
 export type LinkedProvider = {
@@ -183,7 +183,7 @@ export function getProfileEditUrl(): string {
   if (fromEnv) {
     base = fromEnv.replace(/\/$/, '');
   } else if (process.env.NODE_ENV === 'production') {
-    base = 'https://mantomart.com';
+    base = config.storeFrontURI.replace(/\/$/, '');
   } else {
     base = 'http://localhost:8000';
   }

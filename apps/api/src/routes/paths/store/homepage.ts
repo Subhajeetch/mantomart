@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cache } from 'hono/cache';
 import { createDb } from '@repo/db';
 import type Env from '@/types/env';
 import { errorJson } from '@/utils/errorJson';
@@ -15,13 +16,22 @@ import { requestOriginFromUrl } from '@/utils/productImageHost';
  * Public storefront homepage.
  *
  * Cache strategy:
- * 1. Cloudflare KV (5-day TTL) — shared across all visitors (sessionless)
- * 2. D1 on miss — then re-seed KV
- * 3. HTTP Cache-Control so edge/browsers also cache
+ * 1. Hono Cloudflare Cache API — edge cache for five days
+ * 2. Cloudflare KV — retained as the shared data cache on edge-cache misses
+ * 3. D1 on miss — then re-seed KV
  *
  * Mutations from the admin panel invalidate the KV key.
  */
 const storeHomepage = new Hono<{ Bindings: Env }>();
+
+storeHomepage.use(
+  '*',
+  cache({
+    cacheName: 'store-homepage',
+    cacheControl: `public, max-age=${HOMEPAGE_CACHE_TTL_SECONDS}, s-maxage=${HOMEPAGE_CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+    vary: 'Origin',
+  })
+);
 
 function cacheHeaders(
   c: { header: (name: string, value: string) => void },

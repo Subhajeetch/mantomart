@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { HeaderNavCollection } from "@/components/navbar";
+import config from "@/mine.config";
 
 type SeoFooterProps = {
   collections: HeaderNavCollection[];
@@ -15,7 +16,7 @@ export function SeoFooter({ collections }: SeoFooterProps) {
       <div className="mx-auto grid max-w-6xl gap-8 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <p className="text-sm font-semibold tracking-wide uppercase">
-            RagiMart
+            {config.brandName}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
             Shop fashion, electronics, and everyday essentials.
@@ -64,7 +65,7 @@ export function SeoFooter({ collections }: SeoFooterProps) {
         ))}
       </div>
       <p className="mx-auto mt-10 max-w-6xl text-xs text-muted-foreground">
-        © {year} RagiMart. All rights reserved.
+        © {year} {config.brandName}. All rights reserved.
       </p>
     </footer>
   );

@@ -44,7 +44,6 @@ import {
   logAuditFromContext,
 } from '@/utils/auditLog';
 import { decrementAdminProductContribution } from '@/utils/adminStats';
-import { invalidatePublicProductCache } from '@/utils/storeProduct';
 import { invalidateHomepageCache } from '@/utils/homepageContent';
 import {
   createProductHostSseResponse,
@@ -1550,7 +1549,6 @@ manageProducts.post(
         });
         c.executionCtx.waitUntil(
           Promise.all([
-            invalidatePublicProductCache(c.env.KV),
             invalidateHomepageCache(c.env.KV),
           ]).then(() => undefined)
         );
@@ -1720,7 +1718,6 @@ manageProducts.patch(
       );
       c.executionCtx.waitUntil(
         Promise.all([
-          invalidatePublicProductCache(c.env.KV),
           invalidateHomepageCache(c.env.KV),
         ]).then(() => undefined)
       );
@@ -1829,7 +1826,6 @@ manageProducts.delete(
       );
       c.executionCtx.waitUntil(
         Promise.all([
-          invalidatePublicProductCache(c.env.KV),
           invalidateHomepageCache(c.env.KV),
         ]).then(() => undefined)
       );

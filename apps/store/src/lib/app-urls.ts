@@ -5,6 +5,7 @@
  * Prefer NEXT_PUBLIC_* overrides when set (staging, previews).
  * Fall back to production domains / local ports.
  */
+import config from "@/mine.config";
 
 function stripTrailingSlash(url: string): string {
   return url.replace(/\/$/, "");
@@ -15,7 +16,7 @@ export function getStoreUrl(): string {
   if (fromEnv?.trim()) return stripTrailingSlash(fromEnv.trim());
 
   if (process.env.NODE_ENV === "production") {
-    return "https://mantomart.com";
+    return config.storeFrontURI;
   }
   return "http://localhost:8000";
 }
@@ -25,7 +26,7 @@ export function getAdminUrl(): string {
   if (fromEnv?.trim()) return stripTrailingSlash(fromEnv.trim());
 
   if (process.env.NODE_ENV === "production") {
-    return "https://admin.mantomart.com";
+    return config.adminURI;
   }
   return "http://localhost:8001";
 }

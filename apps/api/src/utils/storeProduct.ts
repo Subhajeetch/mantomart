@@ -12,7 +12,6 @@ import {
   type ProductDefaultPrice,
 } from '@repo/db';
 import type Env from '@/types/env';
-import kvManager from '@/utils/kvManager';
 import {
   DEFAULT_FEED_PAGE_SIZE,
   hydrateProductCards,
@@ -36,21 +35,10 @@ const QUERY_CHUNK = 80;
 const MAX_HTML_LENGTH = 200_000;
 const MAX_MORE_FOR_YOU_ITEMS = 36;
 
-const PRODUCT_CACHE_TTL_SECONDS = 300;
-const PRODUCT_CACHE_VERSION_KEY = 'store:product:version:v1';
+export const PUBLIC_PRODUCT_CACHE_TTL_SECONDS = 5 * 24 * 60 * 60;
 
 const DANGEROUS_TAG_RE =
   /<\/?(?:script|iframe|object|embed|link|meta|base|form|input|button|textarea|select|style)(?:\s[\s\S]*?)?>/gi;
-
-export const PUBLIC_PRODUCT_CACHE_TTL_SECONDS = PRODUCT_CACHE_TTL_SECONDS;
-
-function productCacheKey(
-  version: string,
-  slug: string,
-  origin?: string
-): string {
-  return `store:product:v1:${version}:${encodeURIComponent(slug)}:${encodeURIComponent(origin ?? '')}`;
-}
 
 export type PublicGalleryImage = {
   type: 'image';
@@ -885,64 +873,13 @@ export async function loadPublicProduct(
   }
 }
 
-/**
- * Resolve a public product through KV. The cache key includes the request
- * origin because serialized image URLs are origin-dependent.
- */
 export async function getPublicProduct(
   db: Database,
-  kv: KVNamespace,
   slug: string,
   env: Env,
   origin?: string
 ): Promise<LoadProductResult> {
-  const manager = kvManager(kv);
-  let version = '1';
-
-  try {
-    version = (await manager.get(PRODUCT_CACHE_VERSION_KEY)) ?? version;
-    const cached = await manager.getJson<LoadProductResult>(
-      productCacheKey(version, slug, origin)
-    );
-    if (
-      cached?.ok === true &&
-      cached.product &&
-      typeof cached.product === 'object'
-    ) {
-      return cached;
-    }
-  } catch (error) {
-    console.error('Failed to read product from KV:', error);
-  }
-
-  const result = await loadPublicProduct(db, slug, env, origin);
-  if (!result.ok) return result;
-
-  try {
-    await manager.setJson(
-      productCacheKey(version, slug.trim().toLowerCase(), origin),
-      result,
-      { expirationTtl: PRODUCT_CACHE_TTL_SECONDS }
-    );
-  } catch (error) {
-    console.error('Failed to write product to KV:', error);
-  }
-
-  return result;
-}
-
-/**
- * Version-bust all public product entries. Old entries expire naturally,
- * avoiding an unbounded KV list/delete operation.
- */
-export async function invalidatePublicProductCache(
-  kv: KVNamespace
-): Promise<void> {
-  try {
-    await kvManager(kv).set(PRODUCT_CACHE_VERSION_KEY, crypto.randomUUID());
-  } catch (error) {
-    console.error('Failed to invalidate product KV cache:', error);
-  }
+  return loadPublicProduct(db, slug, env, origin);
 }
 
 async function queryMoreLevel(

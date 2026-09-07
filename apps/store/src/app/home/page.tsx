@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import config from "@/mine.config";
 import { useEffect } from "react";
 import { useSession, authClient } from "@/lib/auth-client";
 import type { Session } from "@repo/types/session-client";
@@ -59,7 +60,7 @@ export default function HomePage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <span className="text-sm font-bold tracking-widest text-neutral-200">
-            MANTOMART
+            {config.brandDomain}
           </span>
           <button
             type="button"

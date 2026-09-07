@@ -1,3 +1,4 @@
+import config from "@/mine.config";
 import type { Metadata } from "next";
 
 import { getHeaderNav } from "@/components/navbar";
@@ -13,14 +14,14 @@ import {
 export const revalidate = 432000;
 
 export const metadata: Metadata = {
-  title: "RagiMart — Shop fashion, electronics, and more",
+  title: `${config.brandName} — Shop fashion, electronics, and more`,
   description:
-    "Discover featured products, shop by category, and find deals on fashion and electronics at RagiMart.",
+    `Discover featured products, shop by category, and find deals on fashion and electronics at ${config.brandName}.`,
   robots: { index: true, follow: true },
   openGraph: {
-    title: "RagiMart — Shop fashion, electronics, and more",
+    title: `${config.brandName} — Shop fashion, electronics, and more`,
     description:
-      "Discover featured products, shop by category, and find deals on fashion and electronics at RagiMart.",
+      `Discover featured products, shop by category, and find deals on fashion and electronics at ${config.brandName}.`,
     type: "website",
   },
 };
@@ -33,10 +34,10 @@ export default async function Home() {
 
   return (
     <>
-      <h1 className="sr-only">RagiMart online store</h1>
+      <h1 className="sr-only">{config.brandName} online store</h1>
       {blocks.length === 0 ? (
         <section className="px-4 py-16 text-center">
-          <p className="text-lg font-medium">Welcome to RagiMart</p>
+          <p className="text-lg font-medium">Welcome to {config.brandName}</p>
           <p className="mt-2 text-sm text-muted-foreground">
             New collections are on the way.
           </p>

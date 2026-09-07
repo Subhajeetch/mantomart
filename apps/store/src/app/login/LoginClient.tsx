@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import config from "@/mine.config";
 import { useRouter, useSearchParams } from "next/navigation";
 import LoginForm from "./components/login-form";
 import { authClient, useSession } from "@/lib/auth-client";
@@ -103,10 +104,10 @@ function sanitizeReturnTo(
         storeUrl,
         process.env.NEXT_PUBLIC_ADMIN_URL,
         process.env.NODE_ENV === "production"
-          ? "https://admin.mantomart.com"
+          ? config.adminURI
           : "http://localhost:8001",
         process.env.NODE_ENV === "production"
-          ? "https://mantomart.com"
+          ? config.storeFrontURI
           : "http://localhost:8000",
       ]
         .filter(Boolean)

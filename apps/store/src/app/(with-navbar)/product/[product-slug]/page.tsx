@@ -1,3 +1,4 @@
+import config from '@/mine.config';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
@@ -9,7 +10,7 @@ import {
 } from './';
 import { getStoreUrl } from '@/lib/app-urls';
 
-export const revalidate = 300;
+export const revalidate = 432000;
 
 type PageProps = {
   params: Promise<{ 'product-slug': string }>;
@@ -36,7 +37,7 @@ export async function generateMetadata({
   const description =
     product.metaDescription ||
     stripHtml(product.description) ||
-    `Shop ${product.name} at RagiMart.`;
+    `Shop ${product.name} at ${config.brandName}.`;
   const image = product.gallery.find((item) => item.type === 'image');
   const canonical = `${getStoreUrl()}/product/${product.slug}`;
 

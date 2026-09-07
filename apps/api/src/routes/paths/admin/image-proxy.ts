@@ -41,6 +41,7 @@ import {
   type AppContext,
 } from '@/utils/errorJson';
 import { requireAdminMiddleware } from '@/middleware/permission';
+import config from '@/mine.config';
 
 const imageProxy = new Hono<AppEnv>();
 
@@ -244,7 +245,7 @@ async function fetchUpstream(
     // Neutral browser-like UA — some CDNs reject empty / bot UAs.
     headers.set(
       'User-Agent',
-      'Mozilla/5.0 (compatible; MantoMartImageProxy/1.0; +https://mantomart.com)'
+      `Mozilla/5.0 (compatible; ${config.brandName}ImageProxy/1.0; +${config.brandDomain})`
     );
     headers.set('Accept', 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8');
     headers.set('Accept-Language', 'en-US,en;q=0.9');
@@ -404,7 +405,7 @@ function buildImageResponse(
   const headers = new Headers();
   headers.set('Content-Type', init.contentType);
   headers.set('Cache-Control', buildCacheControl());
-  headers.set('X-Image-Proxy', 'mantomart');
+  headers.set('X-Image-Proxy', config.brandName);
   if (init.etag) headers.set('ETag', init.etag);
   if (init.lastModified) headers.set('Last-Modified', init.lastModified);
   if (body) headers.set('Content-Length', String(body.byteLength));
