@@ -139,8 +139,8 @@ export function NavUser({
                 >
                   <div className="flex gap-2 items-center mr-auto">
                     <Image
-                        src="/logos/mantomart-logo-short.png"
-                        alt="Search Icon"
+                        src={config.orangeLogo}
+                        alt={config.brandName}
                         width={16}
                         height={16}
                       />

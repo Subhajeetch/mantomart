@@ -716,7 +716,7 @@ function AccountButton() {
 
   return (
     <Link
-      href="/home"
+      href="/user"
       aria-label="Profile"
       className="size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground hidden sm:inline-flex"
     >
