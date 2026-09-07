@@ -21,7 +21,7 @@ function LoginFallback() {
 
 /**
  * Login is store-only. Admin has no login UI — staff sign in here, then open
- * Admin Panel from /home when they have admin/owner role.
+ * Admin Panel from /user when they have admin/owner role.
  *
  * Suspense is required because LoginClient reads useSearchParams().
  */

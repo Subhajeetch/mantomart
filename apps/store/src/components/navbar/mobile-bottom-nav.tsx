@@ -10,14 +10,14 @@ import { cn } from "@/lib/utils";
  * Static bottom bar for mobile — links map 1:1 to App Router files:
  * - `/`        → app/(with-navbar)/page.tsx  (store home)
  * - `/search`  → search results (query via `?q=`)
- * - `/home`    → app/home/page.tsx          (signed-in profile)
+ * - `/user`    → app/user/profile/page.tsx          (signed-in profile)
  *
  * Intentionally not driven by the header API so it stays cheap and stable.
  */
 const items = [
   { href: "/", label: "Home", icon: Home, match: "exact" as const },
   { href: "/search", label: "Search", icon: Search, match: "prefix" as const },
-  { href: "/home", label: "Profile", icon: UserRound, match: "prefix" as const },
+  { href: "/user", label: "Profile", icon: UserRound, match: "prefix" as const },
 ] as const;
 
 function isActivePath(

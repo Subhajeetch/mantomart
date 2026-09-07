@@ -44,7 +44,7 @@ export default function LoginClient() {
       return;
     }
 
-    router.replace("/home");
+    router.replace("/user");
   }, [isPending, session, returnTo, router, searchParams]);
 
   function handleSuccess() {
@@ -52,7 +52,7 @@ export default function LoginClient() {
       window.location.assign(returnTo);
       return;
     }
-    router.push("/home");
+    router.push("/user");
   }
 
   if (isPending) {

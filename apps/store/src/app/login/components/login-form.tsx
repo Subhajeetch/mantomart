@@ -64,7 +64,7 @@ export default function LoginForm({
   const oauthCallback =
     successRedirect && successRedirect.trim()
       ? successRedirect
-      : `${APP_URL}/home`;
+      : `${APP_URL}/user`;
 
   const [mode, setMode] = useState<Mode>("login");
 
