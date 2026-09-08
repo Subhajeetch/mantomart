@@ -14,6 +14,7 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
   const router = useRouter();
   const pathname = usePathname();
   const isRoot = pathname === "/user";
+  const isWishlistFolder = pathname.startsWith("/user/wishlist/");
   const pageNames: Record<string, string> = {
     "/user/profile": "Profile",
     "/user/sessions": "Manage Sessions",
@@ -44,7 +45,7 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
           <UserSidebar session={session} />
         </div>
         <main className="min-w-0 flex-1">
-          {!isRoot && (
+          {!isRoot && !isWishlistFolder && (
             <div className="flex items-center gap-3 border-b border-border px-5 py-4 lg:hidden">
               <Link href="/user" aria-label="Back to account" className="text-muted-foreground hover:text-foreground">
                 <ArrowLeft className="size-4" />

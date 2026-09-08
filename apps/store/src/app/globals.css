@@ -1,5 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap');
 @import "tailwindcss";
+
+@keyframes wishlist-pop {
+  0% { transform: scale(1); }
+  25% { transform: scale(1.35) rotate(-10deg); }
+  45% { transform: scale(1.15) rotate(10deg); }
+  65% { transform: scale(1.28) rotate(-5deg); }
+  100% { transform: scale(1); }
+}
+
+@keyframes wishlist-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 

@@ -18,6 +18,7 @@ import type { Session } from "@repo/types/session-client";
 
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { useWishlist, WishlistPicker } from "@/components/wishlist-context";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 
@@ -608,6 +609,7 @@ function SeoNavTree({ collections }: { collections: HeaderNavCollection[] }) {
 
 export function StoreNavbar({ collections }: StoreNavbarProps) {
   const pathname = usePathname();
+  const { pulse } = useWishlist();
   const [menuOpen, setMenuOpen] = useState(false);
   const visibleCollections = useMemo(
     () => normalizeCollections(collections),
@@ -663,11 +665,11 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:ml-0">
             <AccountButton />
             <Link
-              href="/wishlist"
+              href="/user/wishlists"
               aria-label="Wishlist"
               className={buttonVariants({ variant: "ghost", size: "icon" })}
             >
-              <Heart className="size-5" />
+              <Heart className={cn("size-5 transition-colors", pulse && "animate-[wishlist-pop_650ms_ease-in-out] fill-[#ff3f6c] text-[#ff3f6c]")} />
             </Link>
             <Link
               href="/cart"
@@ -677,6 +679,7 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
               <ShoppingCart className="size-5" />
             </Link>
           </div>
+          <WishlistPicker />
         </div>
 
         <SeoNavTree collections={visibleCollections} />

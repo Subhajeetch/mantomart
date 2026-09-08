@@ -6,3 +6,4 @@ export * from './header';
 export * from './homepage';
 export * from './products';
 export * from './reviews';
+export * from './wishlists';

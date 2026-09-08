@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type RefObject } from 'react';
+import type { RefObject } from 'react';
 import Link from 'next/link';
 import { Heart, Share2 } from 'lucide-react';
 
@@ -10,6 +10,7 @@ import {
 } from '@/components/homepage/format';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useWishlist } from '@/components/wishlist-context';
 
 import type { PublicProduct } from '../types';
 import type { ProductSelection } from '../use-product-selection';
@@ -47,7 +48,8 @@ export function ProductInfo({
   onAddToCart,
   onBuyNow,
 }: ProductInfoProps) {
-  const [wishlisted, setWishlisted] = useState(false);
+  const { isSaved, toggleProduct } = useWishlist();
+  const wishlisted = isSaved(product.id);
   const sku = selection.sku;
   const price = sku?.price ?? null;
   const compareAt = sku?.compareAtPrice ?? null;
@@ -90,7 +92,16 @@ export function ProductInfo({
                 ? `Remove ${product.name} from wishlist`
                 : `Save ${product.name} to wishlist`
             }
-            onClick={() => setWishlisted((value) => !value)}
+            onClick={() =>
+              toggleProduct({
+                id: product.id,
+                slug: product.slug,
+                name: product.name,
+                image:
+                  product.gallery.find((item) => item.type === 'image')?.url ?? null,
+                price,
+              })
+            }
           >
             <Heart
               className={cn(

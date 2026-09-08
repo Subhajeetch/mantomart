@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { Heart, Star, Tag } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { useWishlist } from '@/components/wishlist-context';
 
 import {
   formatPriceCents,
@@ -107,8 +108,8 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const previousImageIndexRef = useRef(0);
   const pendingXRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
-  // Local-only UI state — resets on remount/re-fetch; no wishlist backend yet.
-  const [isWishlisted, setIsWishlisted] = useState(false);
+  const { isSaved, toggleProduct } = useWishlist();
+  const isWishlisted = isSaved(product.id);
 
   imageCountRef.current = images.length;
 
@@ -208,9 +209,13 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const handleWishlistClick = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    // TODO: wishlist feature not implemented yet — hook this up once backend is ready
-    console.log('wishlist clicked for product:', product.name);
-    setIsWishlisted((prev) => !prev);
+    toggleProduct({
+      id: product.id,
+      slug: product.slug,
+      name: product.name,
+      image: product.imageUrl,
+      price: product.price,
+    });
   };
 
   const imageAlt = active?.alt || product.name;
