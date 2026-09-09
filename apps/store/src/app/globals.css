@@ -1,6 +1,25 @@
 @import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap');
 @import "tailwindcss";
 
+::-webkit-scrollbar {
+	width: 10px;
+}
+
+/* Track */
+::-webkit-scrollbar-track {
+	background: var(--border);
+}
+
+/* Handle */
+::-webkit-scrollbar-thumb {
+	background: #afaeae;
+}
+
+/* Handle on hover */
+::-webkit-scrollbar-thumb:hover {
+	background: #c7c7c7;
+}
+
 @keyframes wishlist-pop {
   0% { transform: scale(1); }
   25% { transform: scale(1.35) rotate(-10deg); }
@@ -68,8 +87,6 @@ body {
 }
 
 :root {
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.145 0 0);
 	--card: oklch(1 0 0);
 	--card-foreground: oklch(0.145 0 0);
 	--popover: oklch(1 0 0);
@@ -91,7 +108,7 @@ body {
 	--chart-3: oklch(0.439 0 0);
 	--chart-4: oklch(0.371 0 0);
 	--chart-5: oklch(0.269 0 0);
-	--radius: 0.875rem;
+	--radius: 0;
 	--sidebar: oklch(0.985 0 0);
 	--sidebar-foreground: oklch(0.145 0 0);
 	--sidebar-primary: oklch(0.666 0.179 58.318);
@@ -100,6 +117,8 @@ body {
 	--sidebar-accent-foreground: oklch(0.205 0 0);
 	--sidebar-border: oklch(0.922 0 0);
 	--sidebar-ring: oklch(0.708 0 0);
+	--background: oklch(1 0 0);
+	--foreground: oklch(0.145 0 0);
 }
 
 .dark {

@@ -75,20 +75,29 @@ async function requireUser(c: EnvContext) {
     console.error('store wishlists: session lookup failed', error);
     return {
       ok: false as const,
-      response: errorJson(c, 500, 'SESSION_ERROR', 'Unable to verify your session.'),
+      response: errorJson(
+        c,
+        500,
+        'SESSION_ERROR',
+        'Unable to verify your session.'
+      ),
     };
   }
 }
 
 function allowedOrigins(env: Env): Set<string> {
-  const configured = env.ORIGINS
-    ?.split(',')
+  const configured = env.ORIGINS?.split(',')
     .map((origin) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean);
   return new Set(
     (configured?.length
       ? configured
-      : [config.storeFrontURI, config.adminURI, 'http://localhost:8000', 'http://localhost:8001']
+      : [
+          config.storeFrontURI,
+          config.adminURI,
+          'http://localhost:8000',
+          'http://localhost:8001',
+        ]
     ).map((origin) => origin.replace(/\/$/, ''))
   );
 }
@@ -121,7 +130,11 @@ function requireTrustedMutationOrigin(c: EnvContext) {
 }
 
 function jsonRequest(c: EnvContext) {
-  const contentType = c.req.header('Content-Type')?.split(';')[0].trim().toLowerCase();
+  const contentType = c.req
+    .header('Content-Type')
+    ?.split(';')[0]
+    .trim()
+    .toLowerCase();
   return contentType === 'application/json'
     ? null
     : errorJson(c, 415, 'UNSUPPORTED_MEDIA_TYPE', 'JSON is required.');
@@ -135,7 +148,10 @@ async function getOrCreateFavourites(
     .select()
     .from(wishlistFolders)
     .where(
-      and(eq(wishlistFolders.userId, userId), eq(wishlistFolders.isDefault, true))
+      and(
+        eq(wishlistFolders.userId, userId),
+        eq(wishlistFolders.isDefault, true)
+      )
     )
     .limit(1);
   if (existing) return existing;
@@ -160,7 +176,10 @@ async function getOrCreateFavourites(
     .select()
     .from(wishlistFolders)
     .where(
-      and(eq(wishlistFolders.userId, userId), eq(wishlistFolders.isDefault, true))
+      and(
+        eq(wishlistFolders.userId, userId),
+        eq(wishlistFolders.isDefault, true)
+      )
     )
     .limit(1);
   return created;
@@ -229,7 +248,12 @@ storeWishlists.get('/', async (c) => {
         productId: wishlistProducts.productId,
       })
       .from(wishlistProducts)
-      .where(inArray(wishlistProducts.folderId, folders.map((folder) => folder.id)));
+      .where(
+        inArray(
+          wishlistProducts.folderId,
+          folders.map((folder) => folder.id)
+        )
+      );
 
     return c.json({
       success: true,
@@ -246,7 +270,12 @@ storeWishlists.get('/', async (c) => {
     });
   } catch (error) {
     console.error('store wishlists: load failed', error);
-    return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to load your wishlists.');
+    return errorJson(
+      c,
+      500,
+      'INTERNAL_ERROR',
+      'Unable to load your wishlists.'
+    );
   }
 });
 
@@ -258,9 +287,20 @@ storeWishlists.get('/:folderId', async (c) => {
     const [folder] = await access.db
       .select()
       .from(wishlistFolders)
-      .where(and(eq(wishlistFolders.id, folderId), eq(wishlistFolders.userId, access.user.id)))
+      .where(
+        and(
+          eq(wishlistFolders.id, folderId),
+          eq(wishlistFolders.userId, access.user.id)
+        )
+      )
       .limit(1);
-    if (!folder) return errorJson(c, 404, 'FOLDER_NOT_FOUND', 'Wishlist folder not found.');
+    if (!folder)
+      return errorJson(
+        c,
+        404,
+        'FOLDER_NOT_FOUND',
+        'Wishlist folder not found.'
+      );
 
     const folderProducts = await access.db
       .select({
@@ -286,7 +326,12 @@ storeWishlists.get('/:folderId', async (c) => {
     });
   } catch (error) {
     console.error('store wishlists: load failed', error);
-    return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to load your wishlists.');
+    return errorJson(
+      c,
+      500,
+      'INTERNAL_ERROR',
+      'Unable to load your wishlists.'
+    );
   }
 });
 
@@ -306,18 +351,38 @@ storeWishlists.post('/folders', async (c) => {
     const name = typeof fields.name === 'string' ? fields.name.trim() : '';
     const icon = typeof fields.icon === 'string' ? fields.icon.trim() : 'Heart';
     if (name.length < 1 || name.length > 60) {
-      return errorJson(c, 400, 'INVALID_NAME', 'Folder name must be between 1 and 60 characters.');
+      return errorJson(
+        c,
+        400,
+        'INVALID_NAME',
+        'Folder name must be between 1 and 60 characters.'
+      );
     }
     if (!ICONS.has(icon)) {
-      return errorJson(c, 400, 'INVALID_ICON', 'That folder icon is not supported.');
+      return errorJson(
+        c,
+        400,
+        'INVALID_ICON',
+        'That folder icon is not supported.'
+      );
     }
     const [existing] = await access.db
       .select()
       .from(wishlistFolders)
-      .where(and(eq(wishlistFolders.userId, access.user.id), eq(wishlistFolders.name, name)))
+      .where(
+        and(
+          eq(wishlistFolders.userId, access.user.id),
+          eq(wishlistFolders.name, name)
+        )
+      )
       .limit(1);
     if (existing) {
-      return errorJson(c, 409, 'FOLDER_EXISTS', 'You already have a folder with that name.');
+      return errorJson(
+        c,
+        409,
+        'FOLDER_EXISTS',
+        'You already have a folder with that name.'
+      );
     }
     const now = new Date();
     const folder = {
@@ -331,10 +396,115 @@ storeWishlists.post('/folders', async (c) => {
       updatedAt: now,
     };
     await access.db.insert(wishlistFolders).values(folder);
-    return c.json({ success: true, data: { folder: serializeFolder(folder) } }, 201);
+    return c.json(
+      { success: true, data: { folder: serializeFolder(folder) } },
+      201
+    );
   } catch (error) {
     console.error('store wishlists: folder create failed', error);
     return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to create that folder.');
+  }
+});
+
+storeWishlists.patch('/:folderId', async (c) => {
+  try {
+    const originError = requireTrustedMutationOrigin(c);
+    if (originError) return originError;
+    const mediaError = jsonRequest(c);
+    if (mediaError) return mediaError;
+    const access = await requireUser(c);
+    if (!access.ok) return access.response;
+
+    const folderId = c.req.param('folderId')?.trim();
+    if (!folderId) {
+      return errorJson(c, 400, 'INVALID_FOLDER_ID', 'A folder id is required.');
+    }
+    const body = await c.req.json<unknown>();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return errorJson(c, 400, 'INVALID_BODY', 'A JSON object is required.');
+    }
+    const fields = body as Record<string, unknown>;
+    const name = typeof fields.name === 'string' ? fields.name.trim() : '';
+    const icon = typeof fields.icon === 'string' ? fields.icon.trim() : '';
+    if (name.length < 1 || name.length > 60) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_NAME',
+        'Folder name must be between 1 and 60 characters.'
+      );
+    }
+    if (!ICONS.has(icon)) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_ICON',
+        'That folder icon is not supported.'
+      );
+    }
+
+    const [folder] = await access.db
+      .select()
+      .from(wishlistFolders)
+      .where(
+        and(
+          eq(wishlistFolders.id, folderId),
+          eq(wishlistFolders.userId, access.user.id)
+        )
+      )
+      .limit(1);
+    if (!folder) {
+      return errorJson(
+        c,
+        404,
+        'FOLDER_NOT_FOUND',
+        'Wishlist folder not found.'
+      );
+    }
+
+    const [duplicate] = await access.db
+      .select()
+      .from(wishlistFolders)
+      .where(
+        and(
+          eq(wishlistFolders.userId, access.user.id),
+          eq(wishlistFolders.name, name),
+          sql`${wishlistFolders.id} != ${folderId}`
+        )
+      )
+      .limit(1);
+    if (duplicate) {
+      return errorJson(
+        c,
+        409,
+        'FOLDER_EXISTS',
+        'You already have a folder with that name.'
+      );
+    }
+
+    const updated = {
+      ...folder,
+      name,
+      icon,
+      updatedAt: new Date(),
+    };
+    await access.db
+      .update(wishlistFolders)
+      .set({ name, icon, updatedAt: updated.updatedAt })
+      .where(
+        and(
+          eq(wishlistFolders.id, folderId),
+          eq(wishlistFolders.userId, access.user.id)
+        )
+      );
+
+    return c.json({
+      success: true,
+      data: { folder: serializeFolder(updated) },
+    });
+  } catch (error) {
+    console.error('store wishlists: folder update failed', error);
+    return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to update that folder.');
   }
 });
 
@@ -349,31 +519,64 @@ storeWishlists.post('/:folderId/products', async (c) => {
     const folderId = c.req.param('folderId')?.trim();
     const body = await c.req.json<unknown>();
     const productId =
-      body && typeof body === 'object' && !Array.isArray(body) && typeof (body as Record<string, unknown>).productId === 'string'
+      body &&
+      typeof body === 'object' &&
+      !Array.isArray(body) &&
+      typeof (body as Record<string, unknown>).productId === 'string'
         ? ((body as Record<string, unknown>).productId as string).trim()
         : '';
     if (!folderId || !productId) {
-      return errorJson(c, 400, 'INVALID_INPUT', 'A folderId and productId are required.');
+      return errorJson(
+        c,
+        400,
+        'INVALID_INPUT',
+        'A folderId and productId are required.'
+      );
     }
     const [folder] = await access.db
       .select()
       .from(wishlistFolders)
-      .where(and(eq(wishlistFolders.id, folderId), eq(wishlistFolders.userId, access.user.id)))
+      .where(
+        and(
+          eq(wishlistFolders.id, folderId),
+          eq(wishlistFolders.userId, access.user.id)
+        )
+      )
       .limit(1);
-    if (!folder) return errorJson(c, 404, 'FOLDER_NOT_FOUND', 'Wishlist folder not found.');
+    if (!folder)
+      return errorJson(
+        c,
+        404,
+        'FOLDER_NOT_FOUND',
+        'Wishlist folder not found.'
+      );
     const [product] = await access.db
       .select()
       .from(products)
       .where(and(eq(products.id, productId), eq(products.published, true)))
       .limit(1);
-    if (!product) return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Published product not found.');
+    if (!product)
+      return errorJson(
+        c,
+        404,
+        'PRODUCT_NOT_FOUND',
+        'Published product not found.'
+      );
     const [alreadySaved] = await access.db
       .select()
       .from(wishlistProducts)
-      .where(and(eq(wishlistProducts.folderId, folderId), eq(wishlistProducts.productId, productId)))
+      .where(
+        and(
+          eq(wishlistProducts.folderId, folderId),
+          eq(wishlistProducts.productId, productId)
+        )
+      )
       .limit(1);
     if (alreadySaved) {
-      return c.json({ success: true, data: { saved: true, alreadySaved: true, folderId } });
+      return c.json({
+        success: true,
+        data: { saved: true, alreadySaved: true, folderId },
+      });
     }
     const insertResult = await access.db
       .insert(wishlistProducts)
@@ -386,7 +589,10 @@ storeWishlists.post('/:folderId/products', async (c) => {
       .onConflictDoNothing()
       .run();
     if (insertResult.meta.changes === 0) {
-      return c.json({ success: true, data: { saved: true, alreadySaved: true, folderId } });
+      return c.json({
+        success: true,
+        data: { saved: true, alreadySaved: true, folderId },
+      });
     }
     await access.db
       .update(wishlistFolders)
@@ -395,7 +601,10 @@ storeWishlists.post('/:folderId/products', async (c) => {
         updatedAt: new Date(),
       })
       .where(eq(wishlistFolders.id, folderId));
-    return c.json({ success: true, data: { saved: true, alreadySaved: false, folderId } }, 201);
+    return c.json(
+      { success: true, data: { saved: true, alreadySaved: false, folderId } },
+      201
+    );
   } catch (error) {
     console.error('store wishlists: product add failed', error);
     return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to save that product.');
@@ -446,7 +655,12 @@ storeWishlists.post('/:folderId/products/:productId/move', async (c) => {
     const source = ownedFolders.find((folder) => folder.id === folderId);
     const target = ownedFolders.find((folder) => folder.id === targetFolderId);
     if (!source || !target) {
-      return errorJson(c, 404, 'FOLDER_NOT_FOUND', 'Wishlist folder not found.');
+      return errorJson(
+        c,
+        404,
+        'FOLDER_NOT_FOUND',
+        'Wishlist folder not found.'
+      );
     }
 
     const [entry] = await access.db
@@ -460,7 +674,12 @@ storeWishlists.post('/:folderId/products/:productId/move', async (c) => {
       )
       .limit(1);
     if (!entry) {
-      return errorJson(c, 404, 'PRODUCT_NOT_SAVED', 'That product is not saved in this folder.');
+      return errorJson(
+        c,
+        404,
+        'PRODUCT_NOT_SAVED',
+        'That product is not saved in this folder.'
+      );
     }
 
     const insertResult = await access.db
@@ -479,16 +698,30 @@ storeWishlists.post('/:folderId/products/:productId/move', async (c) => {
       .run();
     await access.db
       .update(wishlistFolders)
-      .set({ totalProducts: sql`max(0, ${wishlistFolders.totalProducts} - 1)`, updatedAt: new Date() })
+      .set({
+        totalProducts: sql`max(0, ${wishlistFolders.totalProducts} - 1)`,
+        updatedAt: new Date(),
+      })
       .where(eq(wishlistFolders.id, source.id));
     if (insertResult.meta.changes > 0) {
       await access.db
         .update(wishlistFolders)
-        .set({ totalProducts: sql`${wishlistFolders.totalProducts} + 1`, updatedAt: new Date() })
+        .set({
+          totalProducts: sql`${wishlistFolders.totalProducts} + 1`,
+          updatedAt: new Date(),
+        })
         .where(eq(wishlistFolders.id, target.id));
     }
 
-    return c.json({ success: true, data: { moved: true, sourceFolderId: source.id, targetFolderId: target.id, productId } });
+    return c.json({
+      success: true,
+      data: {
+        moved: true,
+        sourceFolderId: source.id,
+        targetFolderId: target.id,
+        productId,
+      },
+    });
   } catch (error) {
     console.error('store wishlists: product move failed', error);
     return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to move that product.');
@@ -506,15 +739,36 @@ storeWishlists.delete('/:folderId/products/:productId', async (c) => {
     const [folder] = await access.db
       .select()
       .from(wishlistFolders)
-      .where(and(eq(wishlistFolders.id, folderId), eq(wishlistFolders.userId, access.user.id)))
+      .where(
+        and(
+          eq(wishlistFolders.id, folderId),
+          eq(wishlistFolders.userId, access.user.id)
+        )
+      )
       .limit(1);
-    if (!folder) return errorJson(c, 404, 'FOLDER_NOT_FOUND', 'Wishlist folder not found.');
+    if (!folder)
+      return errorJson(
+        c,
+        404,
+        'FOLDER_NOT_FOUND',
+        'Wishlist folder not found.'
+      );
     const result = await access.db
       .delete(wishlistProducts)
-      .where(and(eq(wishlistProducts.folderId, folderId), eq(wishlistProducts.productId, productId)))
+      .where(
+        and(
+          eq(wishlistProducts.folderId, folderId),
+          eq(wishlistProducts.productId, productId)
+        )
+      )
       .run();
     if (result.meta.changes === 0) {
-      return errorJson(c, 404, 'PRODUCT_NOT_SAVED', 'That product is not saved in this folder.');
+      return errorJson(
+        c,
+        404,
+        'PRODUCT_NOT_SAVED',
+        'That product is not saved in this folder.'
+      );
     }
     await access.db
       .update(wishlistFolders)
@@ -523,10 +777,18 @@ storeWishlists.delete('/:folderId/products/:productId', async (c) => {
         updatedAt: new Date(),
       })
       .where(eq(wishlistFolders.id, folderId));
-    return c.json({ success: true, data: { removed: true, folderId, productId } });
+    return c.json({
+      success: true,
+      data: { removed: true, folderId, productId },
+    });
   } catch (error) {
     console.error('store wishlists: product remove failed', error);
-    return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to remove that product.');
+    return errorJson(
+      c,
+      500,
+      'INTERNAL_ERROR',
+      'Unable to remove that product.'
+    );
   }
 });
 

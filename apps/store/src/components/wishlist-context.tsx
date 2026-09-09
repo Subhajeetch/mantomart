@@ -41,6 +41,15 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
+import { useMediaQuery } from '@/hooks/use-media-query';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import {
   Select,
   SelectContent,
@@ -117,7 +126,10 @@ function apiUrl(path: string) {
 
 async function responseMessage(response: Response, fallback: string) {
   try {
-    const body = (await response.json()) as { error?: string; message?: string };
+    const body = (await response.json()) as {
+      error?: string;
+      message?: string;
+    };
     return body.error || body.message || fallback;
   } catch {
     return fallback;
@@ -130,7 +142,8 @@ function folderIcon(name: string) {
 
 export function useWishlist() {
   const value = useContext(WishlistContext);
-  if (!value) throw new Error('useWishlist must be used inside WishlistProvider');
+  if (!value)
+    throw new Error('useWishlist must be used inside WishlistProvider');
   return value;
 }
 
@@ -165,7 +178,9 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
         cache: 'no-store',
       });
       if (response.ok) {
-        const body = (await response.json()) as { data?: { folders?: WishlistFolder[] } };
+        const body = (await response.json()) as {
+          data?: { folders?: WishlistFolder[] };
+        };
         setFolders(
           Array.isArray(body.data?.folders)
             ? body.data.folders.map((folder) => ({
@@ -213,7 +228,8 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
         window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
         return;
       }
-      const defaultFolder = folders.find((folder) => folder.isDefault) ?? folders[0];
+      const defaultFolder =
+        folders.find((folder) => folder.isDefault) ?? folders[0];
       setActive(product);
       setSelectedFolderId(defaultFolder?.id ?? '');
       setError('');
@@ -229,14 +245,22 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       setRequesting(true);
       setError('');
       try {
-        const response = await fetch(apiUrl(`/api/store/wishlists/${folderId}/products`), {
-          method: 'POST',
-          credentials: 'include',
-          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ productId: product.id }),
-        });
+        const response = await fetch(
+          apiUrl(`/api/store/wishlists/${folderId}/products`),
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ productId: product.id }),
+          }
+        );
         if (!response.ok) {
-          setError(await responseMessage(response, 'Unable to save this product.'));
+          setError(
+            await responseMessage(response, 'Unable to save this product.')
+          );
           return false;
         }
         setFolders((current) =>
@@ -272,48 +296,62 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     [active]
   );
 
-  const removeFromFolder = useCallback(async (folderId: string, productId: string) => {
-    setRequesting(true);
-    setError('');
-    try {
-      const response = await fetch(
-        apiUrl(`/api/store/wishlists/${folderId}/products/${productId}`),
-        { method: 'DELETE', credentials: 'include', headers: { Accept: 'application/json' } }
-      );
-      if (!response.ok) {
-        setError(await responseMessage(response, 'Unable to remove this product.'));
+  const removeFromFolder = useCallback(
+    async (folderId: string, productId: string) => {
+      setRequesting(true);
+      setError('');
+      try {
+        const response = await fetch(
+          apiUrl(`/api/store/wishlists/${folderId}/products/${productId}`),
+          {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: { Accept: 'application/json' },
+          }
+        );
+        if (!response.ok) {
+          setError(
+            await responseMessage(response, 'Unable to remove this product.')
+          );
+          return false;
+        }
+        setFolders((current) =>
+          current.map((folder) =>
+            folder.id === folderId
+              ? {
+                  ...folder,
+                  totalProducts: Math.max(0, folder.totalProducts - 1),
+                  productIds: folder.productIds.filter(
+                    (id) => id !== productId
+                  ),
+                  products: folder.products.filter(
+                    (item) => item.id !== productId
+                  ),
+                }
+              : folder
+          )
+        );
+        toast.add({
+          title: 'Removed from your wishlist',
+          description: 'The product is no longer saved in that folder.',
+        });
+        return true;
+      } catch {
+        setError('Unable to reach your wishlist. Please try again.');
         return false;
+      } finally {
+        setRequesting(false);
       }
-      setFolders((current) =>
-        current.map((folder) =>
-          folder.id === folderId
-            ? {
-                ...folder,
-                totalProducts: Math.max(0, folder.totalProducts - 1),
-                productIds: folder.productIds.filter((id) => id !== productId),
-                products: folder.products.filter((item) => item.id !== productId),
-              }
-            : folder
-        )
-      );
-      toast.add({
-        title: 'Removed from your wishlist',
-        description: 'The product is no longer saved in that folder.',
-      });
-      return true;
-    } catch {
-      setError('Unable to reach your wishlist. Please try again.');
-      return false;
-    } finally {
-      setRequesting(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   const toggleProduct = useCallback(
     (product: PickerProduct) => {
-      const savedFolder = folders.find((folder) =>
-        folder.productIds.includes(product.id) ||
-        folder.products.some((item) => item.id === product.id)
+      const savedFolder = folders.find(
+        (folder) =>
+          folder.productIds.includes(product.id) ||
+          folder.products.some((item) => item.id === product.id)
       );
       if (savedFolder) {
         void removeFromFolder(savedFolder.id, product.id);
@@ -355,7 +393,17 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       if (await saveToFolder(selected.id)) closePicker();
     }, 3000);
     return cancelAutoSave;
-  }, [active, cancelAutoSave, closePicker, folders, manualSaveRequired, pickerOpen, saveToFolder, savedIds, selectedFolderId]);
+  }, [
+    active,
+    cancelAutoSave,
+    closePicker,
+    folders,
+    manualSaveRequired,
+    pickerOpen,
+    saveToFolder,
+    savedIds,
+    selectedFolderId,
+  ]);
 
   const chooseFolder = (value: string | null) => {
     cancelAutoSave();
@@ -376,17 +424,27 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(apiUrl('/api/store/wishlists/folders'), {
         method: 'POST',
         credentials: 'include',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ name, icon: newFolderIcon }),
       });
       if (!response.ok) {
-        setError(await responseMessage(response, 'Unable to create this folder.'));
+        setError(
+          await responseMessage(response, 'Unable to create this folder.')
+        );
         return;
       }
-      const body = (await response.json()) as { data?: { folder?: WishlistFolder } };
+      const body = (await response.json()) as {
+        data?: { folder?: WishlistFolder };
+      };
       const folder = body.data?.folder;
       if (folder) {
-        setFolders((current) => [...current, { ...folder, productIds: [], products: [] }]);
+        setFolders((current) => [
+          ...current,
+          { ...folder, productIds: [], products: [] },
+        ]);
         setSelectedFolderId(folder.id);
       }
       setNewFolderName('');
@@ -398,12 +456,14 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const selectedFolder = folders.find((folder) => folder.id === selectedFolderId);
+  const selectedFolder = folders.find(
+    (folder) => folder.id === selectedFolderId
+  );
   const selectedHasProduct = Boolean(
     selectedFolder &&
-      active &&
-      (selectedFolder.productIds.includes(active.id) ||
-        selectedFolder.products.some((product) => product.id === active.id))
+    active &&
+    (selectedFolder.productIds.includes(active.id) ||
+      selectedFolder.products.some((product) => product.id === active.id))
   );
 
   const value = useMemo<WishlistContextValue>(
@@ -462,19 +522,48 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create wishlist folder</DialogTitle>
-            <DialogDescription>Give this collection a name and an icon.</DialogDescription>
+            <DialogDescription>
+              Give this collection a name and an icon.
+            </DialogDescription>
           </DialogHeader>
-          <Input value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} placeholder="Weekend ideas" autoFocus />
+          <Input
+            value={newFolderName}
+            onChange={(event) => setNewFolderName(event.target.value)}
+            placeholder="Weekend ideas"
+            autoFocus
+          />
           <div className="grid grid-cols-6 gap-2">
             {Object.entries(icons).map(([name, Icon]) => (
-              <button type="button" key={name} onClick={() => setNewFolderIcon(name as IconName)} className={cn('flex h-10 items-center justify-center border', newFolderIcon === name ? 'border-primary bg-primary/10 text-primary' : 'border-border')} aria-label={name}>
+              <button
+                type="button"
+                key={name}
+                onClick={() => setNewFolderIcon(name as IconName)}
+                className={cn(
+                  'flex h-10 items-center justify-center border',
+                  newFolderIcon === name
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border'
+                )}
+                aria-label={name}
+              >
                 <Icon className="size-4" />
               </button>
             ))}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={() => void createFolder()} disabled={requesting || !newFolderName.trim()}>{requesting ? <Loader2 className="animate-spin" /> : 'Create folder'}</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void createFolder()}
+              disabled={requesting || !newFolderName.trim()}
+            >
+              {requesting ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                'Create folder'
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -500,11 +589,12 @@ export function WishlistPicker() {
     cancelAutoSave,
   } = useWishlist();
   const ActiveIcon = selectedFolder ? folderIcon(selectedFolder.icon) : Heart;
+  const isDesktop = useMediaQuery('(min-width: 768px)');
 
-  if (!pickerOpen || !active) return null;
+  if (!active) return null;
 
-  return (
-    <section onPointerDown={cancelAutoSave} className="absolute top-full right-0 z-40 mt-2 w-[min(28rem,calc(100vw-1.5rem))] border border-foreground/10 bg-background shadow-2xl" role="dialog" aria-label="Save to wishlist">
+  const pickerContent = (
+    <>
       <div className="flex items-center gap-3 p-3">
         <div className="size-14 shrink-0 overflow-hidden bg-muted">
           {active.image ? (
@@ -514,27 +604,81 @@ export function WishlistPicker() {
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{active.name}</p>
-          {active.price !== null ? <p className="mt-1 text-xs text-muted-foreground">{formatPriceCents(active.price)}</p> : null}
+          {active.price !== null ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatPriceCents(active.price)}
+            </p>
+          ) : null}
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={closePicker} aria-label="Close wishlist picker"><X /></Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={closePicker}
+          aria-label="Close wishlist picker"
+        >
+          <X />
+        </Button>
       </div>
       <div className="border-t p-3">
-        <Select value={selectedFolderId} onValueChange={chooseFolder}>
-          <SelectTrigger className="h-10 w-full">
-            <SelectValue><ActiveIcon className="size-4" />{selectedFolder?.name ?? 'Choose a folder'}</SelectValue>
-          </SelectTrigger>
-          <SelectContent align="end">
+        {isDesktop ? (
+          <Select value={selectedFolderId} onValueChange={chooseFolder}>
+            <SelectTrigger className="h-10 w-full">
+              <SelectValue>
+                <ActiveIcon className="size-4" />
+                {selectedFolder?.name ?? 'Choose a folder'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="end">
+              {folders.map((folder) => {
+                const Icon = folderIcon(folder.icon);
+                return (
+                  <SelectItem value={folder.id} key={folder.id}>
+                    <Icon className="size-4" />
+                    {folder.name}
+                  </SelectItem>
+                );
+              })}
+              <SelectItem value="__create__">
+                <span className="font-semibold text-primary">
+                  + Create a new folder
+                </span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <div className="grid gap-2">
             {folders.map((folder) => {
               const Icon = folderIcon(folder.icon);
-              return <SelectItem value={folder.id} key={folder.id}><Icon className="size-4" />{folder.name}</SelectItem>;
+              return (
+                <button
+                  type="button"
+                  key={folder.id}
+                  onClick={() => chooseFolder(folder.id)}
+                  className={cn(
+                    'flex items-center gap-3 border p-3 text-left text-sm',
+                    selectedFolderId === folder.id &&
+                      'border-primary bg-primary/10 text-primary'
+                  )}
+                >
+                  <Icon className="size-4" /> {folder.name}
+                </button>
+              );
             })}
-            <SelectItem value="__create__"><span className="font-semibold text-primary">+ Create a new folder</span></SelectItem>
-          </SelectContent>
-        </Select>
+            <button
+              type="button"
+              onClick={() => chooseFolder('__create__')}
+              className="border border-dashed p-3 text-left text-sm font-semibold text-primary"
+            >
+              + Create a new folder
+            </button>
+          </div>
+        )}
         <div className="mt-3 min-h-10">
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           {selectedFolder?.isDefault && !selectedHasProduct && autoSaving ? (
-            <div className="mt-3 h-0.5 overflow-hidden bg-muted"><div className="h-full origin-left animate-[wishlist-progress_3s_linear] bg-[#ff3f6c]" /></div>
+            <div className="mt-3 h-0.5 overflow-hidden bg-muted">
+              <div className="h-full origin-left animate-[wishlist-progress_3s_linear] bg-[#ff3f6c]" />
+            </div>
           ) : null}
           {!selectedFolder?.isDefault || manualSaveRequired ? (
             <Button
@@ -545,11 +689,51 @@ export function WishlistPicker() {
                 if (await saveToFolder(selectedFolderId)) closePicker();
               }}
             >
-              {requesting ? <Loader2 className="animate-spin" /> : 'Save to folder'}
+              {requesting ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                'Save to folder'
+              )}
             </Button>
           ) : null}
         </div>
       </div>
-    </section>
+    </>
+  );
+
+  if (isDesktop) {
+    return (
+      <section
+        onPointerDown={cancelAutoSave}
+        className="absolute top-full right-0 z-40 mt-2 w-[min(28rem,calc(100vw-1.5rem))] border border-foreground/10 bg-background shadow-2xl"
+        role="dialog"
+        aria-label="Save to wishlist"
+      >
+        {pickerContent}
+      </section>
+    );
+  }
+
+  return (
+    <Drawer
+      open={pickerOpen}
+      onOpenChange={(open) => !open && closePicker()}
+      showSwipeHandle
+    >
+      <DrawerContent onPointerDown={cancelAutoSave}>
+        <DrawerHeader className="text-left">
+          <DrawerTitle>Save to wishlist</DrawerTitle>
+          <DrawerDescription className="truncate">
+            {active.name}
+          </DrawerDescription>
+        </DrawerHeader>
+        {pickerContent}
+        <DrawerFooter>
+          <Button variant="outline" onClick={closePicker}>
+            Close
+          </Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }
