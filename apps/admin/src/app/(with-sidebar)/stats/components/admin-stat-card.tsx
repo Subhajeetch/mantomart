@@ -1,4 +1,4 @@
-import { Ban, Crown, Medal, Package, Shield, ShoppingBag, Users } from 'lucide-react';
+import { Ban, Crown, Package, Shield, ShoppingBag, Users } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -43,31 +43,75 @@ function RoleBadge({ role }: { role: string }) {
 }
 
 function RankMark({ rank }: { rank: number }) {
-  if (rank === 1) {
-    return (
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 ring-1 ring-amber-500/25 dark:text-amber-400">
-        <Medal className="size-4" />
-      </div>
-    );
-  }
-  if (rank === 2) {
-    return (
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-400/15 text-slate-600 ring-1 ring-slate-400/30 dark:text-slate-300">
-        <Medal className="size-4" />
-      </div>
-    );
-  }
-  if (rank === 3) {
-    return (
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-orange-600/10 text-orange-700 ring-1 ring-orange-500/25 dark:text-orange-400">
-        <Medal className="size-4" />
-      </div>
-    );
-  }
+  const safeRank = Number.isFinite(rank) && rank > 0 ? Math.floor(rank) : null;
+  const colorClass =
+    safeRank === 1
+      ? 'text-amber-500 dark:text-amber-400'
+      : safeRank === 2
+        ? 'text-slate-400 dark:text-slate-300'
+        : safeRank === 3
+          ? 'text-orange-700 dark:text-orange-400'
+          : 'text-muted-foreground';
+  const label = safeRank ? `Rank ${safeRank}` : 'Unranked';
+
   return (
-    <div className="text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold tabular-nums">
-      {rank}
-    </div>
+    <svg
+      aria-label={label}
+      className={cn('size-11 shrink-0', colorClass)}
+      role="img"
+      viewBox="0 0 64 64"
+    >
+      <path
+        d="M30 57C17 52 9 42 8 28C8 17 15 8 27 4M34 57c13-5 21-15 22-29C56 17 49 8 37 4"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.6"
+      />
+      <g fill="currentColor">
+        <g>
+          <path d="M10 43C6 41 4 38 4 34C8 35 11 38 10 43Z" />
+          <path d="M8 36C4 34 2.5 30 3 26C7 27 10 31 8 36Z" />
+          <path d="M8 29C4.5 27 3.5 23 5 19C8.5 21 10 25 8 29Z" />
+          <path d="M10 22C7 19 7 15 9 11.5C12 14 13 18 10 22Z" />
+          <path d="M14 16C11.5 12 12 8.5 15 5.5C17.5 9 17 13 14 16Z" />
+          <path d="M19 11C17 7 18 4 21 1.5C23 5 22 8.5 19 11Z" />
+          <path d="M24.5 8C23 4.5 24.5 1.5 27.5 0C29 3.5 28 6.5 24.5 8Z" />
+          <path d="M12 41C15 37 19 36 22 38C20 42 16 44 12 41Z" />
+          <path d="M9 34C12 30 16 29.5 19 32C17 36 13 37 9 34Z" />
+          <path d="M9 27C12 23 16 22.5 19 25C17 29 13 30 9 27Z" />
+          <path d="M11 20C14 16 18 15.5 21 18C19 22 15 23 11 20Z" />
+          <path d="M15 14C18 10.5 21.5 10 24 12.5C22 16 18.5 17 15 14Z" />
+          <path d="M20 9C23 6 26 6 28 8.5C25.5 11 22.5 11.5 20 9Z" />
+        </g>
+        <g transform="translate(64 0) scale(-1 1)">
+          <path d="M10 43C6 41 4 38 4 34C8 35 11 38 10 43Z" />
+          <path d="M8 36C4 34 2.5 30 3 26C7 27 10 31 8 36Z" />
+          <path d="M8 29C4.5 27 3.5 23 5 19C8.5 21 10 25 8 29Z" />
+          <path d="M10 22C7 19 7 15 9 11.5C12 14 13 18 10 22Z" />
+          <path d="M14 16C11.5 12 12 8.5 15 5.5C17.5 9 17 13 14 16Z" />
+          <path d="M19 11C17 7 18 4 21 1.5C23 5 22 8.5 19 11Z" />
+          <path d="M24.5 8C23 4.5 24.5 1.5 27.5 0C29 3.5 28 6.5 24.5 8Z" />
+          <path d="M12 41C15 37 19 36 22 38C20 42 16 44 12 41Z" />
+          <path d="M9 34C12 30 16 29.5 19 32C17 36 13 37 9 34Z" />
+          <path d="M9 27C12 23 16 22.5 19 25C17 29 13 30 9 27Z" />
+          <path d="M11 20C14 16 18 15.5 21 18C19 22 15 23 11 20Z" />
+          <path d="M15 14C18 10.5 21.5 10 24 12.5C22 16 18.5 17 15 14Z" />
+          <path d="M20 9C23 6 26 6 28 8.5C25.5 11 22.5 11.5 20 9Z" />
+        </g>
+      </g>
+      <text
+        x="32"
+        y="39"
+        fill="currentColor"
+        fontFamily="inherit"
+        fontSize="24"
+        fontWeight="800"
+        textAnchor="middle"
+      >
+        {safeRank ?? '—'}
+      </text>
+    </svg>
   );
 }
 
@@ -101,7 +145,9 @@ export function AdminStatCard({
 }) {
   const value = metricValue(row, sort);
   const pct =
-    leaderValue > 0 ? Math.min(100, Math.round((value / leaderValue) * 100)) : 0;
+    leaderValue > 0
+      ? Math.min(100, Math.round((value / leaderValue) * 100))
+      : 0;
 
   return (
     <Card
@@ -180,7 +226,9 @@ export function AdminStatCard({
               <ShoppingBag className="size-3" />
               {formatNumber(row.ordersCount)}
             </span>
-            <span className="tabular-nums">{formatMoney(row.revenueCents)}</span>
+            <span className="tabular-nums">
+              {formatMoney(row.revenueCents)}
+            </span>
           </div>
 
           <div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
