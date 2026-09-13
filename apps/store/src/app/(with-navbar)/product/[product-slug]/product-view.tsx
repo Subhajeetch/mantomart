@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { addToCart, handleBuyNow } from '@/utils/cart';
+import { addToCart, handleBuyNow, undoAddToCart } from '@/utils/cart';
+import { toast } from '@/components/ui/toast';
 
 import { ProductGallery } from './gallery/product-gallery';
 import { ProductDetailsTabs } from './info/product-details-tabs';
@@ -12,6 +13,8 @@ import { MoreForYou } from './more-for-you';
 import { ProductBreadcrumbs } from './product-breadcrumbs';
 import type { MoreForYouPage, PublicProduct } from './types';
 import { useProductSelection } from './use-product-selection';
+import { useSession } from '@/lib/auth-client';
+import { getStoreLoginUrl } from '@/lib/app-urls';
 
 type ProductViewProps = {
   product: PublicProduct;
@@ -31,6 +34,7 @@ function colorVariant(
 
 export function ProductView({ product, more }: ProductViewProps) {
   const selection = useProductSelection(product);
+  const { data: session } = useSession();
   const ctaRef = useRef<HTMLDivElement>(null);
   const moreForYouRef = useRef<HTMLElement>(null);
   const [ctaInView, setCtaInView] = useState(true);
@@ -80,15 +84,55 @@ export function ProductView({ product, more }: ProductViewProps) {
     [product.id, product.slug, selection.quantity, selection.sku?.id]
   );
 
-  const onAddToCart = useCallback(() => {
+  const onAddToCart = useCallback(async () => {
     if (!selection.sku || selection.sku.stock <= 0) return;
-    addToCart(cartInput);
-  }, [cartInput, selection.sku]);
+    if (!session?.user?.id) {
+      window.location.assign(getStoreLoginUrl(`${window.location.origin}/product/${encodeURIComponent(product.slug)}`));
+      return;
+    }
+    try {
+      const result = await addToCart(cartInput);
+      window.dispatchEvent(new CustomEvent('cart-updated', { detail: result.summary }));
+      toast.add({
+        title: 'Added to cart',
+        description: `${product.name} was added to your cart.`,
+        type: 'success',
+        actionProps: {
+          children: 'Undo',
+          onClick: () => {
+            void undoAddToCart(result.itemId, result.previousQuantity)
+              .then((summary) => {
+                window.dispatchEvent(
+                  new CustomEvent('cart-updated', { detail: summary })
+                );
+              })
+              .catch(() => {
+                toast.add({
+                  title: 'Unable to undo',
+                  description: 'The cart could not be restored.',
+                  type: 'error',
+                });
+              });
+          },
+        },
+      });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Unable to add this item to your cart.');
+    }
+  }, [cartInput, product.slug, selection.sku, session?.user?.id]);
 
-  const onBuyNow = useCallback(() => {
+  const onBuyNow = useCallback(async () => {
     if (!selection.sku || selection.sku.stock <= 0) return;
-    handleBuyNow(cartInput);
-  }, [cartInput, selection.sku]);
+    if (!session?.user?.id) {
+      window.location.assign(getStoreLoginUrl(`${window.location.origin}/product/${encodeURIComponent(product.slug)}`));
+      return;
+    }
+    try {
+      await handleBuyNow(cartInput);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Unable to start checkout.');
+    }
+  }, [cartInput, product.slug, selection.sku, session?.user?.id]);
 
   const outOfStock = !selection.sku || selection.sku.stock <= 0;
   const activeVariant = colorVariant(product, selection.selected);

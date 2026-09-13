@@ -134,6 +134,27 @@
       "when": 1788881442989,
       "tag": "0018_abandoned_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1789307346794,
+      "tag": "0019_panoramic_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1789307406847,
+      "tag": "0020_medical_puck",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1789308314603,
+      "tag": "0021_nifty_sumo",
+      "breakpoints": true
     }
   ]
 }

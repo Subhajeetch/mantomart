@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { useWishlist, WishlistPicker } from "@/components/wishlist-context";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { getCartSummary, cacheCartSummary, type CartSummary } from "@/app/(with-navbar)/cart/api";
 
 import { resolveNavHref } from "./api";
 import type { HeaderNavCollection, HeaderNavItem } from "./types";
@@ -611,6 +612,8 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
   const pathname = usePathname();
   const { pulse } = useWishlist();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { data: session } = useSession();
+  const [cartSummary, setCartSummary] = useState<CartSummary | null>(null);
   const visibleCollections = useMemo(
     () => normalizeCollections(collections),
     [collections]
@@ -619,6 +622,35 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setCartSummary(null);
+      return;
+    }
+    let cancelled = false;
+    void getCartSummary()
+      .then((summary) => {
+        if (!cancelled) setCartSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setCartSummary(null);
+      });
+    const refresh = (event: Event) => {
+      const custom = event as CustomEvent<CartSummary>;
+      if (custom.detail) {
+        cacheCartSummary(custom.detail);
+        setCartSummary(custom.detail);
+        return;
+      }
+      void getCartSummary(true).then(setCartSummary).catch(() => undefined);
+    };
+    window.addEventListener('cart-updated', refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('cart-updated', refresh);
+    };
+  }, [session?.user?.id]);
 
   return (
     <>
@@ -674,9 +706,14 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
             <Link
               href="/cart"
               aria-label="Cart"
-              className={buttonVariants({ variant: "ghost", size: "icon" })}
+              className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
             >
               <ShoppingCart className="size-5" />
+              {cartSummary && cartSummary.itemCount > 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground">
+                  {cartSummary.itemCount > 99 ? '99+' : cartSummary.itemCount}
+                </span>
+              ) : null}
             </Link>
           </div>
           <WishlistPicker />

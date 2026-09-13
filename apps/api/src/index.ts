@@ -35,6 +35,8 @@ import {
   storeProduct,
   storeAccount,
   storeWishlists,
+  storeCart,
+  storeCheckout,
 } from "./routes";
 import config from "./mine.config";
 
@@ -126,6 +128,8 @@ app.route("/api/store/homepage", storeHomepage);
 app.route("/api/store/product", storeProduct);
 app.route("/api/store/account", storeAccount);
 app.route("/api/store/wishlists", storeWishlists);
+app.route("/api/store/cart", storeCart);
+app.route("/api/store/checkout", storeCheckout);
 /** Public R2 object serve — used when R2_PUBLIC_URL is unset (local + default prod). */
 app.route("/api/images", storeImages);
 
