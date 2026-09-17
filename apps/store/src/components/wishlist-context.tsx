@@ -228,7 +228,7 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     (product: PickerProduct) => {
       if (!session?.user?.id) {
         openNeedLogin({
-          title: 'Log in to save to your wishlist',
+          title: 'Log in to continue',
           description:
             'Log in to keep products you love in your wishlist. We’ll bring you right back.',
           returnTo:

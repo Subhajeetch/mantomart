@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import config from "@/mine.config";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ChevronRight,
   Heart,
@@ -18,6 +18,7 @@ import type { Session } from "@repo/types/session-client";
 
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { useNeedLogin } from "@/components/need-login-context";
 import { useWishlist, WishlistPicker } from "@/components/wishlist-context";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -610,6 +611,9 @@ function SeoNavTree({ collections }: { collections: HeaderNavCollection[] }) {
 
 export function StoreNavbar({ collections }: StoreNavbarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { data: session } = useSession();
+  const { openNeedLogin } = useNeedLogin();
   const { pulse } = useWishlist();
   const [menuOpen, setMenuOpen] = useState(false);
   const [cartSummary, setCartSummary] = useState<CartSummary | null>(null);
@@ -693,17 +697,37 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:ml-0">
             <AccountButton />
-            <Link
-              href="/user/wishlists"
+            <button
+              type="button"
               aria-label="Wishlist"
               className={buttonVariants({ variant: "ghost", size: "icon" })}
+              onClick={() => {
+                if (!session?.user?.id) {
+                  openNeedLogin({
+                    title: "Log in to continue",
+                    description:
+                      "Log in to view and manage the products you’ve saved. We’ll bring you right back.",
+                    returnTo:
+                      typeof window !== "undefined"
+                        ? window.location.href
+                        : undefined,
+                  });
+                  return;
+                }
+                router.push("/user/wishlists");
+              }}
             >
               <Heart className={cn("size-5 transition-colors", pulse && "animate-[wishlist-pop_650ms_ease-in-out] fill-[#ff3f6c] text-[#ff3f6c]")} />
-            </Link>
+            </button>
             <Link
               href="/cart"
               aria-label="Cart"
-              className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "icon" }),
+                // The cart lives in the bottom nav on small screens — hide this
+                // one while the mobile bar is visible (< sm) to avoid duplicates.
+                "relative hidden sm:inline-flex"
+              )}
             >
               <ShoppingCart className="size-5" />
               {cartSummary && cartSummary.itemCount > 0 ? (
@@ -733,7 +757,16 @@ function AccountButton() {
   const session = data as Session | null;
   const user = session?.user;
 
-  if (isPending) {
+  // Gate on a mounted flag so the server render and the first client render
+  // are identical. Without it, better-auth resolves the session from storage
+  // during hydration, so the client paints the login link while the server
+  // painted the loading skeleton — causing a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || isPending) {
     return (
       <div className="size-8 animate-pulse rounded-full bg-muted hidden sm:inline-flex" aria-hidden />
     );

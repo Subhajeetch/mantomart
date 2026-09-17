@@ -41,6 +41,7 @@ export function ProductView({ product, more }: ProductViewProps) {
   const [ctaInView, setCtaInView] = useState(true);
   const [moreForYouInView, setMoreForYouInView] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [isAddingToCart, setIsAddingToCart] = useState(false);
 
   useEffect(() => {
     const el = ctaRef.current;
@@ -89,16 +90,18 @@ export function ProductView({ product, more }: ProductViewProps) {
     if (!selection.sku || selection.sku.stock <= 0) return;
     // Add-to-cart works for guests too — the API builds a guest cart keyed by
     // the stored X-Guest-Id and merges it into the account on sign-in.
+    setIsAddingToCart(true);
     try {
       const result = await addToCart(cartInput);
       window.dispatchEvent(new CustomEvent('cart-updated', { detail: result.summary }));
-      toast.add({
-        title: 'Added to cart',
-        description: `${product.name} was added to your cart.`,
+      const undoToastId = toast.add({
+        title: product.name,
+        description: 'was added to your cart.',
         type: 'success',
         actionProps: {
           children: 'Undo',
           onClick: () => {
+            toast.close(undoToastId);
             void undoAddToCart(result.itemId, result.previousQuantity)
               .then((summary) => {
                 window.dispatchEvent(
@@ -122,6 +125,8 @@ export function ProductView({ product, more }: ProductViewProps) {
           error instanceof Error ? error.message : 'Unable to add this item to your cart.',
         type: 'error',
       });
+    } finally {
+      setIsAddingToCart(false);
     }
   }, [cartInput, product.slug, selection.sku, session?.user?.id]);
 
@@ -129,7 +134,7 @@ export function ProductView({ product, more }: ProductViewProps) {
     if (!selection.sku || selection.sku.stock <= 0) return;
     if (!session?.user?.id) {
       openNeedLogin({
-        title: 'Log in to buy this product',
+        title: 'Log in to continue',
         description: 'Log in so we can secure this item and take you straight to checkout.',
         returnTo:
           typeof window !== 'undefined'
@@ -167,6 +172,7 @@ export function ProductView({ product, more }: ProductViewProps) {
           product={product}
           selection={selection}
           ctaRef={ctaRef}
+          isAddingToCart={isAddingToCart}
           onAddToCart={onAddToCart}
           onBuyNow={onBuyNow}
         />
@@ -184,6 +190,7 @@ export function ProductView({ product, more }: ProductViewProps) {
         visible={showFloating}
         disabled={outOfStock}
         outOfStock={outOfStock}
+        isAddingToCart={isAddingToCart}
         onAddToCart={onAddToCart}
         onBuyNow={onBuyNow}
       />

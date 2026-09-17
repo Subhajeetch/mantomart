@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useSession } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
@@ -157,20 +158,14 @@ export default function CartPage() {
       {!items.length ? (
         <div className="mt-8 border p-10 text-center">
           <ShoppingBag className="mx-auto size-10 text-muted-foreground" />
-          <p className="mt-3 text-muted-foreground">Your bag is empty.</p>
+          <p className="my-3 text-muted-foreground">Your bag is empty.</p>
           {!isLoggedIn ? (
-            <Button
-              className="mt-5 rounded-none"
-              onClick={() =>
-                openNeedLogin({
-                  title: 'Log in to keep your bag',
-                  description: 'Log in to see items you left in your bag across devices.',
-                  returnTo: typeof window !== 'undefined' ? window.location.href : undefined,
-                })
-              }
+            <Link
+              href="/login"
+              className="mt-5 rounded-none bg-primary px-4 py-2 text-background hover:bg-primary/70"
             >
               Log in
-            </Button>
+            </Link>
           ) : null}
         </div>
       ) : (
@@ -185,7 +180,7 @@ export default function CartPage() {
               return (
                 <article key={item.id} className="flex gap-4 border p-3">
                   <div className="size-32 shrink-0 bg-muted">
-                    {item.imageSnapshot ? <img src={item.imageSnapshot} alt={item.productNameSnapshot} className="size-full object-cover" /> : null}
+                    {item.imageSnapshot ? <Image src={item.imageSnapshot} alt={item.productNameSnapshot} className="size-full object-cover" width={128} height={128} /> : null}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex justify-between gap-3">
@@ -226,13 +221,13 @@ export default function CartPage() {
             <div className="mt-2 flex justify-between text-sm"><span>Shipping</span><span className="text-emerald-600">FREE</span></div>
             <div className="mt-4 border-t pt-4 flex justify-between font-semibold"><span>Total Amount</span><span className="tabular-nums">{formatPriceCents(selectedTotal)}</span></div>
             <Button
-              className="mt-6 w-full rounded-none bg-pink-500 hover:bg-pink-600"
+              className="mt-6 w-full rounded-none bg-primary hover:bg-primary/70"
               disabled={busyId === 'checkout'}
               onClick={() => {
                 if (!isLoggedIn) {
                   setPendingCheckout();
                   openNeedLogin({
-                    title: 'Log in to continue to checkout',
+                    title: 'Log in to continue',
                     description: 'Log in to review your bag and complete your purchase. We’ll bring you right back.',
                     returnTo: typeof window !== 'undefined' ? window.location.href : undefined,
                     // If they close the prompt instead of signing in, drop the

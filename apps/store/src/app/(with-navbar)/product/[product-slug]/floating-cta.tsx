@@ -6,6 +6,7 @@ type FloatingCtaProps = {
   visible: boolean;
   disabled: boolean;
   outOfStock: boolean;
+  isAddingToCart?: boolean;
   onAddToCart: () => void;
   onBuyNow: () => void;
 };
@@ -14,6 +15,7 @@ export function FloatingCta({
   visible,
   disabled,
   outOfStock,
+  isAddingToCart,
   onAddToCart,
   onBuyNow,
 }: FloatingCtaProps) {
@@ -33,6 +35,7 @@ export function FloatingCta({
           <ProductCta
             disabled={disabled}
             outOfStock={outOfStock}
+            isAddingToCart={isAddingToCart}
             onAddToCart={onAddToCart}
             onBuyNow={onBuyNow}
             compact

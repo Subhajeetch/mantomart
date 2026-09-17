@@ -68,9 +68,14 @@ export async function getCartSummary(force = false) {
   if (!force && summaryCache && summaryCache.expiresAt > Date.now()) {
     return summaryCache.value;
   }
-  const value = await request<CartSummary>('/api/store/cart/summary');
-  summaryCache = { value, expiresAt: Date.now() + SUMMARY_CACHE_TTL_MS };
-  return value;
+  // The endpoint wraps the summary in `{ summary, mode, guestId }`.
+  const value = await request<{
+    summary: CartSummary;
+    mode: 'guest' | 'user';
+    guestId: string | null;
+  }>('/api/store/cart/summary');
+  summaryCache = { value: value.summary, expiresAt: Date.now() + SUMMARY_CACHE_TTL_MS };
+  return value.summary;
 }
 
 export function cacheCartSummary(value: CartSummary) {

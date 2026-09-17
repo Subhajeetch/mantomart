@@ -4,6 +4,8 @@ import { useState } from "react";
 import config from "@/mine.config";
 import PassCheck from "./pass-check";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+import Image from "next/image";
 
 type AuthClient = {
   signIn: {
@@ -199,15 +201,17 @@ export default function LoginForm({
           "min-[1024px]:flex",
         )}
       >
-        <div>
+        <Link href="/" className="flex items-center gap-2.5">
           {/* Decorative brand assets — next/image not required for static public logos */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
+            width={240}
+            height={48}
             src={fullLogoUrl}
             alt={brandName}
-            className="h-auto w-[240px] object-contain"
+            className="h-auto w-60 object-contain"
           />
-        </div>
+        </Link>
         <div className="grow" />
       </header>
 
@@ -229,9 +233,11 @@ export default function LoginForm({
             )}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
+              width={1200}
+              height={400}
               src={heroImageUrl}
-              alt=""
+              alt="Hero image"
               className="pointer-events-none h-auto w-full max-w-[660px] select-none object-contain"
             />
           </div>
@@ -243,19 +249,21 @@ export default function LoginForm({
               "min-[1024px]:m-0 min-[1024px]:max-w-105 min-[1024px]:rounded-2xl min-[1024px]:bg-white min-[1024px]:px-9 min-[1024px]:py-10 min-[1024px]:shadow-[0_10px_40px_rgba(0,0,0,0.08)] ",
             )}
           >
-            <div className="mb-7 flex items-center gap-2.5">
+            <Link href="/" className="mb-7 flex items-center gap-2.5">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#e7e7e7]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
+                  width={40}
+                  height={40}
                   src={shortLogoUrl}
-                  alt=""
+                  alt={`${brandName} logo`}
                   className="h-10 w-10 object-contain"
                 />
               </div>
               <span className="text-[26px] font-bold tracking-[-0.3px] text-[#111]">
                 {brandName}
               </span>
-            </div>
+            </Link>
 
             {mode === "forgot" && (
               <>

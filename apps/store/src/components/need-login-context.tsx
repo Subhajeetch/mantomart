@@ -3,6 +3,7 @@
 import * as React from 'react';
 
 import type { Session } from '@repo/types/session-client';
+import Image from 'next/image';
 
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useSession } from '@/lib/auth-client';
@@ -147,6 +148,9 @@ type NeedLoginDialogProps = {
   isPending: boolean;
 };
 
+
+
+
 /**
  * Responsive login prompt — a centered Dialog on desktop, a bottom Drawer on
  * mobile (matching the app's existing wishlist picker behavior).
@@ -165,7 +169,7 @@ function NeedLoginDialog({
   const actions = (
     <>
       <Button
-        className="w-full rounded-none bg-foreground text-background hover:bg-foreground/90"
+        className="w-full bg-primary text-background hover:bg-primary/70 h-10"
         disabled={loginDisabled}
         onClick={() => goToLogin(loginHref)}
       >
@@ -173,7 +177,7 @@ function NeedLoginDialog({
       </Button>
       <Button
         variant="outline"
-        className="w-full rounded-none"
+        className="w-full rounded-none h-10"
         disabled={loginDisabled}
         onClick={() => goToLogin(loginHref)}
       >
@@ -181,6 +185,13 @@ function NeedLoginDialog({
       </Button>
     </>
   );
+
+  const wholeContainer = (
+    <div className="flex flex-col items-center justify-center">
+      <Image src="/images/login-hero-2.webp" alt="Need login" width={1200} height={400} className="mx-auto my-4 rounded-[10px]" />
+      <div className="grid w-full gap-2">{actions}</div>
+    </div>
+  )
 
   if (isDesktop) {
     return (
@@ -191,7 +202,7 @@ function NeedLoginDialog({
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
           <DialogFooter className="sm:justify-start">
-            <div className="grid w-full gap-2">{actions}</div>
+            {wholeContainer}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -206,7 +217,7 @@ function NeedLoginDialog({
           <DrawerDescription>{description}</DrawerDescription>
         </DrawerHeader>
         <DrawerFooter>
-          <div className="grid w-full gap-2">{actions}</div>
+          {wholeContainer}
         </DrawerFooter>
       </DrawerContent>
     </Drawer>

@@ -23,6 +23,7 @@ type ProductInfoProps = {
   product: PublicProduct;
   selection: ProductSelection;
   ctaRef: RefObject<HTMLDivElement | null>;
+  isAddingToCart?: boolean;
   onAddToCart: () => void;
   onBuyNow: () => void;
 };
@@ -45,6 +46,7 @@ export function ProductInfo({
   product,
   selection,
   ctaRef,
+  isAddingToCart,
   onAddToCart,
   onBuyNow,
 }: ProductInfoProps) {
@@ -168,6 +170,7 @@ export function ProductInfo({
         <ProductCta
           disabled={disabled}
           outOfStock={outOfStock}
+          isAddingToCart={isAddingToCart}
           onAddToCart={onAddToCart}
           onBuyNow={onBuyNow}
         />
