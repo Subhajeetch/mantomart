@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { addToCart, handleBuyNow, undoAddToCart } from '@/utils/cart';
 import { toast } from '@/components/ui/toast';
+import { useNeedLogin } from '@/components/need-login-context';
 
 import { ProductGallery } from './gallery/product-gallery';
 import { ProductDetailsTabs } from './info/product-details-tabs';
@@ -14,7 +15,6 @@ import { ProductBreadcrumbs } from './product-breadcrumbs';
 import type { MoreForYouPage, PublicProduct } from './types';
 import { useProductSelection } from './use-product-selection';
 import { useSession } from '@/lib/auth-client';
-import { getStoreLoginUrl } from '@/lib/app-urls';
 
 type ProductViewProps = {
   product: PublicProduct;
@@ -35,6 +35,7 @@ function colorVariant(
 export function ProductView({ product, more }: ProductViewProps) {
   const selection = useProductSelection(product);
   const { data: session } = useSession();
+  const { openNeedLogin } = useNeedLogin();
   const ctaRef = useRef<HTMLDivElement>(null);
   const moreForYouRef = useRef<HTMLElement>(null);
   const [ctaInView, setCtaInView] = useState(true);
@@ -86,10 +87,8 @@ export function ProductView({ product, more }: ProductViewProps) {
 
   const onAddToCart = useCallback(async () => {
     if (!selection.sku || selection.sku.stock <= 0) return;
-    if (!session?.user?.id) {
-      window.location.assign(getStoreLoginUrl(`${window.location.origin}/product/${encodeURIComponent(product.slug)}`));
-      return;
-    }
+    // Add-to-cart works for guests too — the API builds a guest cart keyed by
+    // the stored X-Guest-Id and merges it into the account on sign-in.
     try {
       const result = await addToCart(cartInput);
       window.dispatchEvent(new CustomEvent('cart-updated', { detail: result.summary }));
@@ -117,22 +116,39 @@ export function ProductView({ product, more }: ProductViewProps) {
         },
       });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Unable to add this item to your cart.');
+      toast.add({
+        title: 'Unable to add this item',
+        description:
+          error instanceof Error ? error.message : 'Unable to add this item to your cart.',
+        type: 'error',
+      });
     }
   }, [cartInput, product.slug, selection.sku, session?.user?.id]);
 
   const onBuyNow = useCallback(async () => {
     if (!selection.sku || selection.sku.stock <= 0) return;
     if (!session?.user?.id) {
-      window.location.assign(getStoreLoginUrl(`${window.location.origin}/product/${encodeURIComponent(product.slug)}`));
+      openNeedLogin({
+        title: 'Log in to buy this product',
+        description: 'Log in so we can secure this item and take you straight to checkout.',
+        returnTo:
+          typeof window !== 'undefined'
+            ? window.location.href
+            : undefined,
+      });
       return;
     }
     try {
       await handleBuyNow(cartInput);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Unable to start checkout.');
+      toast.add({
+        title: 'Unable to start checkout',
+        description:
+          error instanceof Error ? error.message : 'Please try again in a moment.',
+        type: 'error',
+      });
     }
-  }, [cartInput, product.slug, selection.sku, session?.user?.id]);
+  }, [cartInput, openNeedLogin, selection.sku, session?.user?.id]);
 
   const outOfStock = !selection.sku || selection.sku.stock <= 0;
   const activeVariant = colorVariant(product, selection.selected);

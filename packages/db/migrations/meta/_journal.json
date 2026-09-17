@@ -155,6 +155,13 @@
       "when": 1789308314603,
       "tag": "0021_nifty_sumo",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1789659482118,
+      "tag": "0022_slimy_wong",
+      "breakpoints": true
     }
   ]
 }

@@ -12,12 +12,22 @@ export type CartItem = {
 };
 
 export type CartData = {
-  cartId: string;
+  cartId: string | null;
+  mode: 'guest' | 'user';
+  guestId: string | null;
   items: CartItem[];
   summary: { itemCount: number; total: number };
 };
 
 export type CartSummary = { itemCount: number; total: number };
+
+export type CartMutateResult = {
+  summary: CartSummary;
+  mode: 'guest' | 'user';
+  guestId: string | null;
+};
+
+import { syncGuestIdentity, withGuestHeader } from '@/lib/guest-cart';
 
 let summaryCache: { value: CartSummary; expiresAt: number } | null = null;
 const SUMMARY_CACHE_TTL_MS = 15_000;
@@ -27,7 +37,7 @@ function apiUrl(path: string) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(apiUrl(path), {
+  const response = await fetch(apiUrl(path), withGuestHeader({
     ...init,
     credentials: 'include',
     cache: 'no-store',
@@ -36,7 +46,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       ...init?.headers,
     },
-  });
+  }));
   const body = (await response.json().catch(() => null)) as
     | { success: true; data: T }
     | { success: false; error?: string }
@@ -44,6 +54,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok || !body || body.success !== true) {
     throw new Error(body && 'error' in body ? body.error ?? 'Request failed.' : 'Request failed.');
   }
+  // Keep the stored guest token in step with what the API actually applied
+  // (persist for guest carts, drop it once the account owns the cart).
+  syncGuestIdentity((body as { data?: unknown }).data);
   return body.data;
 }
 
@@ -69,14 +82,14 @@ export function clearCartSummaryCache() {
 }
 
 export function updateCartItem(itemId: string, quantity: number) {
-  return request<{ summary: CartSummary }>(`/api/store/cart/items/${encodeURIComponent(itemId)}`, {
+  return request<CartMutateResult>(`/api/store/cart/items/${encodeURIComponent(itemId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ quantity }),
   });
 }
 
 export function removeCartItem(itemId: string) {
-  return request<{ summary: CartSummary }>(`/api/store/cart/items/${encodeURIComponent(itemId)}`, {
+  return request<CartMutateResult>(`/api/store/cart/items/${encodeURIComponent(itemId)}`, {
     method: 'DELETE',
   });
 }

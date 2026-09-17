@@ -1,31 +1,59 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Minus, Plus, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from '@/lib/auth-client';
-import { getStoreLoginUrl } from '@/lib/app-urls';
 import { Button } from '@/components/ui/button';
+import { useNeedLogin } from '@/components/need-login-context';
+import { formatPriceCents, percentOff } from '@/components/homepage/format';
 import { cacheCartSummary, getCart, removeCartItem, startCartCheckout, updateCartItem, type CartData } from './api';
 
-const money = (cents: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+const PENDING_CHECKOUT_KEY = 'ragimart.pending-checkout';
+
+/** One-time intent set before sending an anonymous shopper to log in, so the
+ *  cart can resume checkout automatically the moment they return authenticated. */
+function readPendingCheckout() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.sessionStorage.getItem(PENDING_CHECKOUT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setPendingCheckout() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(PENDING_CHECKOUT_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearPendingCheckout() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(PENDING_CHECKOUT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export default function CartPage() {
   const router = useRouter();
   const { data: session, isPending: authPending } = useSession();
+  const { openNeedLogin } = useNeedLogin();
   const [cart, setCart] = useState<CartData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const pendingCheckedRef = useRef(false);
+
+  const isLoggedIn = Boolean(session?.user?.id);
 
   const load = useCallback(async () => {
-    if (!session?.user?.id) {
-      setCart(null);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     try {
       setCart(await getCart());
@@ -35,7 +63,7 @@ export default function CartPage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.user?.id]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -44,7 +72,28 @@ export default function CartPage() {
     return () => window.removeEventListener('cart-updated', refresh);
   }, [load]);
 
-  const selectedTotal = useMemo(() => cart?.summary.total ?? 0, [cart]);
+  const items = cart?.items ?? [];
+  const selectedTotal = useMemo(
+    () => items.reduce((sum, item) => sum + item.unitPriceSnapshot * item.quantity, 0),
+    [items]
+  );
+
+  // Savings across line items based on the compared price, if any.
+  const savings = useMemo(
+    () =>
+      items.reduce(
+        (sum, item) =>
+          sum +
+          Math.max(
+            0,
+            ((item.compareAtPriceSnapshot ?? item.unitPriceSnapshot) - item.unitPriceSnapshot) *
+              item.quantity
+          ),
+        0
+      ),
+    [items]
+  );
+  const mrpTotal = selectedTotal + savings;
 
   async function changeQuantity(itemId: string, quantity: number) {
     setBusyId(itemId);
@@ -86,64 +135,117 @@ export default function CartPage() {
     }
   }
 
-  if (authPending || loading) return <main className="mx-auto max-w-6xl p-8 text-center text-sm text-muted-foreground">Loading your cart…</main>;
-  if (!session?.user?.id) {
-    return (
-      <main className="mx-auto max-w-6xl p-8">
-        <div className="mx-auto max-w-md border p-8 text-center">
-          <h1 className="text-2xl font-semibold">Your cart</h1>
-          <p className="mt-3 text-sm text-muted-foreground">Log in to view and manage your cart.</p>
-          <Button className="mt-6 rounded-none" onClick={() => window.location.assign(getStoreLoginUrl(`${window.location.origin}/cart`))}>Log in</Button>
-        </div>
-      </main>
-    );
-  }
+  // An anonymous shopper who tried to check out is sent to log in via
+  // need-login; when they come back authenticated, resume checkout for them.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const pending = readPendingCheckout();
+    if (pending) clearPendingCheckout();
+    if (pending && !pendingCheckedRef.current && items.length > 0) {
+      pendingCheckedRef.current = true;
+      void checkout();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, items.length]);
+
+  if (authPending || loading) return <main className="mx-auto max-w-6xl p-8 text-center text-sm text-muted-foreground">Loading your bag…</main>;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-semibold">Shopping Bag</h1>
       {error ? <p className="mt-4 border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-      {!cart?.items.length ? (
-        <div className="mt-8 border p-10 text-center text-muted-foreground">Your cart is empty.</div>
+      {!items.length ? (
+        <div className="mt-8 border p-10 text-center">
+          <ShoppingBag className="mx-auto size-10 text-muted-foreground" />
+          <p className="mt-3 text-muted-foreground">Your bag is empty.</p>
+          {!isLoggedIn ? (
+            <Button
+              className="mt-5 rounded-none"
+              onClick={() =>
+                openNeedLogin({
+                  title: 'Log in to keep your bag',
+                  description: 'Log in to see items you left in your bag across devices.',
+                  returnTo: typeof window !== 'undefined' ? window.location.href : undefined,
+                })
+              }
+            >
+              Log in
+            </Button>
+          ) : null}
+        </div>
       ) : (
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
           <section className="space-y-3">
             <div className="flex items-center justify-between border-b pb-4 text-sm font-semibold">
-              <span>{cart.summary.itemCount} ITEM{cart.summary.itemCount === 1 ? '' : 'S'}</span>
+              <span>{cart?.summary.itemCount ?? items.length} ITEM{items.length === 1 ? '' : 'S'}</span>
               <span>SELECTED</span>
             </div>
-            {cart.items.map((item) => (
-              <article key={item.id} className="flex gap-4 border p-3">
-                <div className="size-32 shrink-0 bg-muted">
-                  {item.imageSnapshot ? <img src={item.imageSnapshot} alt={item.productNameSnapshot} className="size-full object-cover" /> : null}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex justify-between gap-3">
-                    <div>
-                      <h2 className="line-clamp-2 font-medium">
-                        <Link href={item.href} className="hover:underline">{item.productNameSnapshot}</Link>
-                      </h2>
-                      {item.variantLabelSnapshot ? <p className="mt-1 text-sm text-muted-foreground">{item.variantLabelSnapshot}</p> : null}
-                    </div>
-                    <button type="button" aria-label="Remove item" disabled={busyId === item.id} onClick={() => void remove(item.id)}><Trash2 className="size-5" /></button>
+            {items.map((item) => {
+              const off = percentOff(item.unitPriceSnapshot, item.compareAtPriceSnapshot);
+              return (
+                <article key={item.id} className="flex gap-4 border p-3">
+                  <div className="size-32 shrink-0 bg-muted">
+                    {item.imageSnapshot ? <img src={item.imageSnapshot} alt={item.productNameSnapshot} className="size-full object-cover" /> : null}
                   </div>
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                    <div className="inline-flex items-center border">
-                      <button type="button" className="p-2" disabled={busyId === item.id || item.quantity <= 1} onClick={() => void changeQuantity(item.id, item.quantity - 1)}><Minus className="size-4" /></button>
-                      <span className="min-w-8 text-center text-sm">{item.quantity}</span>
-                      <button type="button" className="p-2" disabled={busyId === item.id} onClick={() => void changeQuantity(item.id, item.quantity + 1)}><Plus className="size-4" /></button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex justify-between gap-3">
+                      <div>
+                        <h2 className="line-clamp-2 font-medium">
+                          <Link href={item.href} className="hover:underline">{item.productNameSnapshot}</Link>
+                        </h2>
+                        {item.variantLabelSnapshot ? <p className="mt-1 text-sm text-muted-foreground">{item.variantLabelSnapshot}</p> : null}
+                      </div>
+                      <button type="button" aria-label="Remove item" disabled={busyId === item.id} onClick={() => void remove(item.id)}><Trash2 className="size-5" /></button>
                     </div>
-                    <strong>{money(item.unitPriceSnapshot * item.quantity)}</strong>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                      <span className="font-semibold tabular-nums">{formatPriceCents(item.unitPriceSnapshot)}</span>
+                      {item.compareAtPriceSnapshot && item.compareAtPriceSnapshot > item.unitPriceSnapshot ? (
+                        <>
+                          <span className="text-muted-foreground line-through tabular-nums">{formatPriceCents(item.compareAtPriceSnapshot)}</span>
+                          <span className="bg-rose-100 px-1.5 py-0.5 text-xs font-semibold text-rose-600">-{off}%</span>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <div className="inline-flex items-center border">
+                        <button type="button" className="p-2" disabled={busyId === item.id || item.quantity <= 1} onClick={() => void changeQuantity(item.id, item.quantity - 1)}><Minus className="size-4" /></button>
+                        <span className="min-w-8 text-center text-sm">{item.quantity}</span>
+                        <button type="button" className="p-2" disabled={busyId === item.id} onClick={() => void changeQuantity(item.id, item.quantity + 1)}><Plus className="size-4" /></button>
+                      </div>
+                      <strong className="tabular-nums">{formatPriceCents(item.unitPriceSnapshot * item.quantity)}</strong>
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </section>
           <aside className="h-fit border p-5">
             <h2 className="text-sm font-semibold">PRICE DETAILS</h2>
-            <div className="mt-5 flex justify-between text-sm"><span>Total</span><span>{money(selectedTotal)}</span></div>
-            <div className="mt-4 border-t pt-4 flex justify-between font-semibold"><span>Total Amount</span><span>{money(selectedTotal)}</span></div>
-            <Button className="mt-6 w-full rounded-none bg-pink-500 hover:bg-pink-600" disabled={busyId === 'checkout'} onClick={() => void checkout()}>CHECKOUT</Button>
+            <div className="mt-5 flex justify-between text-sm"><span>Total (MRP)</span><span className="tabular-nums">{formatPriceCents(mrpTotal)}</span></div>
+            <div className="mt-2 flex justify-between text-sm"><span>Item discount</span><span className="text-emerald-600 tabular-nums">− {formatPriceCents(savings)}</span></div>
+            <div className="mt-2 flex justify-between text-sm"><span>Shipping</span><span className="text-emerald-600">FREE</span></div>
+            <div className="mt-4 border-t pt-4 flex justify-between font-semibold"><span>Total Amount</span><span className="tabular-nums">{formatPriceCents(selectedTotal)}</span></div>
+            <Button
+              className="mt-6 w-full rounded-none bg-pink-500 hover:bg-pink-600"
+              disabled={busyId === 'checkout'}
+              onClick={() => {
+                if (!isLoggedIn) {
+                  setPendingCheckout();
+                  openNeedLogin({
+                    title: 'Log in to continue to checkout',
+                    description: 'Log in to review your bag and complete your purchase. We’ll bring you right back.',
+                    returnTo: typeof window !== 'undefined' ? window.location.href : undefined,
+                    // If they close the prompt instead of signing in, drop the
+                    // intent so we never surprise-redirect them later.
+                    onDismiss: clearPendingCheckout,
+                  });
+                  return;
+                }
+                void checkout();
+              }}
+            >
+              CHECKOUT
+            </Button>
           </aside>
         </div>
       )}

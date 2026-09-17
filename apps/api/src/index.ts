@@ -44,22 +44,30 @@ import config from "./mine.config";
 const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", async (c, next) => {
-  const origins = (
-    c.env.ORIGINS
-      ? c.env.ORIGINS.split(",")
-      : [
-          config.storeFrontURI,
-          config.adminURI,
-          "http://localhost:8000",
-          "http://localhost:8001",
-        ]
-  )
-    .map((o) => o.trim())
-    .filter(Boolean);
+  // The canonical store/admin origins are ALWAYS allowed, unioned with any
+  // additional origins configured via the ORIGINS env var — so cross-origin
+  // requests keep working in production even if ORIGINS is set incompletely.
+  const secureDefaults = [
+    config.storeFrontURI,
+    config.adminURI,
+    "http://localhost:8000",
+    "http://localhost:8001",
+  ];
+  const configured = c.env.ORIGINS ? c.env.ORIGINS.split(",") : [];
+  const origins = Array.from(
+    new Set([...configured, ...secureDefaults].map((o) => o.trim()).filter(Boolean))
+  );
 
   return cors({
     origin: origins,
-    allowHeaders: ["Content-Type", "Authorization", "Accept"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Accept",
+      // Cross-origin guest cart identity. Omitted, browsers block the
+      // preflight for cart reads/writes with a CORS error.
+      "X-Guest-Id",
+    ],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
     maxAge: 86400,

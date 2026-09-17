@@ -22,6 +22,19 @@ import {
 const storeCart = new Hono<{ Bindings: Env }>();
 const MAX_QUANTITY = 99;
 
+/** Guest tokens are generated client-side with crypto.randomUUID(). */
+const GUEST_ID_PATTERN = /^[0-9a-zA-Z-]{8,128}$/;
+
+type CartOwner = { userId: string } | { guestId: string };
+
+/**
+ * An authenticated shopper, or an anonymous guest resolved from the
+ * `X-Guest-Id` header. Every cart row is scoped to exactly one of these.
+ */
+type CartActor =
+  | { kind: 'user'; db: ReturnType<typeof createDb>; user: typeof users.$inferSelect; requestedGuestId: string | null }
+  | { kind: 'guest'; db: ReturnType<typeof createDb>; guestId: string };
+
 function authForRequest(c: { env: Env; req: { raw: Request } }) {
   const db = createDb(c.env.DB);
   const auth = createAuth(db, {
@@ -53,6 +66,34 @@ export async function requireStoreUser(c: EnvContext) {
     console.error('store cart: session lookup failed', error);
     return { ok: false as const, response: errorJson(c, 500, 'SESSION_ERROR', 'Unable to verify your session.') };
   }
+}
+
+function guestIdFromHeader(c: EnvContext): string | null {
+  const raw = c.req.header('X-Guest-Id')?.trim();
+  if (!raw || raw.length > 128 || !GUEST_ID_PATTERN.test(raw)) return null;
+  return raw;
+}
+
+/**
+ * Resolve the cart actor for any cart request.
+ * - A valid session wins (the request may also carry a guest id to merge).
+ * - Otherwise the request must identify a guest via `X-Guest-Id`; we never
+ *   fabricate an id here — reads simply reflect the (possibly empty) guest cart.
+ */
+export async function resolveCartActor(c: EnvContext) {
+  const db = createDb(c.env.DB);
+  const login = await requireStoreUser(c);
+  const requestedGuestId = guestIdFromHeader(c);
+  if (login.ok) {
+    return {
+      actor: { kind: 'user' as const, db: login.db, user: login.user, requestedGuestId },
+      login,
+    };
+  }
+  if (requestedGuestId) {
+    return { actor: { kind: 'guest' as const, db, guestId: requestedGuestId }, login };
+  }
+  return { actor: null, login };
 }
 
 function allowedOrigins(env: Env): Set<string> {
@@ -90,13 +131,29 @@ export function requireJson(c: EnvContext) {
     : errorJson(c, 415, 'UNSUPPORTED_MEDIA_TYPE', 'JSON is required.');
 }
 
-async function getOrCreateCart(db: ReturnType<typeof createDb>, userId: string) {
-  const [existing] = await db.select().from(carts).where(and(eq(carts.userId, userId), eq(carts.status, 'active'))).limit(1);
+/**
+ * Find the active cart for a user or a guest, creating it if necessary.
+ * The nullable userId unique index still guarantees at most one row per user;
+ * guest rows store only a guestId.
+ */
+async function getOrCreateCart(
+  db: ReturnType<typeof createDb>,
+  owner: CartOwner,
+) {
+  if ('userId' in owner) {
+    const [existing] = await db.select().from(carts).where(and(eq(carts.userId, owner.userId), eq(carts.status, 'active'))).limit(1);
+    if (existing) return existing;
+    const now = new Date();
+    const id = nanoid();
+    await db.insert(carts).values({ id, userId: owner.userId, status: 'active', createdAt: now, updatedAt: now });
+    return { id, userId: owner.userId as string | null, guestId: null as string | null, status: 'active' as const, createdAt: now, updatedAt: now };
+  }
+  const [existing] = await db.select().from(carts).where(and(eq(carts.guestId, owner.guestId), eq(carts.status, 'active'))).limit(1);
   if (existing) return existing;
   const now = new Date();
   const id = nanoid();
-  await db.insert(carts).values({ id, userId, status: 'active', createdAt: now, updatedAt: now });
-  return { id, userId, status: 'active' as const, createdAt: now, updatedAt: now };
+  await db.insert(carts).values({ id, guestId: owner.guestId, status: 'active', createdAt: now, updatedAt: now });
+  return { id, userId: null as string | null, guestId: owner.guestId, status: 'active' as const, createdAt: now, updatedAt: now };
 }
 
 function normalizeImage(product: typeof products.$inferSelect): string | null {
@@ -151,6 +208,73 @@ async function cartSummary(db: ReturnType<typeof createDb>, cartId: string) {
   return { itemCount: Number(summary?.itemCount ?? 0), total: Number(summary?.total ?? 0) };
 }
 
+/**
+ * Upsert `quantity` of `skuId` into `cartId`, adding to any existing line and
+ * capping at the available stock / MAX_QUANTITY. Re-snapshots the product so a
+ * merged guest cart never caches stale pricing/name data on the user's cart.
+ */
+async function writeCartItem(
+  db: ReturnType<typeof createDb>,
+  cartId: string,
+  skuId: string,
+  quantity: number,
+  now: Date,
+) {
+  const snapshot = await skuSnapshot(db, skuId);
+  if (!snapshot) return null;
+  const capped = Math.min(quantity, snapshot.sku.stock, MAX_QUANTITY);
+  const [existing] = await db.select().from(cartItems).where(and(eq(cartItems.cartId, cartId), eq(cartItems.skuId, skuId))).limit(1);
+  const nextQuantity = Math.min((existing?.quantity ?? 0) + capped, snapshot.sku.stock, MAX_QUANTITY);
+  const id = existing?.id ?? nanoid();
+  const values = {
+    cartId,
+    productId: snapshot.product.id,
+    skuId,
+    quantity: nextQuantity,
+    unitPriceSnapshot: snapshot.sku.price,
+    compareAtPriceSnapshot: snapshot.sku.compareAtPrice,
+    productNameSnapshot: snapshot.product.name,
+    productSlugSnapshot: snapshot.product.slug,
+    variantLabelSnapshot: snapshot.label,
+    imageSnapshot: normalizeImage(snapshot.product),
+    updatedAt: now,
+  };
+  if (existing) {
+    await db.update(cartItems).set(values).where(and(eq(cartItems.id, existing.id), eq(cartItems.cartId, cartId)));
+  } else {
+    await db.insert(cartItems).values({ id, ...values, createdAt: now });
+  }
+  return { id, quantity: nextQuantity, skuId };
+}
+
+/**
+ * Move a guest's active cart into the user's cart (merge quantities) and mark
+ * the guest row `merged` so a stale client guest id stays replay-safe.
+ */
+async function mergeGuestCartIntoUser(
+  db: ReturnType<typeof createDb>,
+  userId: string,
+  guestId: string,
+) {
+  const [guestCart] = await db
+    .select()
+    .from(carts)
+    .where(and(eq(carts.guestId, guestId), eq(carts.status, 'active')))
+    .limit(1);
+  if (!guestCart) return;
+  const userCart = await getOrCreateCart(db, { userId });
+  if (guestCart.id === userCart.id) return;
+  const now = new Date();
+  const guestItems = await db.select().from(cartItems).where(eq(cartItems.cartId, guestCart.id));
+  for (const item of guestItems) {
+    await writeCartItem(db, userCart.id, item.skuId, item.quantity, now);
+  }
+  await db.update(carts)
+    .set({ status: 'merged', guestId: null, updatedAt: now })
+    .where(eq(carts.id, guestCart.id));
+  await db.update(carts).set({ updatedAt: now }).where(eq(carts.id, userCart.id));
+}
+
 storeCart.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   c.header('Vary', 'Cookie');
@@ -160,21 +284,40 @@ storeCart.use('*', async (c, next) => {
 
 storeCart.get('/', async (c) => {
   try {
-    const access = await requireStoreUser(c);
-    if (!access.ok) return access.response;
-    const cart = await getOrCreateCart(access.db, access.user.id);
-    const items = await access.db
-      .select()
-      .from(cartItems)
-      .where(eq(cartItems.cartId, cart.id))
-      .orderBy(cartItems.createdAt);
+    const { actor } = await resolveCartActor(c);
+    if (!actor) {
+      return c.json({
+        success: true,
+        data: { cartId: null, mode: 'guest', guestId: null, items: [], summary: { itemCount: 0, total: 0 } },
+      });
+    }
+    if (actor.kind === 'user') {
+      if (actor.requestedGuestId) await mergeGuestCartIntoUser(actor.db, actor.user.id, actor.requestedGuestId);
+      const cart = await getOrCreateCart(actor.db, { userId: actor.user.id });
+      const items = await actor.db.select().from(cartItems).where(eq(cartItems.cartId, cart.id)).orderBy(cartItems.createdAt);
+      const origin = requestOriginFromUrl(c.req.url);
+      return c.json({
+        success: true,
+        data: {
+          cartId: cart.id,
+          mode: 'user',
+          guestId: null,
+          items: items.map((item) => serializeCartItem(item, c.env, origin)),
+          summary: await cartSummary(actor.db, cart.id),
+        },
+      });
+    }
+    const cart = await getOrCreateCart(actor.db, { guestId: actor.guestId });
+    const items = await actor.db.select().from(cartItems).where(eq(cartItems.cartId, cart.id)).orderBy(cartItems.createdAt);
     const origin = requestOriginFromUrl(c.req.url);
     return c.json({
       success: true,
       data: {
         cartId: cart.id,
+        mode: 'guest',
+        guestId: cart.guestId,
         items: items.map((item) => serializeCartItem(item, c.env, origin)),
-        summary: await cartSummary(access.db, cart.id),
+        summary: await cartSummary(actor.db, cart.id),
       },
     });
   } catch (error) {
@@ -185,10 +328,27 @@ storeCart.get('/', async (c) => {
 
 storeCart.get('/summary', async (c) => {
   try {
-    const access = await requireStoreUser(c);
-    if (!access.ok) return access.response;
-    const cart = await getOrCreateCart(access.db, access.user.id);
-    return c.json({ success: true, data: await cartSummary(access.db, cart.id) });
+    const { actor } = await resolveCartActor(c);
+    if (!actor) {
+      return c.json({
+        success: true,
+        data: { summary: { itemCount: 0, total: 0 }, mode: 'guest', guestId: null },
+      });
+    }
+    if (actor.kind === 'user') {
+      if (actor.requestedGuestId) await mergeGuestCartIntoUser(actor.db, actor.user.id, actor.requestedGuestId);
+      const cart = await getOrCreateCart(actor.db, { userId: actor.user.id });
+      return c.json({
+        success: true,
+        data: { summary: await cartSummary(actor.db, cart.id), mode: 'user', guestId: null },
+      });
+    }
+    const [cart] = await actor.db.select().from(carts).where(and(eq(carts.guestId, actor.guestId), eq(carts.status, 'active'))).limit(1);
+    const summary = cart ? await cartSummary(actor.db, cart.id) : { itemCount: 0, total: 0 };
+    return c.json({
+      success: true,
+      data: { summary, mode: 'guest', guestId: cart?.guestId ?? actor.guestId },
+    });
   } catch (error) {
     console.error('store cart: summary load failed', error);
     return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to load your cart summary.');
@@ -201,8 +361,8 @@ storeCart.post('/items', async (c) => {
     if (originError) return originError;
     const bodyError = requireJson(c);
     if (bodyError) return bodyError;
-    const access = await requireStoreUser(c);
-    if (!access.ok) return access.response;
+    const { actor } = await resolveCartActor(c);
+    if (!actor) return errorJson(c, 401, 'UNAUTHORIZED', 'Authentication required.');
     const body = await c.req.json<unknown>();
     if (!body || typeof body !== 'object' || Array.isArray(body)) return errorJson(c, 400, 'INVALID_BODY', 'A JSON object is required.');
     const input = body as Record<string, unknown>;
@@ -211,51 +371,25 @@ storeCart.post('/items', async (c) => {
     if (!skuId || skuId.length > 128 || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
       return errorJson(c, 400, 'INVALID_ITEM', `skuId and a quantity from 1 to ${MAX_QUANTITY} are required.`);
     }
-    const snapshot = await skuSnapshot(access.db, skuId);
+    const snapshot = await skuSnapshot(actor.db, skuId);
     if (!snapshot) return errorJson(c, 404, 'SKU_NOT_FOUND', 'That product variant no longer exists.');
     if (snapshot.sku.stock < 1) return errorJson(c, 409, 'OUT_OF_STOCK', 'That product variant is out of stock.');
-    const cart = await getOrCreateCart(access.db, access.user.id);
+
+    const owner: CartOwner = actor.kind === 'user' ? { userId: actor.user.id } : { guestId: actor.guestId };
+    const cart = await getOrCreateCart(actor.db, owner);
     const now = new Date();
-    const [existing] = await access.db.select().from(cartItems).where(and(eq(cartItems.cartId, cart.id), eq(cartItems.skuId, skuId))).limit(1);
-    const nextQuantity = Math.min((existing?.quantity ?? 0) + quantity, snapshot.sku.stock, MAX_QUANTITY);
-    const itemId = existing?.id ?? nanoid();
-    const previousQuantity = existing?.quantity ?? 0;
-    if (existing) {
-      await access.db.update(cartItems).set({
-        quantity: nextQuantity,
-        unitPriceSnapshot: snapshot.sku.price,
-        compareAtPriceSnapshot: snapshot.sku.compareAtPrice,
-        productNameSnapshot: snapshot.product.name,
-        productSlugSnapshot: snapshot.product.slug,
-        variantLabelSnapshot: snapshot.label,
-        imageSnapshot: normalizeImage(snapshot.product),
-        updatedAt: now,
-      }).where(and(eq(cartItems.id, existing.id), eq(cartItems.cartId, cart.id)));
-    } else {
-      await access.db.insert(cartItems).values({
-        id: itemId,
-        cartId: cart.id,
-        productId: snapshot.product.id,
-        skuId,
-        quantity: nextQuantity,
-        unitPriceSnapshot: snapshot.sku.price,
-        compareAtPriceSnapshot: snapshot.sku.compareAtPrice,
-        productNameSnapshot: snapshot.product.name,
-        productSlugSnapshot: snapshot.product.slug,
-        variantLabelSnapshot: snapshot.label,
-        imageSnapshot: normalizeImage(snapshot.product),
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-    await access.db.update(carts).set({ updatedAt: now }).where(eq(carts.id, cart.id));
+    const written = await writeCartItem(actor.db, cart.id, skuId, quantity, now);
+    const nextQuantity = written?.quantity ?? quantity;
+    await actor.db.update(carts).set({ updatedAt: now }).where(eq(carts.id, cart.id));
     return c.json({
       success: true,
       data: {
-        itemId,
-        previousQuantity,
+        itemId: written?.id ?? null,
+        previousQuantity: Math.max(0, nextQuantity - quantity),
         quantity: nextQuantity,
-        summary: await cartSummary(access.db, cart.id),
+        summary: await cartSummary(actor.db, cart.id),
+        mode: actor.kind,
+        guestId: actor.kind === 'guest' ? actor.guestId : null,
       },
     });
   } catch (error) {
@@ -270,21 +404,25 @@ storeCart.patch('/items/:itemId', async (c) => {
     if (originError) return originError;
     const bodyError = requireJson(c);
     if (bodyError) return bodyError;
-    const access = await requireStoreUser(c);
-    if (!access.ok) return access.response;
+    const { actor } = await resolveCartActor(c);
+    if (!actor) return errorJson(c, 401, 'UNAUTHORIZED', 'Authentication required.');
     const body = await c.req.json<unknown>();
     const quantity = body && typeof body === 'object' && !Array.isArray(body) && typeof (body as Record<string, unknown>).quantity === 'number'
       ? (body as Record<string, number>).quantity
       : NaN;
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) return errorJson(c, 400, 'INVALID_QUANTITY', `Quantity must be between 1 and ${MAX_QUANTITY}.`);
-    const cart = await getOrCreateCart(access.db, access.user.id);
-    const [item] = await access.db.select({ item: cartItems, stock: productSkus.stock }).from(cartItems).innerJoin(productSkus, eq(productSkus.id, cartItems.skuId)).where(and(eq(cartItems.id, c.req.param('itemId')), eq(cartItems.cartId, cart.id))).limit(1);
+    const owner: CartOwner = actor.kind === 'user' ? { userId: actor.user.id } : { guestId: actor.guestId };
+    const cart = await getOrCreateCart(actor.db, owner);
+    const [item] = await actor.db.select({ item: cartItems, stock: productSkus.stock }).from(cartItems).innerJoin(productSkus, eq(productSkus.id, cartItems.skuId)).where(and(eq(cartItems.id, c.req.param('itemId')), eq(cartItems.cartId, cart.id))).limit(1);
     if (!item) return errorJson(c, 404, 'ITEM_NOT_FOUND', 'Cart item not found.');
     if (item.stock < quantity) return errorJson(c, 409, 'INSUFFICIENT_STOCK', 'The requested quantity is not available.');
     const now = new Date();
-    await access.db.update(cartItems).set({ quantity, updatedAt: now }).where(and(eq(cartItems.id, item.item.id), eq(cartItems.cartId, cart.id)));
-    await access.db.update(carts).set({ updatedAt: now }).where(eq(carts.id, cart.id));
-    return c.json({ success: true, data: { summary: await cartSummary(access.db, cart.id) } });
+    await actor.db.update(cartItems).set({ quantity, updatedAt: now }).where(and(eq(cartItems.id, item.item.id), eq(cartItems.cartId, cart.id)));
+    await actor.db.update(carts).set({ updatedAt: now }).where(eq(carts.id, cart.id));
+    return c.json({
+      success: true,
+      data: { summary: await cartSummary(actor.db, cart.id), mode: actor.kind, guestId: actor.kind === 'guest' ? actor.guestId : null },
+    });
   } catch (error) {
     console.error('store cart: quantity update failed', error);
     return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to update your cart.');
@@ -295,13 +433,17 @@ storeCart.delete('/items/:itemId', async (c) => {
   try {
     const originError = requireTrustedMutationOrigin(c);
     if (originError) return originError;
-    const access = await requireStoreUser(c);
-    if (!access.ok) return access.response;
-    const cart = await getOrCreateCart(access.db, access.user.id);
-    const result = await access.db.delete(cartItems).where(and(eq(cartItems.id, c.req.param('itemId')), eq(cartItems.cartId, cart.id))).run();
+    const { actor } = await resolveCartActor(c);
+    if (!actor) return errorJson(c, 401, 'UNAUTHORIZED', 'Authentication required.');
+    const owner: CartOwner = actor.kind === 'user' ? { userId: actor.user.id } : { guestId: actor.guestId };
+    const cart = await getOrCreateCart(actor.db, owner);
+    const result = await actor.db.delete(cartItems).where(and(eq(cartItems.id, c.req.param('itemId')), eq(cartItems.cartId, cart.id))).run();
     if (result.meta.changes === 0) return errorJson(c, 404, 'ITEM_NOT_FOUND', 'Cart item not found.');
-    await access.db.update(carts).set({ updatedAt: new Date() }).where(eq(carts.id, cart.id));
-    return c.json({ success: true, data: { summary: await cartSummary(access.db, cart.id) } });
+    await actor.db.update(carts).set({ updatedAt: new Date() }).where(eq(carts.id, cart.id));
+    return c.json({
+      success: true,
+      data: { summary: await cartSummary(actor.db, cart.id), mode: actor.kind, guestId: actor.kind === 'guest' ? actor.guestId : null },
+    });
   } catch (error) {
     console.error('store cart: remove failed', error);
     return errorJson(c, 500, 'INTERNAL_ERROR', 'Unable to remove that item.');
@@ -310,5 +452,12 @@ storeCart.delete('/items/:itemId', async (c) => {
 
 storeCart.all('*', (c) => errorJson(c, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.'));
 
-export { getOrCreateCart, cartSummary, skuSnapshot };
+export {
+  getOrCreateCart,
+  cartSummary,
+  skuSnapshot,
+  writeCartItem,
+  mergeGuestCartIntoUser,
+  guestIdFromHeader,
+};
 export default storeCart;

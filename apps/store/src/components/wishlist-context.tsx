@@ -28,6 +28,7 @@ import {
 
 import type { Session } from '@repo/types/session-client';
 import { useSession } from '@/lib/auth-client';
+import { useNeedLogin } from '@/components/need-login-context';
 import { formatPriceCents } from '@/components/homepage/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -150,6 +151,7 @@ export function useWishlist() {
 export function WishlistProvider({ children }: { children: React.ReactNode }) {
   const { data } = useSession();
   const session = data as Session | null;
+  const { openNeedLogin } = useNeedLogin();
   const [folders, setFolders] = useState<WishlistFolder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [active, setActive] = useState<PickerProduct | null>(null);
@@ -225,7 +227,13 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
   const openPicker = useCallback(
     (product: PickerProduct) => {
       if (!session?.user?.id) {
-        window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
+        openNeedLogin({
+          title: 'Log in to save to your wishlist',
+          description:
+            'Log in to keep products you love in your wishlist. We’ll bring you right back.',
+          returnTo:
+            typeof window !== 'undefined' ? window.location.href : undefined,
+        });
         return;
       }
       const defaultFolder =
@@ -236,7 +244,7 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       setManualSaveRequired(false);
       setPickerOpen(true);
     },
-    [folders, session?.user?.id]
+    [folders, openNeedLogin, session?.user?.id]
   );
 
   const saveToFolder = useCallback(

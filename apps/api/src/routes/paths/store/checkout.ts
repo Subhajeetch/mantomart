@@ -6,6 +6,8 @@ import type Env from '@/types/env';
 import { errorJson } from '@/utils/errorJson';
 import {
   getOrCreateCart,
+  guestIdFromHeader,
+  mergeGuestCartIntoUser,
   requireJson,
   requireStoreUser,
   requireTrustedMutationOrigin,
@@ -43,7 +45,11 @@ storeCheckout.post('/cart', async (c) => {
     if (originError) return originError;
     const access = await requireStoreUser(c);
     if (!access.ok) return access.response;
-    const cart = await getOrCreateCart(access.db, access.user.id);
+    // A guest cart lingering from before login is folded in so checkout matches
+    // what the shopper actually placed.
+    const guestId = guestIdFromHeader(c);
+    if (guestId) await mergeGuestCartIntoUser(access.db, access.user.id, guestId);
+    const cart = await getOrCreateCart(access.db, { userId: access.user.id });
     const items = await access.db.select().from(cartItems).where(eq(cartItems.cartId, cart.id));
     if (items.length === 0) return errorJson(c, 400, 'EMPTY_CART', 'Add an item before starting checkout.');
     const now = new Date();

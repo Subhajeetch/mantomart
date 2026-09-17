@@ -24,17 +24,23 @@ export const checkoutStatuses = [
 export type CheckoutStatus = (typeof checkoutStatuses)[number];
 
 /**
- * Carts are deliberately user-owned in this application. Guest carts are not
- * exposed by the API, so every cart query can be scoped to the authenticated
- * user without accepting a client-supplied owner id.
+ * A cart is owned by exactly one identity: either an authenticated `users.id`
+ * or a client-generated guest token (`guestId` persisted in localStorage).
+ *
+ * Guest carts carry a `guestId` and a `NULL` userId. When the guest signs in,
+ * the API merges the guest cart into the user's cart and flips the guest row to
+ * `merged` (so a stale client guest id can be replay-safe). The `userId` unique
+ * index still guarantees only one row per user because SQLite allows any number
+ * of NULLs in a UNIQUE index.
  */
 export const carts = sqliteTable(
   'carts',
   {
     id: text('id').primaryKey(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, {
+      onDelete: 'cascade',
+    }),
+    guestId: text('guest_id'),
     status: text('status', { enum: cartStatuses }).notNull().default('active'),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -42,6 +48,7 @@ export const carts = sqliteTable(
   (table) => [
     index('carts_user_id_idx').on(table.userId),
     uniqueIndex('carts_user_id_uidx').on(table.userId),
+    index('carts_guest_id_idx').on(table.guestId),
     index('carts_status_updated_at_idx').on(table.status, table.updatedAt),
   ]
 );

@@ -612,7 +612,6 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
   const pathname = usePathname();
   const { pulse } = useWishlist();
   const [menuOpen, setMenuOpen] = useState(false);
-  const { data: session } = useSession();
   const [cartSummary, setCartSummary] = useState<CartSummary | null>(null);
   const visibleCollections = useMemo(
     () => normalizeCollections(collections),
@@ -623,11 +622,9 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
     setMenuOpen(false);
   }, [pathname]);
 
+  // The summary endpoint reflects guest carts too (via the stored X-Guest-Id),
+  // so the badge stays accurate before a shopper signs in.
   useEffect(() => {
-    if (!session?.user?.id) {
-      setCartSummary(null);
-      return;
-    }
     let cancelled = false;
     void getCartSummary()
       .then((summary) => {
@@ -650,7 +647,7 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
       cancelled = true;
       window.removeEventListener('cart-updated', refresh);
     };
-  }, [session?.user?.id]);
+  }, []);
 
   return (
     <>
