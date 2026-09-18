@@ -1109,7 +1109,9 @@ export function buildPublishPayload(form: ImportFormState) {
     tags: form.tags,
     productNotes: form.productNotes.trim() || null,
     published: form.published,
-    featured: form.featured,
+    // Featured option is intentionally removed from the import flow; always
+    // publish as not-featured. Admins can feature it later from the catalog.
+    featured: false,
     skus: selectedSkus.map((sku) => ({
       aeSkuId: sku.aeSkuId === 'default' ? null : sku.aeSkuId,
       aeSkuAttr: sku.aeSkuAttr || null,

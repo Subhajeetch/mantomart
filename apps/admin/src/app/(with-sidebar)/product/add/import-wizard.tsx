@@ -8,6 +8,7 @@ import Link from 'next/link';
 import {
   AlertCircle,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   DollarSign,
@@ -15,6 +16,7 @@ import {
   FolderPlus,
   ImageIcon,
   ImageOff,
+  Layers,
   Loader2,
   PackageCheck,
   Plus,
@@ -34,6 +36,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -70,6 +77,8 @@ import {
   applyTitleToImageAlts,
   buildInitialForm,
   buildPublishPayload,
+  computeDiscountPercent,
+  formatDiscountPercent,
   markdownToHtml,
   normalizeImportForm,
   validateStep,
@@ -82,6 +91,7 @@ import AiSeoSheet, { type AiSeoApplyPayload } from './ai-seo-sheet';
 import KeywordResearchSheet from './keyword-research-sheet';
 import ProductPreviewSheet from './product-preview-sheet';
 import {
+  centsToDisplay,
   getDraft,
   PRODUCT_IMPORT_DRAFT_SCHEMA_VERSION,
   removeDraft,
@@ -123,6 +133,59 @@ type ImportWizardProps = {
   onPublished: (listItemId: string) => void;
   onDraftSaved: () => void;
 };
+
+// ─── Publish-review helpers ───────────────────────────────────────────────────
+
+/** Matches the API: $1.50 payment-processor / tax buffer (cents). */
+const PAYMENT_PROCESSOR_FEE_CENTS = 150;
+
+/**
+ * Frontend mirror of server `computeEstProfit`:
+ * our price − AE actual (sale → list) − $1.50.
+ * Preview only — the API recomputes and stores the real value on save.
+ */
+function computeEstCents(
+  price: number,
+  aeSalePrice: number | null,
+  aePrice: number | null
+): number | null {
+  if (!Number.isFinite(price) || price < 0) return null;
+  const aeCost =
+    aeSalePrice !== null && Number.isFinite(aeSalePrice)
+      ? aeSalePrice
+      : aePrice !== null && Number.isFinite(aePrice)
+        ? aePrice
+        : null;
+  if (aeCost === null || aeCost < 0) return null;
+  return Math.round(price - aeCost - PAYMENT_PROCESSOR_FEE_CENTS);
+}
+
+function formatMoney(cents: number): string {
+  const sign = cents < 0 ? '-' : '';
+  return `${sign}$${centsToDisplay(Math.abs(cents))}`;
+}
+
+/** "$1.00 – $2.00", or a single value when min === max. */
+function centsRange(nums: number[]): string | null {
+  const finite = nums.filter((n) => Number.isFinite(n));
+  if (finite.length === 0) return null;
+  const min = Math.min(...finite);
+  const max = Math.max(...finite);
+  if (min === max) return formatMoney(min);
+  return `${formatMoney(min)} – ${formatMoney(max)}`;
+}
+
+/** "10 – 22% off" styled range, mirroring the variants editor. */
+function discountRangeLabel(discounts: number[]): string | null {
+  if (discounts.length === 0) return null;
+  const min = Math.min(...discounts);
+  const max = Math.max(...discounts);
+  if (Math.abs(min - max) < 0.05) return formatDiscountPercent(min);
+  const minLabel = formatDiscountPercent(min);
+  const maxLabel = formatDiscountPercent(max);
+  if (!minLabel || !maxLabel) return null;
+  return `${minLabel.replace(' off', '')} – ${maxLabel}`;
+}
 
 function truncateNameForToast(name: string): string {
   const normalized = name.trim().replace(/\s+/g, ' ');
@@ -440,6 +503,9 @@ export default function ImportWizard({
 
   // AliExpress product preview sheet
   const [productPreviewOpen, setProductPreviewOpen] = useState(false);
+
+  // Publish step: optional internal notes collapsed inside the "Added by" card.
+  const [notesOpen, setNotesOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -951,6 +1017,49 @@ export default function ImportWizard({
           attr.attrValue.trim()
       ).length
     : 0;
+
+  /** Aggregated summary shown on the final Publish review card. */
+  const review = useMemo(() => {
+    if (!form) return null;
+    const selectedSkus = form.skus.filter((s) => s.selected && s.stock > 0);
+
+    const prices = selectedSkus.map((s) => s.price);
+    const compares = selectedSkus
+      .map((s) => s.compareAtPrice)
+      .filter(
+        (n): n is number => n != null && Number.isFinite(n) && n > 0
+      );
+    const discounts = selectedSkus
+      .map((s) => computeDiscountPercent(s.price, s.compareAtPrice))
+      .filter((n): n is number => n !== null);
+    const profits = selectedSkus
+      .map((s) => computeEstCents(s.price, s.aeSalePrice, s.aePrice))
+      .filter((n): n is number => n !== null);
+
+    const mainImage =
+      (form.productImages[0]?.selected !== false
+        ? form.productImages[0]?.url
+        : undefined) ??
+      form.productImages.find((i) => i.selected !== false)?.url ??
+      null;
+
+    // Breadcrumb labels (e.g. "Clothing › Tops › T-Shirts") for the chosen
+    // categories, shown above the product title. Falls back to the raw id if
+    // the category tree hasn't resolved yet.
+    const categoryLabels = form.categoryIds.map(
+      (id) => flatCategories.find((c) => c.id === id)?.label ?? id
+    );
+
+    return {
+      selectedSkuCount: selectedSkus.length,
+      mainImage,
+      categoryLabels,
+      priceRange: centsRange(prices),
+      compareRange: centsRange(compares),
+      discountLabel: discountRangeLabel(discounts),
+      profitLabel: centsRange(profits),
+    };
+  }, [form, flatCategories]);
 
   const aePrice =
     listItem?.normalized.displayPrice ||
@@ -1959,171 +2068,205 @@ export default function ImportWizard({
                 ) : null}
 
                 {/* ── Step 6: Publish ── */}
-                {step === 6 ? (
-                  <div className="space-y-5">
-                    <Card>
-                      <CardContent className="space-y-4 p-4 sm:p-5">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                            <PackageCheck className="h-5 w-5" />
+                {step === 6 && review ? (
+                  <div className="space-y-4 p-2 md:p-0">
+                    {/* Header */}
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <PackageCheck className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold">Ready to publish</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Review everything before publishing....
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* ── Horizontal product card ── */}
+                    <Card className="overflow-hidden p-0">
+                      <CardContent className="flex flex-row items-start gap-4 p-2 md:p-4 sm:gap-5 sm:p-5">
+                        <div className="relative h-44 w-32 shrink-0 overflow-hidden rounded-xl border bg-muted/40 sm:w-44">
+                          {review.mainImage ? (
+                            <ProxiedImg
+                              src={review.mainImage}
+                              alt={form.name || 'Product image'}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center">
+                              <ImageOff className="h-8 w-8 text-muted-foreground/40" />
+                            </div>
+                          )}
+                          {/* Floating image count */}
+                          <div className="absolute right-2 bottom-1 inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur">
+                            <ImageIcon className="h-3.5 w-3.5" />
+                            {selectedImageCount} Image
+                            {selectedImageCount === 1 ? '' : 's'}
                           </div>
-                          <div>
-                            <h3 className="font-semibold">Ready to publish</h3>
-                            <p className="text-sm text-muted-foreground">
-                              Review the summary, add optional notes, then
-                              publish. Selected AliExpress images are copied to
-                              your storage on the server — this page will show
-                              upload progress so you are not left waiting
-                              blindly.
-                            </p>
-                          </div>
+
+                          <div className="absolute right-2 bottom-8 shadow-sm backdrop-blur">
+                            <Badge
+                                variant="secondary"
+                                className="shrink-0 gap-1"
+                              >
+                                <Layers className="h-3 w-3" />
+                                {review.selectedSkuCount} variant
+                                {review.selectedSkuCount === 1 ? '' : 's'}
+                              </Badge>
+                            </div>
                         </div>
 
-                        {publishing ? (
-                          <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
-                            <div className="flex items-center justify-between gap-3 text-sm">
-                              <p className="min-w-0 truncate font-medium">
-                                {publishProgress?.message ||
-                                  'Uploading product images…'}
-                              </p>
-                              {publishProgress && publishProgress.total > 0 ? (
-                                <span className="shrink-0 tabular-nums text-muted-foreground">
-                                  {publishProgress.current}/
-                                  {publishProgress.total}
-                                </span>
-                              ) : null}
+                        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+                          {review.categoryLabels.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {review.categoryLabels.map((label) => (
+                                <Badge
+                                  key={label}
+                                  variant="outline"
+                                  className="max-w-full truncate text-[11px] font-medium"
+                                >
+                                  {label}
+                                </Badge>
+                              ))}
                             </div>
-                            <Progress
-                              value={
-                                publishProgress && publishProgress.total > 0
-                                  ? Math.min(
-                                      100,
-                                      Math.round(
-                                        (publishProgress.current /
-                                          publishProgress.total) *
-                                          100
-                                      )
-                                    )
-                                  : 8
-                              }
-                              className="h-1.5"
-                            />
-                          </div>
-                        ) : null}
+                          ) : null}
 
-                        <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                          <div className="rounded-lg border bg-muted/20 p-3">
-                            <dt className="text-xs text-muted-foreground">
-                              Title
-                            </dt>
-                            <dd className="font-medium">{form.name}</dd>
+                          <div className="flex items-start">
+                            <h3 className="line-clamp-2 min-w-0 text-base text-[14px] md:text-[16px] leading-snug md:font-semibold">
+                              {form.name}
+                            </h3>
                           </div>
-                          <div className="rounded-lg border bg-muted/20 p-3">
-                            <dt className="text-xs text-muted-foreground">
-                              Variants
-                            </dt>
-                            <dd className="font-medium">{selectedSkuCount}</dd>
-                          </div>
-                          <div className="rounded-lg border bg-muted/20 p-3">
-                            <dt className="text-xs text-muted-foreground">
-                              Media
-                            </dt>
-                            <dd className="font-medium">
-                              {selectedImageCount} image
-                              {selectedImageCount === 1 ? '' : 's'}
-                              {form.mainVideo ? ' · video on' : form.videos.length > 0 ? ' · video off' : ''}
-                            </dd>
-                          </div>
-                          <div className="rounded-lg border bg-muted/20 p-3">
-                            <dt className="text-xs text-muted-foreground">
-                              Attributes
-                            </dt>
-                            <dd className="font-medium">
-                              {selectedAttributeCount}
-                            </dd>
-                          </div>
-                          <div className="rounded-lg border bg-muted/20 p-3">
-                            <dt className="text-xs text-muted-foreground">
-                              Categories
-                            </dt>
-                            <dd className="font-medium">
-                              {form.categoryIds.length}
-                            </dd>
-                          </div>
-                          <div className="rounded-lg border bg-muted/20 p-3">
-                            <dt className="text-xs text-muted-foreground">
-                              AE Product ID
-                            </dt>
-                            <dd className="font-mono text-xs">
-                              {form.aeProductId}
-                            </dd>
-                          </div>
-                        </dl>
 
-                        <div className="rounded-lg border p-3">
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Added by
-                          </p>
-                          <div className="mt-2 flex items-center gap-3">
-                            {adminUser?.image ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={adminUser.image}
-                                alt=""
-                                className="h-9 w-9 rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                                {(adminUser?.name || 'A')
-                                  .slice(0, 2)
-                                  .toUpperCase()}
-                              </div>
-                            )}
-                            <div>
-                              <p className="text-sm font-medium">
+                          {review.priceRange ? (
+                            <p className="text-[17px] md:text-2xl font-bold tracking-tight text-foreground tabular-nums">
+                              {review.priceRange}
+                            </p>
+                          ) : null}
+                          {review.compareRange ? (
+                            <p className="text-[11px] md:text-sm font-medium text-muted-foreground line-through tabular-nums">
+                              {review.compareRange}
+                            </p>
+                          ) : null}
+                          {review.discountLabel ? (
+                            <div className="">
+                              <span className="text-[11px] md:text-sm inline-flex rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+                                {review.discountLabel}
+                              </span>
+                            </div>
+                          ) : null}
+                          {review.profitLabel ? (
+                            <div className="flex items-center gap-1.5 text-[11px] md:text-sm">
+                              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-muted-foreground">
+                                Est. profit:
+                              </span>
+                              <span className="font-semibold text-emerald-700 tabular-nums dark:text-emerald-400">
+                                {review.profitLabel}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* ── Added by + collapsible internal notes ── */}
+                    <Card className="overflow-hidden p-0">
+                      <Collapsible open={notesOpen} onOpenChange={setNotesOpen}>
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            className="group/added flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40 sm:p-5"
+                          >
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted ring-1 ring-border">
+                              {adminUser?.image ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={adminUser.image}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <span className="text-xs font-semibold">
+                                  {(adminUser?.name || 'A')
+                                    .slice(0, 2)
+                                    .toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                                Adding As
+                              </p>
+                              <p className="truncate text-sm font-semibold">
                                 {adminUser?.name || 'Current admin'}
                               </p>
-                              <p className="text-xs text-muted-foreground">
+                              <p className="truncate text-xs text-muted-foreground">
                                 {adminUser?.email || 'Signed-in admin account'}
                               </p>
                             </div>
+                            <ChevronDown
+                              className={cn(
+                                'size-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                                notesOpen && 'rotate-180'
+                              )}
+                            />
+                          </button>
+                        </CollapsibleTrigger>
+
+                        <CollapsibleContent className="data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
+                          <div className="space-y-2 border-t bg-muted/20 px-4 py-4 sm:px-5">
+                            <Textarea
+                              id="product-notes"
+                              value={form.productNotes}
+                              onChange={(e) =>
+                                updateForm((prev) => ({
+                                  ...prev,
+                                  productNotes: e.target.value,
+                                }))
+                              }
+                              rows={3}
+                              placeholder="Notes for admins(optional, internal)…"
+                            />
                           </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="product-notes">
-                            Product notes (optional, internal)
-                          </Label>
-                          <Textarea
-                            id="product-notes"
-                            value={form.productNotes}
-                            onChange={(e) =>
-                              updateForm((prev) => ({
-                                ...prev,
-                                productNotes: e.target.value,
-                              }))
-                            }
-                            rows={3}
-                            placeholder="Notes for other admins…"
-                          />
-                        </div>
-
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={form.featured}
-                            onChange={(e) =>
-                              updateForm((prev) => ({
-                                ...prev,
-                                featured: e.target.checked,
-                              }))
-                            }
-                            className="h-4 w-4 rounded border"
-                          />
-                          Mark as featured
-                        </label>
-                      </CardContent>
+                        </CollapsibleContent>
+                      </Collapsible>
                     </Card>
+
+                    {/* Publishing progress */}
+                    {publishing ? (
+                      <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <p className="min-w-0 truncate font-medium">
+                            {publishProgress?.message ||
+                              'Uploading product images…'}
+                          </p>
+                          {publishProgress && publishProgress.total > 0 ? (
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              {publishProgress.current}/
+                              {publishProgress.total}
+                            </span>
+                          ) : null}
+                        </div>
+                        <Progress
+                          value={
+                            publishProgress && publishProgress.total > 0
+                              ? Math.min(
+                                  100,
+                                  Math.round(
+                                    (publishProgress.current /
+                                      publishProgress.total) *
+                                      100
+                                  )
+                                )
+                              : 8
+                          }
+                          className="h-1.5"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
