@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { Session } from "@repo/types/session-client";
 import { useSession } from "@/lib/auth-client";
@@ -11,6 +11,7 @@ import Link from "next/link";
 export default function UserLayout({ children }: { children: React.ReactNode }) {
   const { data, isPending } = useSession();
   const session = data as Session | null;
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const isRoot = pathname === "/user";
@@ -25,10 +26,16 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
   };
 
   useEffect(() => {
-    if (!isPending && !session) router.replace(`/login?returnTo=${encodeURIComponent(pathname)}`);
-  }, [isPending, pathname, router, session]);
+    setMounted(true);
+  }, []);
 
-  if (isPending) {
+  useEffect(() => {
+    if (mounted && !isPending && !session && !isRoot) {
+      router.replace(`/login?returnTo=${encodeURIComponent(pathname)}`);
+    }
+  }, [isPending, isRoot, mounted, pathname, router, session]);
+
+  if (!mounted || isPending) {
     return (
       <main className="flex min-h-[calc(100svh-4rem)] items-center justify-center bg-background">
         <Loader2 className="size-5 animate-spin text-muted-foreground" aria-label="Loading" />
@@ -36,7 +43,10 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
     );
   }
 
-  if (!session) return null;
+  if (!session) {
+    if (isRoot) return children;
+    return null;
+  }
 
   return (
     <div className="min-h-[calc(100svh-4rem)] bg-background">

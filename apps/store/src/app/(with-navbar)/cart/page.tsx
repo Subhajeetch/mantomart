@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
+import { Minus, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import CustomImage from '@/components/custom-image';
 import Link from 'next/link';
 import { useSession } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
@@ -153,16 +153,26 @@ export default function CartPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <h1 className="text-2xl font-semibold">Shopping Bag</h1>
+      <h1 className="text-2xl font-semibold sr-only">Shopping Bag</h1>
       {error ? <p className="mt-4 border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {!items.length ? (
-        <div className="mt-8 border p-10 text-center">
-          <ShoppingBag className="mx-auto size-10 text-muted-foreground" />
-          <p className="my-3 text-muted-foreground">Your bag is empty.</p>
+        <div className="mt-8 flex min-h-[420px] flex-col items-center justify-center px-6 py-12 text-center">
+          <CustomImage
+            src="/images/empty-cart-mantomart.webp"
+            alt="An empty shopping bag"
+            className="h-48 w-48 sm:h-56 sm:w-56"
+            width={224}
+            height={224}
+            priority
+          />
+          <h2 className="mt-6 text-xl font-semibold tracking-tight">Looks like it&apos;s empty</h2>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+            Your bag is waiting for something special. Discover your next favorite find and it&apos;ll show up here.
+          </p>
           {!isLoggedIn ? (
             <Link
               href="/login"
-              className="mt-5 rounded-none bg-primary px-4 py-2 text-background hover:bg-primary/70"
+              className="mt-7 inline-flex min-h-11 items-center justify-center rounded-none bg-primary px-7 text-sm font-medium text-background transition-colors hover:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Log in
             </Link>
@@ -180,7 +190,7 @@ export default function CartPage() {
               return (
                 <article key={item.id} className="flex gap-4 border p-3">
                   <div className="size-32 shrink-0 bg-muted">
-                    {item.imageSnapshot ? <Image src={item.imageSnapshot} alt={item.productNameSnapshot} className="size-full object-cover" width={128} height={128} /> : null}
+                    {item.imageSnapshot ? <CustomImage src={item.imageSnapshot} alt={item.productNameSnapshot} className="size-full object-cover" width={128} height={128} /> : null}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex justify-between gap-3">

@@ -1,18 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import config from "@/mine.config";
 import PassCheck from "./pass-check";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
-import Image from "next/image";
 
 type AuthClient = {
   signIn: {
-    social: (opts: {
-      provider: string;
-      callbackURL: string;
-    }) => Promise<unknown>;
+    social: (opts: { provider: string; callbackURL: string }) => Promise<unknown>;
     email: (opts: {
       email: string;
       password: string;
@@ -36,25 +33,14 @@ type Mode = "login" | "signup" | "forgot";
 
 type Props = {
   authClient: AuthClient;
-  /** Absolute store origin used for OAuth + password-reset redirects. */
   appUrl: string;
-  /**
-   * Optional post-auth absolute URL (already sanitized by LoginClient).
-   * Used as Google OAuth callbackURL so admin returnTo works after social login.
-   */
   successRedirect?: string | null;
   onSuccess: () => void;
 };
 
-const shortLogoUrl = config.logoShort;
-const fullLogoUrl = config.logoLong;
-const heroImageUrl = config.heroImageUrl;
-const brandName = config.brandName;
-
-const fieldInputClass =
-  "w-full appearance-none rounded-none border-0 border-b-[1.5px] border-solid border-[#ccc] bg-transparent pt-2.5 pr-10 pb-1.5 pl-0 text-base text-[#111] outline-none transition-[border-color] duration-[180ms] ease-in-out placeholder:text-base placeholder:text-[#aaa] focus:border-[#555]";
-
-const fieldClass = "relative mb-[18px]";
+const inputClass =
+  "h-12 w-full rounded-xl border border-[#8c8c8c] bg-white px-4 text-[15px] text-[#171717] outline-none transition-[border,box-shadow] placeholder:text-[#777] focus:border-primary focus:ring-4 focus:ring-primary/10";
+const labelClass = "mb-2 block text-[14px] font-semibold text-[#171717]";
 
 export default function LoginForm({
   authClient,
@@ -69,27 +55,19 @@ export default function LoginForm({
       : `${APP_URL}/user`;
 
   const [mode, setMode] = useState<Mode>("login");
-
-  // signup fields
   const [name, setName] = useState("");
   const [gender, setGender] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showSignupPw, setShowSignupPw] = useState(false);
-  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [signupPasswordFocused, setSignupPasswordFocused] = useState(false);
-
-  // login fields
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [showLoginPw, setShowLoginPw] = useState(false);
-
-  // forgot password fields
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
-
-  // shared
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -100,6 +78,7 @@ export default function LoginForm({
 
   async function handleGoogle() {
     setError("");
+    setLoading(true);
     try {
       await authClient.signIn.social({
         provider: "google",
@@ -107,6 +86,7 @@ export default function LoginForm({
       });
     } catch {
       setError("Google sign-in failed. Please try again.");
+      setLoading(false);
     }
   }
 
@@ -124,10 +104,8 @@ export default function LoginForm({
       }
     }
 
-    if (mode === "login") {
-      if (!loginEmail.trim() || !loginPassword) {
-        return setError("Please fill in all fields.");
-      }
+    if (mode === "login" && (!loginEmail.trim() || !loginPassword)) {
+      return setError("Please fill in all fields.");
     }
 
     setLoading(true);
@@ -142,7 +120,7 @@ export default function LoginForm({
         } else {
           onSuccess();
         }
-      } else if (mode === "signup") {
+      } else {
         const res = await authClient.signUp.email({
           email: signupEmail.trim(),
           password: signupPassword,
@@ -165,9 +143,7 @@ export default function LoginForm({
   async function handleForgot(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
-    if (!forgotEmail.trim()) {
-      return setError("Please enter your email address.");
-    }
+    if (!forgotEmail.trim()) return setError("Please enter your email address.");
 
     setLoading(true);
     try {
@@ -187,446 +163,358 @@ export default function LoginForm({
     }
   }
 
+  const title =
+    mode === "forgot"
+      ? "Reset your password"
+      : mode === "signup"
+        ? "Create an account"
+        : "Welcome back";
+
   return (
-    <main
-      className={cn(
-        "flex min-h-screen w-full flex-col bg-white text-[#111] antialiased",
-        "min-[600px]:items-center min-[600px]:bg-[#f0f1f3] min-[600px]:bg-[linear-gradient(135deg,#dfeee7,#c3ebfd,#e2bbfc)]",
-        "min-[1024px]:h-screen min-[1024px]:items-center min-[1024px]:pr-4",
-      )}
-    >
-      <header
-        className={cn(
-          "mx-auto hidden w-full max-w-[1200px] py-2.5 px-4",
-          "min-[1024px]:flex",
-        )}
-      >
-        <Link href="/" className="flex items-center gap-2.5">
-          {/* Decorative brand assets — next/image not required for static public logos */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <Image
-            width={240}
-            height={48}
-            src={fullLogoUrl}
-            alt={brandName}
-            className="h-auto w-60 object-contain"
-          />
-        </Link>
-        <div className="grow" />
+    <main className="min-h-screen bg-white text-[#171717]">
+      <header className="border-b border-[#e5e5e5]">
+        <div className="mx-auto flex h-24 w-full max-w-[1200px] items-center justify-between px-5 sm:px-8">
+          <Link href="/" aria-label={`${config.brandName} home`}>
+            <Image
+              src={config.logoLong}
+              alt={config.brandName}
+              width={190}
+              height={48}
+              priority
+              className="h-9 w-auto object-contain sm:h-10"
+            />
+          </Link>
+          <Link
+            href="/"
+            aria-label="Close login"
+            className="rounded-full p-2 text-[#1e3b12] transition-colors hover:bg-[#f4f6f1]"
+          >
+            <CloseIcon />
+          </Link>
+        </div>
       </header>
 
-      <div
-        className={cn(
-          "w-full",
-          "min-[600px]:items-center min-[600px]:justify-center min-[1024px]:mx-auto min-[1024px]:flex min-[1024px]:h-[84%] min-[1024px]:w-full min-[1024px]:max-w-[1200px] min-[1024px]:items-center min-[1024px]:justify-center",
-        )}
-      >
-        <div
-          className={cn(
-            "min-[600px]:flex min-[600px]:justify-center min-[600px]:items-center min-[1024px]:grid min-[1024px]:w-full min-[1024px]:grid-cols-[1fr_410px] min-[1024px]:items-center min-[1024px]:gap-[60px]",
-          )}
-        >
-          <div
-            className={cn(
-              "hidden",
-              "min-[1024px]:flex min-[1024px]:items-center min-[1024px]:justify-center",
-            )}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <Image
-              width={1200}
-              height={400}
-              src={heroImageUrl}
-              alt="Hero image"
-              className="pointer-events-none h-auto w-full max-w-[660px] select-none object-contain"
-            />
-          </div>
-
-          <div
-            className={cn(
-              "w-full max-w-full px-6 pb-12 pt-10",
-              "min-[600px]:my-10 min-[600px]:max-w-120 min-[600px]:rounded-[18px] min-[600px]:bg-white min-[600px]:px-11 min-[600px]:pb-11 min-[600px]:pt-12 min-[600px]:shadow-[0_2px_24px_rgba(0,0,0,0.09),0_1px_4px_rgba(0,0,0,0.05)]",
-              "min-[1024px]:m-0 min-[1024px]:max-w-105 min-[1024px]:rounded-2xl min-[1024px]:bg-white min-[1024px]:px-9 min-[1024px]:py-10 min-[1024px]:shadow-[0_10px_40px_rgba(0,0,0,0.08)] ",
-            )}
-          >
-            <Link href="/" className="mb-7 flex items-center gap-2.5">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#e7e7e7]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <Image
-                  width={40}
-                  height={40}
-                  src={shortLogoUrl}
-                  alt={`${brandName} logo`}
-                  className="h-10 w-10 object-contain"
-                />
-              </div>
-              <span className="text-[26px] font-bold tracking-[-0.3px] text-[#111]">
-                {brandName}
-              </span>
-            </Link>
-
-            {mode === "forgot" && (
-              <>
-                <h1
-                  className={cn(
-                    "mb-[30px] text-[26px] font-bold leading-tight tracking-[-0.5px] text-[#111]",
-                    "min-[600px]:text-[30px]",
-                  )}
+      <section className="mx-auto w-full max-w-[520px] px-5 pb-16 pt-10 sm:px-8 sm:pt-12 md:pt-14">
+        <div className="mb-8 text-center">
+          <h1 className="text-[29px] font-bold tracking-[-0.035em] sm:text-[32px]">
+            {title}
+          </h1>
+          {mode !== "forgot" && (
+            <p className="mt-3 text-[15px] text-[#494949]">
+              {mode === "login" ? "New here? " : "Already have an account?"}
+              {mode === "login" && (
+                <button
+                  type="button"
+                  className="ml-1 font-semibold text-primary underline underline-offset-2 hover:opacity-75"
+                  onClick={() => switchMode("signup")}
                 >
-                  Reset password
-                </h1>
+                  Sign up
+                </button>
+              )}
+              {mode === "signup" && (
+                <button
+                  type="button"
+                  className="ml-1 font-semibold text-primary underline underline-offset-2 hover:opacity-75"
+                  onClick={() => switchMode("login")}
+                >
+                  Log in
+                </button>
+              )}
+            </p>
+          )}
+        </div>
 
-                {forgotSent ? (
-                  <div className="flex flex-col gap-2.5">
-                    <p className="text-lg font-bold text-[#111]">
-                      Check your inbox
-                    </p>
-                    <p className="mb-2 text-sm leading-[1.6] text-[#666]">
-                      We sent a password reset link to{" "}
-                      <strong>{forgotEmail}</strong>. It expires in 1 hour.
-                    </p>
-                    <button
-                      className="mb-[18px] block w-full cursor-pointer border-0 bg-transparent text-center text-[15px] font-medium text-[#2d7ff9] hover:underline"
-                      type="button"
-                      onClick={() => {
-                        setForgotSent(false);
-                        switchMode("login");
-                      }}
-                    >
-                      Back to log in
-                    </button>
-                  </div>
-                ) : (
-                  <form
-                    className="flex flex-col"
-                    onSubmit={handleForgot}
-                    noValidate
-                  >
-                    <p className="mb-6 text-sm leading-[1.6] text-[#666]">
-                      Enter the email address associated with your account and
-                      we&apos;ll send you a link to reset your password.
-                    </p>
-
-                    <div className={fieldClass}>
+        {mode === "forgot" ? (
+          forgotSent ? (
+            <div className="rounded-xl border border-primary/25 bg-primary/5 p-5 text-center">
+              <h2 className="font-semibold">Check your inbox</h2>
+              <p className="mt-2 text-sm leading-6 text-[#555]">
+                We sent a password reset link to{" "}
+                <strong className="text-[#171717]">{forgotEmail}</strong>.
+              </p>
+              <button
+                type="button"
+                className="mt-5 text-sm font-semibold text-primary underline underline-offset-2"
+                onClick={() => {
+                  setForgotSent(false);
+                  switchMode("login");
+                }}
+              >
+                Back to log in
+              </button>
+            </div>
+          ) : (
+            <form className="space-y-5" onSubmit={handleForgot} noValidate>
+              <Field label="Your email address">
+                <input
+                  className={inputClass}
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="Email address"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                />
+              </Field>
+              <ErrorMessage error={error} />
+              <SubmitButton loading={loading}>Send reset link</SubmitButton>
+              <button
+                type="button"
+                className="text-sm font-semibold text-primary underline underline-offset-2"
+                onClick={() => switchMode("login")}
+              >
+                Back to log in
+              </button>
+            </form>
+          )
+        ) : (
+          <>
+            <form className="space-y-5" onSubmit={handleSubmit} noValidate>
+              {mode === "signup" && (
+                <>
+                  <Field label="Your name">
+                    <input
+                      className={inputClass}
+                      type="text"
+                      required
+                      autoComplete="name"
+                      placeholder="Full name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Your email address">
+                    <input
+                      className={inputClass}
+                      type="email"
+                      required
+                      autoComplete="email"
+                      placeholder="Email address"
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Your password">
+                    <div className="relative">
                       <input
-                        className={fieldInputClass}
-                        type="email"
-                        placeholder="Email address"
+                        className={cn(inputClass, "pr-12")}
+                        type={showSignupPassword ? "text" : "password"}
                         required
-                        autoComplete="email"
-                        value={forgotEmail}
-                        onChange={(e) => setForgotEmail(e.target.value)}
+                        autoComplete="new-password"
+                        placeholder="Password"
+                        value={signupPassword}
+                        onChange={(e) => setSignupPassword(e.target.value)}
+                        onFocus={() => setSignupPasswordFocused(true)}
+                        onBlur={() => setSignupPasswordFocused(false)}
+                      />
+                      <PasswordToggle
+                        shown={showSignupPassword}
+                        onClick={() => setShowSignupPassword((value) => !value)}
+                      />
+                      <div className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 w-60">
+                        <PassCheck
+                          password={signupPassword}
+                          show={signupPasswordFocused}
+                        />
+                      </div>
+                    </div>
+                  </Field>
+                  <Field label="Confirm your password">
+                    <div className="relative">
+                      <input
+                        className={cn(inputClass, "pr-12")}
+                        type={showConfirmPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        placeholder="Confirm password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                      />
+                      <PasswordToggle
+                        shown={showConfirmPassword}
+                        onClick={() => setShowConfirmPassword((value) => !value)}
                       />
                     </div>
-
-                    {error && (
-                      <p
-                        className="-mt-3 mb-3 text-[13px] text-[#e53935]"
-                        role="alert"
-                      >
-                        {error}
-                      </p>
-                    )}
-
-                    <button
-                      type="submit"
-                      className={cn(
-                        "mb-5 mt-4 w-full cursor-pointer rounded-full border-0 bg-[#2d7ff9] px-5 py-3 text-[17px] font-semibold text-white transition-[background,transform] duration-150 ease-in-out",
-                        "hover:enabled:bg-[#1a6fe0]",
-                        "active:enabled:scale-[0.985]",
-                        "disabled:cursor-not-allowed disabled:opacity-55",
-                      )}
-                      disabled={loading}
+                  </Field>
+                  <Field label="Gender">
+                    <select
+                      className={cn(inputClass, !gender && "text-[#777]")}
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      required
                     >
-                      {loading ? "Sending…" : "Send reset link"}
-                    </button>
+                      <option value="" disabled>
+                        Select an option
+                      </option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                      <option value="prefer_not_to_say">Prefer not to say</option>
+                    </select>
+                  </Field>
+                </>
+              )}
 
-                    <button
-                      className="mb-[18px] block w-full cursor-pointer border-0 bg-transparent text-center text-[15px] font-medium text-[#2d7ff9] hover:underline"
-                      type="button"
-                      onClick={() => switchMode("login")}
-                    >
-                      Back to log in
-                    </button>
-                  </form>
-                )}
-              </>
-            )}
-
-            {mode !== "forgot" && (
-              <>
-                <h1
-                  className={cn(
-                    "mb-[30px] text-[26px] font-bold leading-tight tracking-[-0.5px] text-[#111]",
-                    "min-[600px]:text-[30px]",
-                  )}
-                >
-                  {mode === "login" ? "Log In" : "Create Account"}
-                </h1>
-
-                <form
-                  className="flex flex-col"
-                  onSubmit={handleSubmit}
-                  noValidate
-                >
-                  {mode === "signup" && (
-                    <>
-                      <div className={fieldClass}>
-                        <input
-                          className={fieldInputClass}
-                          type="text"
-                          placeholder="Full name"
-                          required
-                          autoComplete="name"
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                        />
-                      </div>
-
-                      <div className={fieldClass}>
-                        <input
-                          className={fieldInputClass}
-                          type="email"
-                          placeholder="Email address"
-                          required
-                          autoComplete="email"
-                          value={signupEmail}
-                          onChange={(e) => setSignupEmail(e.target.value)}
-                        />
-                      </div>
-
-                      <div className={cn(fieldClass, "relative")}>
-                        <input
-                          className={fieldInputClass}
-                          type={showSignupPw ? "text" : "password"}
-                          placeholder="Password"
-                          required
-                          autoComplete="new-password"
-                          value={signupPassword}
-                          onChange={(e) => setSignupPassword(e.target.value)}
-                          onFocus={() => setSignupPasswordFocused(true)}
-                          onBlur={() => setSignupPasswordFocused(false)}
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-1 top-1/2 flex -translate-y-1/2 cursor-pointer items-center border-0 bg-transparent p-1 leading-none text-[#999] hover:text-[#555]"
-                          onClick={() => setShowSignupPw((v) => !v)}
-                          aria-label={
-                            showSignupPw ? "Hide password" : "Show password"
-                          }
-                        >
-                          {showSignupPw ? <EyeOffIcon /> : <EyeIcon />}
-                        </button>
-                        <div className="pointer-events-none absolute bottom-full right-5 z-10 mb-2 w-[240px]">
-                          <PassCheck
-                            password={signupPassword}
-                            show={signupPasswordFocused}
-                          />
-                        </div>
-                      </div>
-
-                      <div className={fieldClass}>
-                        <input
-                          className={fieldInputClass}
-                          type={showConfirmPw ? "text" : "password"}
-                          placeholder="Confirm password"
-                          required
-                          autoComplete="new-password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-1 top-1/2 flex -translate-y-1/2 cursor-pointer items-center border-0 bg-transparent p-1 leading-none text-[#999] hover:text-[#555]"
-                          onClick={() => setShowConfirmPw((v) => !v)}
-                          aria-label={
-                            showConfirmPw ? "Hide password" : "Show password"
-                          }
-                        >
-                          {showConfirmPw ? <EyeOffIcon /> : <EyeIcon />}
-                        </button>
-                      </div>
-
-                      <div className={fieldClass}>
-                        <div className="relative">
-                          <select
-                            className={cn(
-                              "w-full cursor-pointer appearance-none rounded-none border-0 border-b-[1.5px] border-solid border-[#ccc] bg-transparent py-2.5 pr-10 pl-0 text-base outline-none transition-[border-color] duration-[180ms] ease-in-out focus:border-[#555]",
-                              !gender ? "text-[#aaa]" : "text-[#111]",
-                            )}
-                            value={gender}
-                            onChange={(e) => setGender(e.target.value)}
-                            required
-                          >
-                            <option value="" disabled className="bg-white text-[#111]">
-                              Gender
-                            </option>
-                            <option value="male" className="bg-white text-[#111]">
-                              Male
-                            </option>
-                            <option value="female" className="bg-white text-[#111]">
-                              Female
-                            </option>
-                            <option value="other" className="bg-white text-[#111]">
-                              Other
-                            </option>
-                            <option
-                              value="prefer_not_to_say"
-                              className="bg-white text-[#111]"
-                            >
-                              Prefer not to say
-                            </option>
-                          </select>
-                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 leading-none text-[#999]">
-                            <ChevronDownIcon />
-                          </span>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {mode === "login" && (
-                    <>
-                      <div className={fieldClass}>
-                        <input
-                          className={fieldInputClass}
-                          type="email"
-                          placeholder="Email address"
-                          required
-                          autoComplete="email"
-                          value={loginEmail}
-                          onChange={(e) => setLoginEmail(e.target.value)}
-                        />
-                      </div>
-
-                      <div className={fieldClass}>
-                        <input
-                          className={fieldInputClass}
-                          type={showLoginPw ? "text" : "password"}
-                          placeholder="Password"
-                          required
-                          autoComplete="current-password"
-                          value={loginPassword}
-                          onChange={(e) => setLoginPassword(e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-1 top-1/2 flex -translate-y-1/2 cursor-pointer items-center border-0 bg-transparent p-1 leading-none text-[#999] hover:text-[#555]"
-                          onClick={() => setShowLoginPw((v) => !v)}
-                          aria-label={
-                            showLoginPw ? "Hide password" : "Show password"
-                          }
-                        >
-                          {showLoginPw ? <EyeOffIcon /> : <EyeIcon />}
-                        </button>
-                      </div>
-
-                      <div className="mb-[18px] flex justify-end">
-                        <button
-                          className="cursor-pointer border-0 bg-transparent p-0 text-sm text-[#2d7ff9] hover:underline"
-                          type="button"
-                          onClick={() => switchMode("forgot")}
-                        >
-                          Forgot password?
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  {error && (
-                    <p
-                      className="-mt-3 mb-3 text-[13px] text-[#e53935]"
-                      role="alert"
-                    >
-                      {error}
-                    </p>
-                  )}
-
+              {mode === "login" && (
+                <>
+                  <Field label="Your email address">
+                    <input
+                      className={inputClass}
+                      type="email"
+                      required
+                      autoComplete="email"
+                      placeholder="Email address"
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Your password">
+                    <div className="relative">
+                      <input
+                        className={cn(inputClass, "pr-12")}
+                        type={showLoginPassword ? "text" : "password"}
+                        required
+                        autoComplete="current-password"
+                        placeholder="Password"
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                      />
+                      <PasswordToggle
+                        shown={showLoginPassword}
+                        onClick={() => setShowLoginPassword((value) => !value)}
+                      />
+                    </div>
+                  </Field>
                   <button
-                    type="submit"
-                    className={cn(
-                      "mb-5 mt-4 w-full cursor-pointer rounded-full border-0 bg-[#2d7ff9] px-5 py-3 text-[17px] font-semibold text-white transition-[background,transform] duration-150 ease-in-out",
-                      "hover:enabled:bg-[#1a6fe0]",
-                      "active:enabled:scale-[0.985]",
-                      "disabled:cursor-not-allowed disabled:opacity-55",
-                    )}
-                    disabled={loading}
+                    type="button"
+                    className="text-sm font-semibold text-primary underline underline-offset-2 hover:opacity-75"
+                    onClick={() => switchMode("forgot")}
                   >
-                    {loading
-                      ? "Please wait…"
-                      : mode === "login"
-                        ? "Log In"
-                        : "Create Account"}
+                    Trouble logging in?
                   </button>
-                </form>
+                </>
+              )}
 
-                <button
-                  className="mb-[18px] block w-full cursor-pointer border-0 bg-transparent text-center text-[15px] font-medium text-[#2d7ff9] hover:underline"
-                  onClick={() =>
-                    switchMode(mode === "login" ? "signup" : "login")
-                  }
-                  type="button"
-                >
-                  {mode === "login"
-                    ? "Don't have an account? Sign up"
-                    : "Already have an account? Log in"}
-                </button>
+              <ErrorMessage error={error} />
+              <SubmitButton loading={loading}>
+                {mode === "login" ? "Log in" : "Create account"}
+              </SubmitButton>
+            </form>
 
-                <p className="mb-7 text-[12.5px] leading-[1.6] text-[#888]">
-                  By {mode === "login" ? "logging in" : "creating an account"},
-                  you agree to {brandName}&apos;s{" "}
-                  <a
-                    href="#"
-                    className="text-[#2d7ff9] no-underline hover:underline"
-                  >
-                    Terms of Service
-                  </a>{" "}
-                  and{" "}
-                  <a
-                    href="#"
-                    className="text-[#2d7ff9] no-underline hover:underline"
-                  >
-                    Privacy Policy
-                  </a>
-                  .
-                </p>
+            <div className="mt-7">
+              <p className="mb-4 text-[15px] text-[#555]">Or log in with</p>
+              <button
+                type="button"
+                className="flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#d8d8d8] bg-white text-[15px] font-semibold transition-colors hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleGoogle}
+                disabled={loading}
+              >
+                <GoogleIcon />
+                Continue with Google
+              </button>
+            </div>
 
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="h-px grow bg-[#ddd]" />
-                  <p className="text-sm font-medium text-[#888]">or</p>
-                  <div className="h-px grow bg-[#ddd]" />
-                </div>
-
-                <button
-                  className={cn(
-                    "mb-3 flex w-full cursor-pointer items-center justify-center gap-3 rounded-full border-[1.8px] border-solid border-[#111] bg-white px-5 py-3 text-base font-semibold text-[#111] transition-[background,transform] duration-150 ease-in-out",
-                    "hover:bg-[#f5f5f5]",
-                    "active:scale-[0.985]",
-                  )}
-                  onClick={handleGoogle}
-                  type="button"
-                >
-                  <GoogleIcon />
-                  Continue with Google
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+            <p className="mt-8 text-center text-xs leading-5 text-[#777]">
+              By continuing, you agree to {config.brandName}&apos;s{" "}
+              <a href="#" className="underline underline-offset-2">
+                Terms
+              </a>{" "}
+              and{" "}
+              <a href="#" className="underline underline-offset-2">
+                Privacy Policy
+              </a>
+              .
+            </p>
+          </>
+        )}
+      </section>
     </main>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className={labelClass}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function ErrorMessage({ error }: { error: string }) {
+  if (!error) return null;
+  return (
+    <p
+      className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm leading-5 text-destructive"
+      role="alert"
+    >
+      {error}
+    </p>
+  );
+}
+
+function SubmitButton({
+  loading,
+  children,
+}: {
+  loading: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="submit"
+      className="h-12 w-full rounded-full bg-primary px-5 text-[15px] font-bold text-primary-foreground transition-all hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+      disabled={loading}
+    >
+      {loading ? "Please wait…" : children}
+    </button>
+  );
+}
+
+function PasswordToggle({
+  shown,
+  onClick,
+}: {
+  shown: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[#355126] hover:bg-[#f4f6f1]"
+      onClick={onClick}
+      aria-label={shown ? "Hide password" : "Show password"}
+    >
+      {shown ? <EyeOffIcon /> : <EyeIcon />}
+    </button>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      width="23"
+      height="23"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      aria-hidden="true"
+    >
+      <path d="m5 5 14 14M19 5 5 19" />
+    </svg>
   );
 }
 
 function GoogleIcon() {
   return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className="shrink-0"
-    >
+    <svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="#4285F4"
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -650,8 +538,8 @@ function GoogleIcon() {
 function EyeIcon() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="19"
+      height="19"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -667,33 +555,15 @@ function EyeIcon() {
 function EyeOffIcon() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="19"
+      height="19"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
       aria-hidden="true"
     >
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <polyline points="6 9 12 15 18 9" />
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22" />
     </svg>
   );
 }

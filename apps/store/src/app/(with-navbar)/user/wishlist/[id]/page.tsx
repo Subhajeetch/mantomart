@@ -9,6 +9,7 @@ import {
   Ellipsis,
   Flower2,
   Gamepad2,
+  Ghost,
   Gift,
   Heart,
   Home,
@@ -23,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import CustomImage from '@/components/custom-image';
+import config from '@/mine.config';
 
 import {
   useWishlist,
@@ -132,7 +135,16 @@ export default function WishlistFolderPage() {
             body?.error ?? body?.message ?? 'Unable to load this wishlist.'
           );
         }
-        if (mounted) setFolder(body.data.folder);
+        if (mounted) {
+          setFolder(body.data.folder);
+          document.title = `${body.data.folder.name} — ${config.brandName}`;
+          document
+            .querySelector('meta[name="description"]')
+            ?.setAttribute(
+              'content',
+              `View and manage the products saved in your ${body.data.folder.name} wishlist on ${config.brandName}.`
+            );
+        }
       })
       .catch((cause) => {
         if (mounted) {
@@ -379,7 +391,7 @@ export default function WishlistFolderPage() {
 
             {folder.products.length === 0 ? (
               <div className="border border-dashed border-border p-12 text-center">
-                <Heart className="mx-auto size-8 text-primary" />
+                <Ghost className="mx-auto size-8 text-primary" />
                 <h2 className="mt-4 text-lg font-semibold">
                   This folder is empty
                 </h2>
@@ -400,10 +412,12 @@ export default function WishlistFolderPage() {
                     >
                       {product.image ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img
+                        <CustomImage
                           src={product.image}
                           alt={product.name}
                           className="size-full object-cover transition-transform duration-300 hover:scale-105"
+                          width={128}
+                          height={128}
                         />
                       ) : null}
                     </Link>

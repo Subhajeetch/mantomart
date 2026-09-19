@@ -70,7 +70,7 @@ export function MobileBottomNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.06)] backdrop-blur sm:hidden"
       aria-label="Mobile primary"
     >
-      <div className="mx-auto grid max-w-sm grid-cols-4 gap-1">
+      <div className="mx-auto grid max-w-full grid-cols-4 gap-1">
         {items.map((item) => {
           const Icon = item.icon;
           const active = isActivePath(pathname, item.href, item.match);

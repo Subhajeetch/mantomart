@@ -1,38 +1,50 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import config from "@/mine.config";
-import Image from "next/image";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from 'react';
+import config from '@/mine.config';
+import Image from 'next/image';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   ChevronRight,
   Heart,
+  Bell,
+  MapPin,
   Menu,
   Search,
+  ShieldCheck,
+  ShoppingBag,
   ShoppingCart,
   UserRound,
   X,
-} from "lucide-react";
-import type { Session } from "@repo/types/session-client";
+} from 'lucide-react';
+import type { Session } from '@repo/types/session-client';
 
-import { useSession } from "@/lib/auth-client";
-import { cn } from "@/lib/utils";
-import { useNeedLogin } from "@/components/need-login-context";
-import { useWishlist, WishlistPicker } from "@/components/wishlist-context";
-import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { getCartSummary, cacheCartSummary, type CartSummary } from "@/app/(with-navbar)/cart/api";
-
-import { resolveNavHref } from "./api";
-import type { HeaderNavCollection, HeaderNavItem } from "./types";
-import { Input } from "../ui/input";
-
+import { useSession } from '@/lib/auth-client';
+import { cn } from '@/lib/utils';
+import { useNeedLogin } from '@/components/need-login-context';
+import { useWishlist, WishlistPicker } from '@/components/wishlist-context';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  getCartSummary,
+  cacheCartSummary,
+  type CartSummary,
+} from '@/app/(with-navbar)/cart/api';
+
+import { resolveNavHref } from './api';
+import type { HeaderNavCollection, HeaderNavItem } from './types';
+import { Input } from '../ui/input';
+
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 import {
   NavigationMenu,
@@ -41,7 +53,7 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
   NavigationMenuTrigger,
-} from "@/components/ui/navigation-menu";
+} from '@/components/ui/navigation-menu';
 
 type StoreNavbarProps = {
   collections: HeaderNavCollection[];
@@ -51,14 +63,14 @@ const MAX_VISIBLE_COLLECTIONS = 5;
 const MAX_MEGA_COLUMNS = 5;
 
 /** Stable id so Base UI Field.Control does not emit mismatched SSR/client useId values. */
-const SEARCH_INPUT_ID = "store-navbar-search";
+const SEARCH_INPUT_ID = 'store-navbar-search';
 
 function getInitials(name: string | null | undefined, email: string) {
   const source = name?.trim() || email;
   return source
     .split(/\s+/)
     .map((part) => part[0])
-    .join("")
+    .join('')
     .slice(0, 2)
     .toUpperCase();
 }
@@ -71,9 +83,9 @@ function navHref(item: {
 }
 
 function isPathActive(pathname: string, href: string | null) {
-  if (!href || href.startsWith("http") || href.startsWith("//")) return false;
-  const path = href.split("?")[0]?.split("#")[0] ?? href;
-  if (!path || path === "/") return pathname === "/";
+  if (!href || href.startsWith('http') || href.startsWith('//')) return false;
+  const path = href.split('?')[0]?.split('#')[0] ?? href;
+  if (!path || path === '/') return pathname === '/';
   return pathname === path || pathname.startsWith(`${path}/`);
 }
 
@@ -103,7 +115,7 @@ function withChildren(item: HeaderNavItem): HeaderNavItem {
     name: item.name,
     slug: item.slug,
     href: navHref(item),
-    position: typeof item.position === "number" ? item.position : 0,
+    position: typeof item.position === 'number' ? item.position : 0,
     featured: Boolean(item.featured),
     children,
   };
@@ -118,9 +130,9 @@ function normalizeCollections(
     .filter(
       (collection): collection is HeaderNavCollection =>
         !!collection &&
-        typeof collection === "object" &&
-        typeof collection.id === "string" &&
-        typeof collection.name === "string"
+        typeof collection === 'object' &&
+        typeof collection.id === 'string' &&
+        typeof collection.name === 'string'
     )
     .map((collection) => ({
       id: collection.id,
@@ -128,13 +140,11 @@ function normalizeCollections(
       slug: collection.slug ?? collection.id,
       href: navHref(collection),
       position:
-        typeof collection.position === "number" ? collection.position : 0,
-      items: (collection.items ?? [])
-        .map(withChildren)
-        .sort((a, b) => {
-          if (a.position !== b.position) return a.position - b.position;
-          return a.name.localeCompare(b.name);
-        }),
+        typeof collection.position === 'number' ? collection.position : 0,
+      items: (collection.items ?? []).map(withChildren).sort((a, b) => {
+        if (a.position !== b.position) return a.position - b.position;
+        return a.name.localeCompare(b.name);
+      }),
     }))
     .sort((a, b) => {
       if (a.position !== b.position) return a.position - b.position;
@@ -145,7 +155,11 @@ function normalizeCollections(
 
 function Logo() {
   return (
-    <Link href="/" className="flex shrink-0 items-center" aria-label={`${config.brandName} home`}>
+    <Link
+      href="/"
+      className="flex shrink-0 items-center"
+      aria-label={`${config.brandName} home`}
+    >
       <Image
         src={config.logoLong}
         alt={config.brandName}
@@ -184,15 +198,18 @@ function DesktopNavigationMenu({
           const columnCount = Math.min(Math.max(columns.length, 1), 3);
 
           return (
-            <NavigationMenuItem key={collection.id} className="text-foreground/60 hover:text-primary">
+            <NavigationMenuItem
+              key={collection.id}
+              className="text-foreground/60 hover:text-primary"
+            >
               {href && !hasSubMenu ? (
                 <NavigationMenuLink
                   href={href}
                   className={cn(
-                    "px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition-colors",
+                    'px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition-colors',
                     isActive
-                      ? "text-primary after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary"
-                      : "text-foreground hover:text-primary"
+                      ? 'text-primary after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary'
+                      : 'text-foreground hover:text-primary'
                   )}
                 >
                   {collection.name}
@@ -201,8 +218,8 @@ function DesktopNavigationMenu({
                 <div>
                   <NavigationMenuTrigger
                     className={cn(
-                      "px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition-colors",
-                      isActive && "text-primary"
+                      'px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition-colors',
+                      isActive && 'text-primary'
                     )}
                   >
                     {collection.name}
@@ -224,8 +241,8 @@ function DesktopNavigationMenu({
                           <div
                             key={item.id}
                             className={cn(
-                              "min-w-[10.5rem] space-y-1 rounded-md text-sm",
-                              item.featured && "text-primary"
+                              'min-w-[10.5rem] space-y-1 rounded-md text-sm',
+                              item.featured && 'text-primary'
                             )}
                           >
                             {itemHref ? (
@@ -255,7 +272,9 @@ function DesktopNavigationMenu({
                                           <span className="min-w-0 truncate group-hover/child:underline">
                                             {child.name}
                                           </span>
-                                          {child.featured && <FeaturedNewBadge />}
+                                          {child.featured && (
+                                            <FeaturedNewBadge />
+                                          )}
                                         </NavigationMenuLink>
                                       ) : (
                                         <span
@@ -265,7 +284,9 @@ function DesktopNavigationMenu({
                                           <span className="min-w-0 truncate">
                                             {child.name}
                                           </span>
-                                          {child.featured && <FeaturedNewBadge />}
+                                          {child.featured && (
+                                            <FeaturedNewBadge />
+                                          )}
                                         </span>
                                       )}
                                     </li>
@@ -320,18 +341,20 @@ function MobileTreeNode({
           onClick={() => onToggle(item.id)}
           aria-expanded={isExpanded}
           className={cn(
-            "flex w-full items-center justify-between gap-2 rounded-md px-2 py-2.5 text-left text-sm transition-colors",
-            "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            item.featured && "font-semibold text-primary",
-            isExpanded ? "text-foreground" : "text-foreground/90"
+            'flex w-full items-center justify-between gap-2 rounded-md px-2 py-2.5 text-left text-sm transition-colors',
+            'hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            item.featured && 'font-semibold text-primary',
+            isExpanded ? 'text-foreground' : 'text-foreground/90'
           )}
         >
-          <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+          <span className="min-w-0 flex-1 truncate font-medium">
+            {item.name}
+          </span>
           <ChevronRight
             aria-hidden
             className={cn(
-              "size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
-              isExpanded && "rotate-90"
+              'size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out',
+              isExpanded && 'rotate-90'
             )}
           />
         </button>
@@ -349,11 +372,13 @@ function MobileTreeNode({
                       onClick={onClose}
                       title={child.name}
                       className={cn(
-                        "flex items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors",
-                        "hover:bg-muted/60 hover:text-foreground"
+                        'flex items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors',
+                        'hover:bg-muted/60 hover:text-foreground'
                       )}
                     >
-                      <span className="min-w-0 flex-1 truncate">{child.name}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {child.name}
+                      </span>
                       {child.featured && <FeaturedNewBadge />}
                     </Link>
                   ) : (
@@ -361,7 +386,9 @@ function MobileTreeNode({
                       title={child.name}
                       className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground"
                     >
-                      <span className="min-w-0 flex-1 truncate">{child.name}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {child.name}
+                      </span>
                       {child.featured && <FeaturedNewBadge />}
                     </span>
                   )}
@@ -381,8 +408,8 @@ function MobileTreeNode({
         href={href}
         onClick={onClose}
         className={cn(
-          "flex items-center rounded-md px-2 py-2.5 text-sm transition-colors hover:bg-muted/60 hover:text-foreground",
-          item.featured ? "font-semibold text-primary" : "text-foreground/90"
+          'flex items-center rounded-md px-2 py-2.5 text-sm transition-colors hover:bg-muted/60 hover:text-foreground',
+          item.featured ? 'font-semibold text-primary' : 'text-foreground/90'
         )}
       >
         {item.name}
@@ -431,24 +458,24 @@ function MobileMenu({
     if (!open) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === 'Escape') onClose();
     };
 
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKeyDown);
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
 
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener('keydown', onKeyDown);
     };
   }, [onClose, open]);
 
   return (
     <div
       className={cn(
-        "fixed inset-0 z-50 lg:hidden",
-        open ? "pointer-events-auto" : "pointer-events-none"
+        'fixed inset-0 z-50 lg:hidden',
+        open ? 'pointer-events-auto' : 'pointer-events-none'
       )}
       aria-hidden={!open}
     >
@@ -460,15 +487,15 @@ function MobileMenu({
         tabIndex={open ? 0 : -1}
         className={cn(
           // Full-screen scrim: override size/border/hover from outline so it stays a backdrop.
-          "absolute inset-0 size-auto h-auto w-auto rounded-none border-0 bg-black/20 p-0 shadow-none backdrop-blur-[2px] transition-opacity duration-200",
-          "hover:bg-black/20 hover:text-inherit focus-visible:border-transparent focus-visible:ring-0",
-          open ? "opacity-100" : "opacity-0"
+          'absolute inset-0 size-auto h-auto w-auto rounded-none border-0 bg-black/20 p-0 shadow-none backdrop-blur-[2px] transition-opacity duration-200',
+          'hover:bg-black/20 hover:text-inherit focus-visible:border-transparent focus-visible:ring-0',
+          open ? 'opacity-100' : 'opacity-0'
         )}
       />
       <aside
         className={cn(
-          "relative flex h-full w-[min(86vw,360px)] flex-col border-r bg-background shadow-2xl transition-transform duration-300 ease-out",
-          open ? "translate-x-0" : "-translate-x-full"
+          'relative flex h-full w-[min(86vw,360px)] flex-col border-r bg-background shadow-2xl transition-transform duration-300 ease-out',
+          open ? 'translate-x-0' : '-translate-x-full'
         )}
         role="dialog"
         aria-modal="true"
@@ -487,7 +514,10 @@ function MobileMenu({
           </Button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Mobile categories">
+        <nav
+          className="flex-1 overflow-y-auto px-3 py-4"
+          aria-label="Mobile categories"
+        >
           {collections.length === 0 ? (
             <p className="px-2 py-8 text-sm text-muted-foreground">
               Categories are not available right now.
@@ -499,7 +529,10 @@ function MobileMenu({
                 const hasItems = collection.items.length > 0;
 
                 return (
-                  <div key={collection.id} className="border-b border-border/50 last:border-b-0">
+                  <div
+                    key={collection.id}
+                    className="border-b border-border/50 last:border-b-0"
+                  >
                     {hasItems ? (
                       <>
                         <button
@@ -507,8 +540,8 @@ function MobileMenu({
                           onClick={() => handleToggle(collection.id)}
                           aria-expanded={collectionExpanded}
                           className={cn(
-                            "flex w-full items-center justify-between gap-2 rounded-md px-2 py-3 text-left transition-colors",
-                            "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            'flex w-full items-center justify-between gap-2 rounded-md px-2 py-3 text-left transition-colors',
+                            'hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
                           )}
                         >
                           <span className="text-sm font-semibold uppercase tracking-wide text-foreground">
@@ -517,8 +550,8 @@ function MobileMenu({
                           <ChevronRight
                             aria-hidden
                             className={cn(
-                              "size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
-                              collectionExpanded && "rotate-90"
+                              'size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out',
+                              collectionExpanded && 'rotate-90'
                             )}
                           />
                         </button>
@@ -579,9 +612,7 @@ function SeoNavTree({ collections }: { collections: HeaderNavCollection[] }) {
     return (
       <li key={item.id}>
         {href ? <Link href={href}>{item.name}</Link> : <span>{item.name}</span>}
-        {item.children.length > 0 && (
-          <ul>{item.children.map(renderItem)}</ul>
-        )}
+        {item.children.length > 0 && <ul>{item.children.map(renderItem)}</ul>}
       </li>
     );
   };
@@ -644,7 +675,9 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
         setCartSummary(custom.detail);
         return;
       }
-      void getCartSummary(true).then(setCartSummary).catch(() => undefined);
+      void getCartSummary(true)
+        .then(setCartSummary)
+        .catch(() => undefined);
     };
     window.addEventListener('cart-updated', refresh);
     return () => {
@@ -696,40 +729,90 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
           </form>
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:ml-0">
-            <AccountButton />
+            <div className="hidden sm:flex">
+              <AccountButton />
+            </div>
             <button
               type="button"
               aria-label="Wishlist"
-              className={buttonVariants({ variant: "ghost", size: "icon" })}
+              className={cn(
+                buttonVariants({ variant: 'ghost', size: 'icon' }),
+                'sm:hidden'
+              )}
               onClick={() => {
                 if (!session?.user?.id) {
                   openNeedLogin({
-                    title: "Log in to continue",
+                    title: 'Login to continue',
                     description:
-                      "Log in to view and manage the products you’ve saved. We’ll bring you right back.",
+                      'Log in to view and manage the products you’ve saved. We’ll bring you right back.',
                     returnTo:
-                      typeof window !== "undefined"
+                      typeof window !== 'undefined'
                         ? window.location.href
                         : undefined,
                   });
                   return;
                 }
-                router.push("/user/wishlists");
+                router.push('/user/wishlists');
               }}
             >
-              <Heart className={cn("size-5 transition-colors", pulse && "animate-[wishlist-pop_650ms_ease-in-out] fill-[#ff3f6c] text-[#ff3f6c]")} />
+              <Heart
+                className={cn(
+                  'size-5 transition-colors',
+                  pulse &&
+                    'animate-[wishlist-pop_650ms_ease-in-out] fill-[#ff3f6c] text-[#ff3f6c]'
+                )}
+              />
             </button>
+            <div className="hidden sm:flex">
+              <button
+                type="button"
+                aria-label="Wishlist"
+                className={cn(
+                  buttonVariants({ variant: 'ghost' }),
+                  'h-auto flex-col items-center gap-0.5 px-2 py-1.5 text-[11px] font-medium leading-none text-muted-foreground hover:text-foreground'
+                )}
+                onClick={() => {
+                  if (!session?.user?.id) {
+                    openNeedLogin({
+                      title: 'Log in to continue',
+                      description:
+                        'Log in to view and manage the products you’ve saved. We’ll bring you right back.',
+                      returnTo:
+                        typeof window !== 'undefined'
+                          ? window.location.href
+                          : undefined,
+                    });
+                    return;
+                  }
+                  router.push('/user/wishlists');
+                }}
+              >
+                <span className="flex h-6 items-center justify-center">
+                  <Heart
+                    className={cn(
+                      'size-5 transition-colors',
+                      pulse &&
+                        'animate-[wishlist-pop_650ms_ease-in-out] fill-[#ff3f6c] text-[#ff3f6c]'
+                    )}
+                  />
+                </span>
+                <span className="font-bold">Wishlist</span>
+              </button>
+            </div>
             <Link
               href="/cart"
               aria-label="Cart"
               className={cn(
-                buttonVariants({ variant: "ghost", size: "icon" }),
+                buttonVariants({ variant: 'ghost' }),
                 // The cart lives in the bottom nav on small screens — hide this
                 // one while the mobile bar is visible (< sm) to avoid duplicates.
-                "relative hidden sm:inline-flex"
+                'relative hidden h-auto flex-col items-center gap-0.5 px-2 py-1.5 text-[11px] font-medium leading-none text-muted-foreground hover:text-foreground sm:inline-flex'
               )}
             >
-              <ShoppingCart className="size-5" />
+              <span className="flex h-6 items-center justify-center">
+                <ShoppingCart className="size-5" />
+              </span>
+              <span className="font-bold">Cart</span>
               {cartSummary && cartSummary.itemCount > 0 ? (
                 <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground">
                   {cartSummary.itemCount > 99 ? '99+' : cartSummary.itemCount}
@@ -762,38 +845,154 @@ function AccountButton() {
   // during hydration, so the client paints the login link while the server
   // painted the loading skeleton — causing a hydration mismatch.
   const [mounted, setMounted] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   useEffect(() => {
     setMounted(true);
   }, []);
 
   if (!mounted || isPending) {
     return (
-      <div className="size-8 animate-pulse rounded-full bg-muted hidden sm:inline-flex" aria-hidden />
-    );
-  }
-
-  if (!user) {
-    return (
-      <Link
-        href="/login"
-        className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}
-      >
-        <UserRound className="size-3.5" />
-        Login
-      </Link>
+      <div
+        className="size-8 animate-pulse rounded-full bg-muted hidden sm:inline-flex"
+        aria-hidden
+      />
     );
   }
 
   return (
+    <Popover open={accountOpen} onOpenChange={setAccountOpen}>
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Open account menu"
+            className={cn(
+              buttonVariants({ variant: 'ghost' }),
+              'h-auto flex-col items-center gap-0.5 px-2 py-1.5 text-[11px] font-medium leading-none text-muted-foreground hover:text-foreground'
+            )}
+          />
+        }
+      >
+        <span className="flex h-6 items-center justify-center">
+          {user ? (
+            <Avatar size="sm">
+              <AvatarImage
+                src={user.image ?? undefined}
+                alt={user.name ?? 'Profile'}
+              />
+              <AvatarFallback>
+                {getInitials(user.name, user.email)}
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <UserRound className="size-5" />
+          )}
+        </span>
+        <span className="font-bold">Profile</span>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-2">
+        {user ? (
+          <Link
+            href="/user/profile"
+            onClick={() => setAccountOpen(false)}
+            className="flex items-center gap-3 rounded-md p-3 transition-colors hover:bg-muted"
+          >
+            <Avatar size="lg">
+              <AvatarImage
+                src={user.image ?? undefined}
+                alt={user.name ?? 'Profile'}
+              />
+              <AvatarFallback>
+                {getInitials(user.name, user.email)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">
+                {user.name || 'Your account'}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {user.email}
+              </span>
+            </span>
+          </Link>
+        ) : (
+          <PopoverHeader className="p-3">
+            <PopoverTitle>Access your account</PopoverTitle>
+            <PopoverDescription>
+              Log in to manage your profile, orders, wishlists, and more.
+            </PopoverDescription>
+            <Link
+              href="/login?returnTo=%2Fuser"
+              onClick={() => setAccountOpen(false)}
+              className={cn(buttonVariants(), 'mt-2 w-full')}
+            >
+              Log in
+            </Link>
+          </PopoverHeader>
+        )}
+        <div className="my-1 h-px bg-border" />
+        <PopoverHeader className="px-3 pb-1 pt-2">
+          <PopoverTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Account
+          </PopoverTitle>
+        </PopoverHeader>
+        <nav aria-label="Account links" className="grid gap-0.5">
+          <AccountMenuLink
+            href="/user/orders"
+            icon={ShoppingBag}
+            label="Orders"
+            onClick={() => setAccountOpen(false)}
+          />
+          <AccountMenuLink
+            href="/user/wishlists"
+            icon={Heart}
+            label="Wishlist"
+            onClick={() => setAccountOpen(false)}
+          />
+          <AccountMenuLink
+            href="/user/addresses"
+            icon={MapPin}
+            label="Saved addresses"
+            onClick={() => setAccountOpen(false)}
+          />
+          <AccountMenuLink
+            href="/user/notifications"
+            icon={Bell}
+            label="Notifications"
+            onClick={() => setAccountOpen(false)}
+          />
+          <AccountMenuLink
+            href="/user/sessions"
+            icon={ShieldCheck}
+            label="Manage sessions"
+            onClick={() => setAccountOpen(false)}
+          />
+        </nav>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function AccountMenuLink({
+  href,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  href: string;
+  icon: typeof UserRound;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
     <Link
-      href="/user"
-      aria-label="Profile"
-      className="size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground hidden sm:inline-flex"
+      href={href}
+      onClick={onClick}
+      className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-muted"
     >
-      <Avatar>
-        <AvatarImage src={user.image ?? undefined} alt={user.name ?? "Profile"} />
-        <AvatarFallback>{getInitials(user.name, user.email)}</AvatarFallback>
-      </Avatar>
+      <Icon className="size-4 text-muted-foreground" />
+      <span>{label}</span>
+      <ChevronRight className="ml-auto size-4 text-muted-foreground" />
     </Link>
   );
 }

@@ -3,7 +3,7 @@
 import * as React from 'react';
 
 import type { Session } from '@repo/types/session-client';
-import Image from 'next/image';
+import CustomImage from '@/components/custom-image';
 
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useSession } from '@/lib/auth-client';
@@ -188,7 +188,7 @@ function NeedLoginDialog({
 
   const wholeContainer = (
     <div className="flex flex-col items-center justify-center">
-      <Image src="/images/login-hero-2.webp" alt="Need login" width={1200} height={400} className="mx-auto my-4 rounded-[10px]" />
+      <CustomImage src="/images/login-hero-2.webp" alt="Need login" width={1200} height={400} className="mx-auto my-4 rounded-[10px]" />
       <div className="grid w-full gap-2">{actions}</div>
     </div>
   )
