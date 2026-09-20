@@ -65,7 +65,7 @@ export async function undoAddToCart(
 ): Promise<CartSummary> {
   const result =
     previousQuantity > 0
-      ? await updateCartItem(itemId, previousQuantity)
+      ? await updateCartItem(itemId, { quantity: previousQuantity })
       : await removeCartItem(itemId);
   cacheCartSummary(result.summary);
   return result.summary;

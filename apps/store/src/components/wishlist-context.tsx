@@ -98,7 +98,7 @@ type WishlistContextValue = {
   folders: WishlistFolder[];
   isLoading: boolean;
   pulse: boolean;
-  openPicker: (product: PickerProduct) => void;
+  openPicker: (product: PickerProduct, onSaved?: () => void) => void;
   toggleProduct: (product: PickerProduct) => void;
   addFolder: (folder: Omit<WishlistFolder, 'products'>) => void;
   isSaved: (productId: string) => boolean;
@@ -165,6 +165,7 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
   const [autoSaving, setAutoSaving] = useState(false);
   const [manualSaveRequired, setManualSaveRequired] = useState(false);
   const [pulse, setPulse] = useState(false);
+  const onSavedRef = useRef<(() => void) | undefined>(undefined);
   const autoSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadFolders = useCallback(async () => {
@@ -220,12 +221,13 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     cancelAutoSave();
     setPickerOpen(false);
     setActive(null);
+    onSavedRef.current = undefined;
     setError('');
     setManualSaveRequired(false);
   }, [cancelAutoSave]);
 
   const openPicker = useCallback(
-    (product: PickerProduct) => {
+    (product: PickerProduct, onSaved?: () => void) => {
       if (!session?.user?.id) {
         openNeedLogin({
           title: 'Log in to continue',
@@ -239,6 +241,7 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       const defaultFolder =
         folders.find((folder) => folder.isDefault) ?? folders[0];
       setActive(product);
+      onSavedRef.current = onSaved;
       setSelectedFolderId(defaultFolder?.id ?? '');
       setError('');
       setManualSaveRequired(false);
@@ -289,6 +292,8 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
         );
         setPulse(true);
         window.setTimeout(() => setPulse(false), 650);
+        onSavedRef.current?.();
+        onSavedRef.current = undefined;
         toast.add({
           title: 'Saved to your wishlist',
           description: product.name,

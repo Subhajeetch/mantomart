@@ -162,6 +162,13 @@
       "when": 1789659482118,
       "tag": "0022_slimy_wong",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1789918880415,
+      "tag": "0023_married_dazzler",
+      "breakpoints": true
     }
   ]
 }

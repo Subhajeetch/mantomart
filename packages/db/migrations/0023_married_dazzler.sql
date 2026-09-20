@@ -1,0 +1,1 @@
+ALTER TABLE `cart_items` ADD `selected` integer DEFAULT true NOT NULL;

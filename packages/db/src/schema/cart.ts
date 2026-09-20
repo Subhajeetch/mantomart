@@ -67,6 +67,7 @@ export const cartItems = sqliteTable(
       .notNull()
       .references(() => productSkus.id, { onDelete: 'cascade' }),
     quantity: integer('quantity').notNull(),
+    selected: integer('selected', { mode: 'boolean' }).notNull().default(true),
     unitPriceSnapshot: integer('unit_price_snapshot').notNull(),
     compareAtPriceSnapshot: integer('compare_at_price_snapshot'),
     productNameSnapshot: text('product_name_snapshot').notNull(),

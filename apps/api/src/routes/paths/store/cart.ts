@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import {
   cartItems,
@@ -20,7 +20,7 @@ import {
 } from '@/utils/productImageHost';
 
 const storeCart = new Hono<{ Bindings: Env }>();
-const MAX_QUANTITY = 99;
+export const MAX_QUANTITY = 10;
 
 /** Guest tokens are generated client-side with crypto.randomUUID(). */
 const GUEST_ID_PATTERN = /^[0-9a-zA-Z-]{8,128}$/;
@@ -197,6 +197,42 @@ async function skuSnapshot(db: ReturnType<typeof createDb>, skuId: string) {
   };
 }
 
+async function productVariants(
+  db: ReturnType<typeof createDb>,
+  productId: string,
+  env: Env,
+  origin: string,
+) {
+  const rows = await db.select({ sku: productSkus }).from(productSkus)
+    .where(eq(productSkus.productId, productId));
+  const properties = rows.length
+    ? await db.select().from(skuProperties).where(inArray(skuProperties.skuId, rows.map((row) => row.sku.id)))
+    : [];
+  const propertiesBySku = new Map<string, typeof properties>();
+  for (const property of properties) {
+    const current = propertiesBySku.get(property.skuId) ?? [];
+    current.push(property);
+    propertiesBySku.set(property.skuId, current);
+  }
+  return rows.map((row) => ({
+    id: row.sku.id,
+    price: row.sku.price,
+    compareAtPrice: row.sku.compareAtPrice,
+    stock: row.sku.stock,
+    options: Object.fromEntries(
+      (propertiesBySku.get(row.sku.id) ?? []).map((property) => [property.propertyName, property.value]),
+    ),
+    optionImages: Object.fromEntries(
+      (propertiesBySku.get(row.sku.id) ?? [])
+        .filter((property) => property.image)
+        .map((property) => [
+          property.propertyName,
+          resolveProductImageUrlForClient(property.image, env, { origin }) || property.image,
+        ]),
+    ),
+  }));
+}
+
 async function cartSummary(db: ReturnType<typeof createDb>, cartId: string) {
   const [summary] = await db
     .select({
@@ -302,7 +338,10 @@ storeCart.get('/', async (c) => {
           cartId: cart.id,
           mode: 'user',
           guestId: null,
-          items: items.map((item) => serializeCartItem(item, c.env, origin)),
+          items: await Promise.all(items.map(async (item) => ({
+            ...serializeCartItem(item, c.env, origin),
+            variants: await productVariants(actor.db, item.productId, c.env, origin),
+          }))),
           summary: await cartSummary(actor.db, cart.id),
         },
       });
@@ -316,7 +355,10 @@ storeCart.get('/', async (c) => {
         cartId: cart.id,
         mode: 'guest',
         guestId: cart.guestId,
-        items: items.map((item) => serializeCartItem(item, c.env, origin)),
+        items: await Promise.all(items.map(async (item) => ({
+          ...serializeCartItem(item, c.env, origin),
+          variants: await productVariants(actor.db, item.productId, c.env, origin),
+        }))),
         summary: await cartSummary(actor.db, cart.id),
       },
     });
@@ -407,17 +449,43 @@ storeCart.patch('/items/:itemId', async (c) => {
     const { actor } = await resolveCartActor(c);
     if (!actor) return errorJson(c, 401, 'UNAUTHORIZED', 'Authentication required.');
     const body = await c.req.json<unknown>();
-    const quantity = body && typeof body === 'object' && !Array.isArray(body) && typeof (body as Record<string, unknown>).quantity === 'number'
+    const input = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : null;
+    const quantity = input && typeof input.quantity === 'number'
       ? (body as Record<string, number>).quantity
       : NaN;
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) return errorJson(c, 400, 'INVALID_QUANTITY', `Quantity must be between 1 and ${MAX_QUANTITY}.`);
+    const selected = input?.selected;
+    const skuId = typeof input?.skuId === 'string' ? input.skuId.trim() : null;
+    if (quantity !== quantity && selected !== true && selected !== false && !skuId) {
+      return errorJson(c, 400, 'INVALID_UPDATE', 'A quantity, selection, or variant is required.');
+    }
+    if (quantity === quantity && (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY)) {
+      return errorJson(c, 400, 'INVALID_QUANTITY', `Quantity must be between 1 and ${MAX_QUANTITY}.`);
+    }
     const owner: CartOwner = actor.kind === 'user' ? { userId: actor.user.id } : { guestId: actor.guestId };
     const cart = await getOrCreateCart(actor.db, owner);
     const [item] = await actor.db.select({ item: cartItems, stock: productSkus.stock }).from(cartItems).innerJoin(productSkus, eq(productSkus.id, cartItems.skuId)).where(and(eq(cartItems.id, c.req.param('itemId')), eq(cartItems.cartId, cart.id))).limit(1);
     if (!item) return errorJson(c, 404, 'ITEM_NOT_FOUND', 'Cart item not found.');
+    if (skuId) {
+      const nextSku = await skuSnapshot(actor.db, skuId);
+      if (!nextSku || nextSku.product.id !== item.item.productId) return errorJson(c, 400, 'INVALID_VARIANT', 'That variant is not available for this product.');
+      if (nextSku.sku.stock < item.item.quantity) return errorJson(c, 409, 'INSUFFICIENT_STOCK', 'The selected variant does not have enough stock.');
+      const duplicate = await actor.db.select({ id: cartItems.id }).from(cartItems).where(and(eq(cartItems.cartId, cart.id), eq(cartItems.skuId, skuId))).limit(1);
+      if (duplicate[0] && duplicate[0].id !== item.item.id) return errorJson(c, 409, 'DUPLICATE_VARIANT', 'That variant is already in your cart.');
+      await actor.db.update(cartItems).set({
+        skuId,
+        unitPriceSnapshot: nextSku.sku.price,
+        compareAtPriceSnapshot: nextSku.sku.compareAtPrice,
+        variantLabelSnapshot: nextSku.label,
+        updatedAt: new Date(),
+      }).where(and(eq(cartItems.id, item.item.id), eq(cartItems.cartId, cart.id)));
+    }
     if (item.stock < quantity) return errorJson(c, 409, 'INSUFFICIENT_STOCK', 'The requested quantity is not available.');
     const now = new Date();
-    await actor.db.update(cartItems).set({ quantity, updatedAt: now }).where(and(eq(cartItems.id, item.item.id), eq(cartItems.cartId, cart.id)));
+    await actor.db.update(cartItems).set({
+      ...(quantity === quantity ? { quantity } : {}),
+      ...(selected === true || selected === false ? { selected } : {}),
+      updatedAt: now,
+    }).where(and(eq(cartItems.id, item.item.id), eq(cartItems.cartId, cart.id)));
     await actor.db.update(carts).set({ updatedAt: now }).where(eq(carts.id, cart.id));
     return c.json({
       success: true,

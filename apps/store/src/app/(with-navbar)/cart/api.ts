@@ -1,7 +1,9 @@
 export type CartItem = {
   id: string;
+  productId: string;
   skuId: string;
   quantity: number;
+  selected: boolean;
   unitPriceSnapshot: number;
   compareAtPriceSnapshot: number | null;
   productNameSnapshot: string;
@@ -9,6 +11,16 @@ export type CartItem = {
   variantLabelSnapshot: string | null;
   imageSnapshot: string | null;
   href: string;
+  variants: CartVariant[];
+};
+
+export type CartVariant = {
+  id: string;
+  price: number;
+  compareAtPrice: number | null;
+  stock: number;
+  options: Record<string, string>;
+  optionImages: Record<string, string | null>;
 };
 
 export type CartData = {
@@ -86,10 +98,10 @@ export function clearCartSummaryCache() {
   summaryCache = null;
 }
 
-export function updateCartItem(itemId: string, quantity: number) {
+export function updateCartItem(itemId: string, update: { quantity?: number; selected?: boolean; skuId?: string }) {
   return request<CartMutateResult>(`/api/store/cart/items/${encodeURIComponent(itemId)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ quantity }),
+    body: JSON.stringify(update),
   });
 }
 

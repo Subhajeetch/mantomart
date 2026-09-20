@@ -50,7 +50,7 @@ storeCheckout.post('/cart', async (c) => {
     const guestId = guestIdFromHeader(c);
     if (guestId) await mergeGuestCartIntoUser(access.db, access.user.id, guestId);
     const cart = await getOrCreateCart(access.db, { userId: access.user.id });
-    const items = await access.db.select().from(cartItems).where(eq(cartItems.cartId, cart.id));
+    const items = await access.db.select().from(cartItems).where(and(eq(cartItems.cartId, cart.id), eq(cartItems.selected, true)));
     if (items.length === 0) return errorJson(c, 400, 'EMPTY_CART', 'Add an item before starting checkout.');
     const now = new Date();
     const session = {
