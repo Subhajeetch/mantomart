@@ -11,8 +11,10 @@
 		"@repo/auth": "workspace:*",
 		"@repo/db": "workspace:*",
 		"axios": "^1.15.0",
+		"country-state-city": "^3.2.1",
 		"drizzle-orm": "^0.45.1",
 		"hono": "^4.12.5",
+		"libphonenumber-js": "^1.13.13",
 		"nanoid": "^5.1.9"
 	},
 	"devDependencies": {

@@ -31,6 +31,7 @@ import storeAccount from "./paths/store/account";
 import storeWishlists from "./paths/store/wishlists";
 import storeCart from "./paths/store/cart";
 import storeCheckout from "./paths/store/checkout";
+import storeAddresses from "./paths/store/addresses";
 
 export {
   aeProduct,
@@ -59,4 +60,5 @@ export {
   storeWishlists,
   storeCart,
   storeCheckout,
+  storeAddresses,
 };

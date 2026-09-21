@@ -8,3 +8,4 @@ export * from './homepage';
 export * from './products';
 export * from './reviews';
 export * from './wishlists';
+export * from './addresses';

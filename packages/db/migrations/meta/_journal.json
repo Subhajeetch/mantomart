@@ -169,6 +169,13 @@
       "when": 1789918880415,
       "tag": "0023_married_dazzler",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1790004348736,
+      "tag": "0024_young_sleepwalker",
+      "breakpoints": true
     }
   ]
 }

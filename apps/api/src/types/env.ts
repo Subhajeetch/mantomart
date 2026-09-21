@@ -63,4 +63,5 @@ export default interface Env {
    * Leave unset in local dev so URLs point at localhost.
    */
   R2_PUBLIC_URL?: string;
+  MAPBOX_ACCESS_TOKEN?: string;
 }
