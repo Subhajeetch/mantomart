@@ -35,10 +35,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import {
-  getCartSummary,
-  cacheCartSummary,
-  type CartSummary,
-} from '@/app/(with-navbar)/cart/api';
+  useCart,
+} from '@/components/cart-context';
 
 import { resolveNavHref } from './api';
 import type { HeaderNavCollection, HeaderNavItem } from './types';
@@ -646,8 +644,8 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
   const { data: session } = useSession();
   const { openNeedLogin } = useNeedLogin();
   const { pulse } = useWishlist();
+  const { summary: cartSummary } = useCart();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [cartSummary, setCartSummary] = useState<CartSummary | null>(null);
   const visibleCollections = useMemo(
     () => normalizeCollections(collections),
     [collections]
@@ -656,35 +654,6 @@ export function StoreNavbar({ collections }: StoreNavbarProps) {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
-
-  // The summary endpoint reflects guest carts too (via the stored X-Guest-Id),
-  // so the badge stays accurate before a shopper signs in.
-  useEffect(() => {
-    let cancelled = false;
-    void getCartSummary()
-      .then((summary) => {
-        if (!cancelled) setCartSummary(summary);
-      })
-      .catch(() => {
-        if (!cancelled) setCartSummary(null);
-      });
-    const refresh = (event: Event) => {
-      const custom = event as CustomEvent<CartSummary>;
-      if (custom.detail) {
-        cacheCartSummary(custom.detail);
-        setCartSummary(custom.detail);
-        return;
-      }
-      void getCartSummary(true)
-        .then(setCartSummary)
-        .catch(() => undefined);
-    };
-    window.addEventListener('cart-updated', refresh);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('cart-updated', refresh);
-    };
-  }, []);
 
   return (
     <>

@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Search, ShoppingCart, UserRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { getCartSummary, type CartSummary } from "@/app/(with-navbar)/cart/api";
+import { useCart } from "@/components/cart-context";
 
 /**
  * Static bottom bar for mobile — links map 1:1 to App Router files:
@@ -38,32 +37,8 @@ function isActivePath(
 
 export function MobileBottomNav() {
   const pathname = usePathname();
-  const [cartCount, setCartCount] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getCartSummary()
-      .then((summary) => {
-        if (!cancelled) setCartCount(summary.itemCount);
-      })
-      .catch(() => undefined);
-
-    const refresh = (event: Event) => {
-      const custom = event as CustomEvent<CartSummary>;
-      if (custom.detail) {
-        setCartCount(custom.detail.itemCount);
-        return;
-      }
-      void getCartSummary(true)
-        .then((summary) => setCartCount(summary.itemCount))
-        .catch(() => undefined);
-    };
-    window.addEventListener("cart-updated", refresh);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("cart-updated", refresh);
-    };
-  }, []);
+  const { summary } = useCart();
+  const cartCount = summary?.itemCount ?? 0;
 
   return (
     <nav

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronUp, Heart, Loader2, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Loader2, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import CustomImage from '@/components/custom-image';
@@ -11,11 +11,11 @@ import { useWishlist } from '@/components/wishlist-context';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatPriceCents, percentOff } from '@/components/homepage/format';
-import { cacheCartSummary, getCart, removeCartItem, startCartCheckout, updateCartItem, type CartData, type CartItem } from './api';
+import { startCartCheckout, type CartItem } from './api';
 import { CartResponsiveDialog, SavingOverlay } from './cart-dialog';
+import { useCart, type CartItemUpdate } from '@/components/cart-context';
 
 const PENDING_CHECKOUT_KEY = 'ragimart.pending-checkout';
 const readPendingCheckout = () => typeof window !== 'undefined' && window.sessionStorage.getItem(PENDING_CHECKOUT_KEY) === '1';
@@ -66,7 +66,7 @@ function CartSkeleton() {
           </div>
           {Array.from({ length: 3 }, (_, index) => (
             <div key={index} className="flex min-w-0 w-full gap-2 overflow-hidden border p-2.5 sm:gap-4 sm:p-3">
-              <Skeleton className="ml-6 size-20 shrink-0 sm:size-32" />
+              <Skeleton className="size-20 shrink-0 sm:size-32" />
               <div className="min-w-0 flex-1 space-y-3 py-0.5">
                 <div className="flex items-start justify-between gap-2">
                   <Skeleton className="h-5 w-1/2 max-w-64" />
@@ -176,25 +176,30 @@ export default function CartPage() {
   const { data: session, isPending: authPending } = useSession();
   const { openNeedLogin } = useNeedLogin();
   const { openPicker } = useWishlist();
-  const [cart, setCart] = useState<CartData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    items,
+    cartLoading,
+    error: cartError,
+    refreshCart,
+    updateItem,
+    removeItem,
+    isItemBusy,
+  } = useCart();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [quantityItem, setQuantityItem] = useState<CartItem | null>(null);
   const [confirmItem, setConfirmItem] = useState<CartItem | null>(null);
+  const [confirmRemoveSelected, setConfirmRemoveSelected] = useState(false);
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
   const pendingCheckedRef = useRef(false);
   const isLoggedIn = Boolean(session?.user?.id);
-  const items = cart?.items ?? [];
   const selectedItems = items.filter((item) => item.selected);
   const allItemsSelected = items.length > 0 && selectedItems.length === items.length;
 
   const load = useCallback(async () => {
-    setLoading(true);
-    try { setCart(await getCart()); setError(''); }
+    try { await refreshCart(); setError(''); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to load your cart.'); }
-    finally { setLoading(false); }
-  }, []);
+  }, [refreshCart]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const refresh = () => void load();
@@ -206,36 +211,31 @@ export default function CartPage() {
   const savings = useMemo(() => selectedItems.reduce((sum, item) => sum + Math.max(0, ((item.compareAtPriceSnapshot ?? item.unitPriceSnapshot) - item.unitPriceSnapshot) * item.quantity), 0), [selectedItems]);
   const mrpTotal = selectedTotal + savings;
 
-  async function update(itemId: string, patch: Parameters<typeof updateCartItem>[1]) {
-    setBusyId(itemId);
+  async function update(itemId: string, patch: CartItemUpdate) {
     try {
-      const result = await updateCartItem(itemId, patch);
-      cacheCartSummary(result.summary);
-      await load();
+      await updateItem(itemId, patch);
+      setError('');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to update the item.'); }
-    finally { setBusyId(null); }
   }
   async function remove(itemId: string) {
-    setBusyId(itemId);
-    try { const result = await removeCartItem(itemId); cacheCartSummary(result.summary); setConfirmItem(null); await load(); }
+    try { await removeItem(itemId); setError(''); setConfirmItem(null); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to remove the item.'); }
-    finally { setBusyId(null); }
+  }
+  async function removeSelected() {
+    if (!selectedItems.length) return;
+    try {
+      for (const item of selectedItems) {
+        await removeItem(item.id);
+      }
+      setError('');
+      setConfirmRemoveSelected(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to remove the selected items.');
+    }
   }
   function moveToWishlist(item: CartItem) {
     openPicker({ id: item.productId, slug: item.productSlugSnapshot, name: item.productNameSnapshot, image: item.imageSnapshot, price: item.unitPriceSnapshot }, () => void remove(item.id));
     setConfirmItem(null);
-  }
-  function moveSelectedToWishlist() {
-    const queue = [...selectedItems];
-    const next = () => {
-      const item = queue.shift();
-      if (!item) return;
-      openPicker(
-        { id: item.productId, slug: item.productSlugSnapshot, name: item.productNameSnapshot, image: item.imageSnapshot, price: item.unitPriceSnapshot },
-        () => { void remove(item.id).then(next); },
-      );
-    };
-    next();
   }
   async function checkout() {
     if (!selectedItems.length) { setError('Select at least one item to continue.'); return; }
@@ -251,11 +251,11 @@ export default function CartPage() {
     }
   }, [isLoggedIn, selectedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (authPending || loading) return <CartSkeleton />;
+  if (authPending || cartLoading) return <CartSkeleton />;
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <h1 className="sr-only">Shopping Bag</h1>
-      {error ? <p className="mb-4 border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+      {error || cartError ? <p className="mb-4 border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error || cartError}</p> : null}
       {!items.length ? (
         <div className="flex min-h-[420px] flex-col items-center justify-center text-center">
           <CustomImage src="/images/empty-cart-mantomart.webp" alt="An empty shopping bag" className="h-48 w-48" width={224} height={224} priority />
@@ -269,44 +269,30 @@ export default function CartPage() {
               <span>{items.length} ITEM{items.length === 1 ? '' : 'S'}</span>
               <div className="flex items-center gap-3">
                 {!allItemsSelected ? <button type="button" className="text-primary" onClick={() => Promise.all(items.map((item) => update(item.id, { selected: true })))}>SELECT ALL</button> : null}
-                <div className="hidden items-center gap-3 sm:flex">
-                  {selectedItems.length ? <button type="button" className="text-muted-foreground" onClick={() => moveSelectedToWishlist()}><Heart className="mr-1 inline size-4" />MOVE TO WISHLIST</button> : null}
-                  {selectedItems.length ? <button type="button" className="text-destructive" onClick={() => Promise.all(selectedItems.map((item) => remove(item.id)))}><Trash2 className="mr-1 inline size-4" />REMOVE SELECTED</button> : null}
-                </div>
                 {selectedItems.length ? (
-                  <Popover>
-                    <PopoverTrigger
-                      render={
-                        <Button type="button" variant="outline" size="icon-sm" className="sm:hidden" aria-label="Cart actions">
-                          <MoreHorizontal />
-                        </Button>
-                      }
-                    />
-                    <PopoverContent align="end" className="w-52 p-1 sm:hidden">
-                      <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => moveSelectedToWishlist()}>
-                        <Heart className="size-4" /> MOVE TO WISHLIST
-                      </button>
-                      <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10" onClick={() => Promise.all(selectedItems.map((item) => remove(item.id)))}>
-                        <Trash2 className="size-4" /> Remove selected
-                      </button>
-                    </PopoverContent>
-                  </Popover>
+                  <button
+                    type="button"
+                    className="text-destructive"
+                    onClick={() => setConfirmRemoveSelected(true)}
+                  >
+                    <Trash2 className="mr-1 inline size-4" />REMOVE SELECTED
+                  </button>
                 ) : null}
               </div>
             </div>
             {items.map((item) => {
               const off = percentOff(item.unitPriceSnapshot, item.compareAtPriceSnapshot);
-              const busy = busyId === item.id;
+              const busy = isItemBusy(item.id);
               return (
                 <article key={item.id} className="relative flex min-w-0 w-full gap-2 overflow-hidden border p-2.5 sm:gap-4 sm:p-3">
-                  <Checkbox checked={item.selected} disabled={busy} onCheckedChange={(checked) => void update(item.id, { selected: checked === true })} aria-label={`Select ${item.productNameSnapshot}`} className="absolute left-3 top-3 z-10 bg-background" />
-                  <div className="ml-6 size-20 shrink-0 bg-muted sm:size-32">
+                  <Checkbox checked={item.selected} disabled={busy} onCheckedChange={(checked) => void update(item.id, { selected: checked === true })} aria-label={`Select ${item.productNameSnapshot}`} className="absolute left-2 top-2 z-10 bg-background text-foreground shadow-[2px_2px_0_0_currentColor]" />
+                  <div className="size-20 shrink-0 bg-muted sm:size-32 outline">
                     {item.imageSnapshot ? <CustomImage src={item.imageSnapshot} alt={item.productNameSnapshot} className="size-full object-cover" width={128} height={128} /> : null}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <h2 className="line-clamp-2 font-medium"><Link href={item.href} className="hover:underline">{item.productNameSnapshot}</Link></h2>
+                        <h2 className="line-clamp-2 text-[14px] font-semibold"><Link href={item.href} className="hover:underline">{item.productNameSnapshot}</Link></h2>
                       </div>
                       <button type="button" className="shrink-0" aria-label="Item actions" disabled={busy} onClick={() => setConfirmItem(item)}><X className="size-5" /></button>
                     </div>
@@ -388,10 +374,92 @@ export default function CartPage() {
       ) : null}
 
       <CartResponsiveDialog open={Boolean(quantityItem)} onOpenChange={(open) => !open && setQuantityItem(null)} title="Choose quantity" description="Select a quantity from 1 to 10.">
-        {quantityItem ? <div className="relative grid grid-cols-5 gap-2"><SavingOverlay saving={busyId === quantityItem.id} />{Array.from({ length: 10 }, (_, index) => index + 1).map((quantity) => <Button key={quantity} type="button" variant={quantityItem.quantity === quantity ? 'default' : 'outline'} disabled={Boolean(busyId)} onClick={async () => { await update(quantityItem.id, { quantity }); setQuantityItem(null); }}>{quantity}{quantityItem.quantity === quantity ? <Check /> : null}</Button>)}</div> : null}
+        {quantityItem ? <div className="relative grid grid-cols-5 gap-2"><SavingOverlay saving={isItemBusy(quantityItem.id)} />{Array.from({ length: 10 }, (_, index) => index + 1).map((quantity) => <Button key={quantity} type="button" variant={quantityItem.quantity === quantity ? 'default' : 'outline'} disabled={isItemBusy(quantityItem.id)} onClick={async () => { await update(quantityItem.id, { quantity }); setQuantityItem(null); }}>{quantity}{quantityItem.quantity === quantity ? <Check /> : null}</Button>)}</div> : null}
       </CartResponsiveDialog>
-      <CartResponsiveDialog open={Boolean(confirmItem)} onOpenChange={(open) => !open && setConfirmItem(null)} title="What would you like to do?" description="Remove this item or save it for later.">
-        {confirmItem ? <div className="relative space-y-2"><SavingOverlay saving={busyId === confirmItem.id} /><Button className="w-full justify-start" variant="outline" onClick={() => void remove(confirmItem.id)}><Trash2 /> Remove from cart</Button><Button className="w-full justify-start" variant="outline" onClick={() => moveToWishlist(confirmItem)}><Heart /> Move to wishlist</Button></div> : null}
+      <CartResponsiveDialog
+        open={Boolean(confirmItem)}
+        onOpenChange={(open) => !open && setConfirmItem(null)}
+        title="Move from Bag"
+        description="Are you sure you want to move this item from bag?"
+        footer={
+          confirmItem ? (
+            <div className="grid grid-cols-2 gap-0 border-t -m-4">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-12 rounded-none border-r text-xs font-semibold text-muted-foreground"
+                disabled={isItemBusy(confirmItem.id)}
+                onClick={() => void remove(confirmItem.id)}
+              >
+                REMOVE
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-12 rounded-none text-xs font-semibold text-primary"
+                disabled={isItemBusy(confirmItem.id)}
+                onClick={() => moveToWishlist(confirmItem)}
+              >
+                MOVE TO WISHLIST
+              </Button>
+            </div>
+          ) : null
+        }
+      >
+        {confirmItem ? (
+          <div className="relative flex items-center gap-3">
+            <SavingOverlay saving={isItemBusy(confirmItem.id)} />
+            <div className="size-16 shrink-0 overflow-hidden bg-muted sm:size-20">
+              {confirmItem.imageSnapshot ? (
+                <CustomImage
+                  src={confirmItem.imageSnapshot}
+                  alt={confirmItem.productNameSnapshot}
+                  width={80}
+                  height={80}
+                  className="size-full"
+                />
+              ) : null}
+            </div>
+            <p className="line-clamp-2 text-sm font-semibold">{confirmItem.productNameSnapshot}</p>
+          </div>
+        ) : null}
+      </CartResponsiveDialog>
+      <CartResponsiveDialog
+        open={confirmRemoveSelected}
+        onOpenChange={setConfirmRemoveSelected}
+        title="Are you sure?"
+        description={
+          <>
+            Are you sure you want to remove{' '}
+            <strong>{selectedItems.length} Products</strong> from your cart?
+          </>
+        }
+        footer={
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              disabled={selectedItems.some((item) => isItemBusy(item.id))}
+              onClick={() => setConfirmRemoveSelected(false)}
+            >
+              CANCEL
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-none"
+              disabled={selectedItems.some((item) => isItemBusy(item.id))}
+              onClick={() => void removeSelected()}
+            >
+              REMOVE SELECTED
+            </Button>
+          </div>
+        }
+      >
+        <div className="relative min-h-2">
+          {selectedItems.some((item) => isItemBusy(item.id)) ? <SavingOverlay saving /> : null}
+        </div>
       </CartResponsiveDialog>
     </main>
   );
