@@ -445,10 +445,15 @@ function AddressesContent() {
       if (!response.ok || !body.data?.address) throw new Error(body.error ?? 'Unable to save your address.');
       setAddresses((current) => {
         const saved = body.data!.address!;
+        const updated = current.map((item) => item.id === saved.id
+          ? saved
+          : saved.isDefault
+            ? { ...item, isDefault: false }
+            : item);
         if (editId) {
-          return current.map((item) => item.id === saved.id ? saved : item);
+          return updated;
         }
-        return [saved, ...current.filter((item) => !saved.isDefault || !item.isDefault)];
+        return [saved, ...updated.filter((item) => item.id !== saved.id)];
       });
       setForm(createEmptyForm());
       updateTab(false);

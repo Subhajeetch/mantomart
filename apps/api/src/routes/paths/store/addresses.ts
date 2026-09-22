@@ -226,11 +226,17 @@ storeAddresses.post('/', async (c) => {
     const now = new Date();
     const id = nanoid(24);
     if (parsed.value.isDefault) {
-      await access.db.update(addresses).set({ isDefault: false, updatedAt: now }).where(and(eq(addresses.userId, access.user.id), eq(addresses.isDefault, true)));
-    }
-    await access.db.insert(addresses).values({ ...parsed.value, id, userId: access.user.id, createdAt: now, updatedAt: now });
-    if (parsed.value.isDefault) {
-      await access.db.update(users).set({ defaultAddressId: id, updatedAt: now }).where(eq(users.id, access.user.id));
+      await access.db.batch([
+        access.db.update(addresses)
+          .set({ isDefault: false, updatedAt: now })
+          .where(and(eq(addresses.userId, access.user.id), eq(addresses.isDefault, true))),
+        access.db.insert(addresses).values({ ...parsed.value, id, userId: access.user.id, createdAt: now, updatedAt: now }),
+        access.db.update(users)
+          .set({ defaultAddressId: id, updatedAt: now })
+          .where(eq(users.id, access.user.id)),
+      ]);
+    } else {
+      await access.db.insert(addresses).values({ ...parsed.value, id, userId: access.user.id, createdAt: now, updatedAt: now });
     }
     const [created] = await access.db.select().from(addresses).where(and(eq(addresses.id, id), eq(addresses.userId, access.user.id))).limit(1);
     return c.json({ success: true, data: { address: serialize(created!) } }, 201);
@@ -254,13 +260,30 @@ storeAddresses.patch('/:id', async (c) => {
     if ('error' in parsed) return errorJson(c, 400, 'INVALID_ADDRESS', parsed.error ?? 'Invalid address.');
     const now = new Date();
     if (parsed.value.isDefault) {
-      await access.db.update(addresses).set({ isDefault: false, updatedAt: now }).where(and(eq(addresses.userId, access.user.id), eq(addresses.isDefault, true)));
-    }
-    await access.db.update(addresses).set({ ...parsed.value, updatedAt: now }).where(and(eq(addresses.id, id), eq(addresses.userId, access.user.id)));
-    if (parsed.value.isDefault) {
-      await access.db.update(users).set({ defaultAddressId: id, updatedAt: now }).where(eq(users.id, access.user.id));
+      await access.db.batch([
+        access.db.update(addresses)
+          .set({ isDefault: false, updatedAt: now })
+          .where(and(eq(addresses.userId, access.user.id), eq(addresses.isDefault, true))),
+        access.db.update(addresses)
+          .set({ ...parsed.value, updatedAt: now })
+          .where(and(eq(addresses.id, id), eq(addresses.userId, access.user.id))),
+        access.db.update(users)
+          .set({ defaultAddressId: id, updatedAt: now })
+          .where(eq(users.id, access.user.id)),
+      ]);
     } else if (existing.isDefault) {
-      await access.db.update(users).set({ defaultAddressId: null, updatedAt: now }).where(eq(users.id, access.user.id));
+      await access.db.batch([
+        access.db.update(addresses)
+          .set({ ...parsed.value, updatedAt: now })
+          .where(and(eq(addresses.id, id), eq(addresses.userId, access.user.id))),
+        access.db.update(users)
+          .set({ defaultAddressId: null, updatedAt: now })
+          .where(eq(users.id, access.user.id)),
+      ]);
+    } else {
+      await access.db.update(addresses)
+        .set({ ...parsed.value, updatedAt: now })
+        .where(and(eq(addresses.id, id), eq(addresses.userId, access.user.id)));
     }
     const [updated] = await access.db.select().from(addresses).where(and(eq(addresses.id, id), eq(addresses.userId, access.user.id))).limit(1);
     return c.json({ success: true, data: { address: serialize(updated!) } });
