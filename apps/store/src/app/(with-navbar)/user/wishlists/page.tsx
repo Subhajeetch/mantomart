@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { useWishlist } from '@/components/wishlist-context';
 import type { WishlistFolder } from '@/components/wishlist-context';
 import { cn } from '@/lib/utils';
+import { requestUserJson } from '@/lib/user-data-cache';
 
 const iconMap = {
   Heart,
@@ -47,10 +48,6 @@ const iconMap = {
   BookHeart,
   Bookmark,
 } as const;
-
-function apiUrl(path: string) {
-  return `${(process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')}${path}`;
-}
 
 export default function WishlistsPage() {
   const { addFolder, folders: contextFolders } = useWishlist();
@@ -68,14 +65,8 @@ export default function WishlistsPage() {
 
   useEffect(() => {
     let mounted = true;
-    void fetch(apiUrl('/api/store/wishlists'), {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to load wishlists.');
-        const body = (await response.json()) as { data?: { folders?: WishlistFolder[] } };
+    void requestUserJson<{ data?: { folders?: WishlistFolder[] } }>('/api/store/wishlists')
+      .then((body) => {
         if (mounted && Array.isArray(body.data?.folders)) setFolders(body.data.folders);
       })
       .catch((cause) => mounted && setError(cause instanceof Error ? cause.message : 'Unable to load wishlists.'))
@@ -90,14 +81,11 @@ export default function WishlistsPage() {
     setSaving(true);
     setError('');
     try {
-      const response = await fetch(apiUrl('/api/store/wishlists/folders'), {
+      const body = await requestUserJson<{ data?: { folder?: WishlistFolder }; error?: string }>('/api/store/wishlists/folders', {
         method: 'POST',
-        credentials: 'include',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), icon }),
       });
-      const body = (await response.json()) as { error?: string; data?: { folder?: WishlistFolder } };
-      if (!response.ok || !body.data?.folder) {
+      if (!body.data?.folder) {
         setError(body.error ?? 'Unable to create folder.');
         return;
       }

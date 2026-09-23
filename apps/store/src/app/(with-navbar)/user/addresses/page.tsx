@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { clearUserDataCache, requestUserJson } from '@/lib/user-data-cache';
 
 type Country = { code: string; name: string; dial: string };
 type Address = {
@@ -223,12 +224,9 @@ function LocationPicker({
         });
         if (query.trim()) searchParams.set('q', query.trim());
         if (stateCode) searchParams.set('state', stateCode);
-        const response = await fetch(`${apiUrl('/api/store/addresses/locations')}?${searchParams}`, {
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-        });
-        const body = await response.json() as { data?: { options?: Array<{ id: string; label: string; code?: string }> }; error?: string };
-        if (!response.ok) throw new Error(body.error ?? 'Location search is unavailable.');
+        const body = await requestUserJson<{ data?: { options?: Array<{ id: string; label: string; code?: string }> } }>(
+          `/api/store/addresses/locations?${searchParams}`
+        );
         setResults(body.data?.options ?? []);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Location search is unavailable.');
@@ -334,9 +332,7 @@ function AddressesContent() {
   const loadAddresses = async () => {
     setLoading(true); setError('');
     try {
-      const response = await fetch(apiUrl('/api/store/addresses'), { credentials: 'include', headers: { Accept: 'application/json' }, cache: 'no-store' });
-      const body = await response.json() as { data?: { addresses?: Address[] }; error?: string };
-      if (!response.ok) throw new Error(body.error ?? 'Unable to load your addresses.');
+      const body = await requestUserJson<{ data?: { addresses?: Address[] } }>('/api/store/addresses');
       setAddresses(body.data?.addresses ?? []);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load your addresses.'); }
     finally { setLoading(false); }
@@ -411,13 +407,10 @@ function AddressesContent() {
       }
       try {
         const searchParams = new URLSearchParams({ q: trimmedQuery, country: country.toLowerCase() });
-        const response = await fetch(`${apiUrl('/api/store/addresses/search')}?${searchParams}`, {
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        });
-        const body = await response.json() as { data?: { results?: SearchResult[] }; error?: string };
-        if (!response.ok) throw new Error(body.error ?? 'Address search is unavailable.');
+        const body = await requestUserJson<{ data?: { results?: SearchResult[] } }>(
+          `/api/store/addresses/search?${searchParams}`,
+          { signal: controller.signal }
+        );
         setResults(body.data?.results ?? []);
       } catch (cause) {
         if (cause instanceof DOMException && cause.name === 'AbortError') return;
@@ -455,6 +448,7 @@ function AddressesContent() {
         }
         return [saved, ...updated.filter((item) => item.id !== saved.id)];
       });
+      clearUserDataCache();
       setForm(createEmptyForm());
       updateTab(false);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save your address.'); }
@@ -468,6 +462,7 @@ function AddressesContent() {
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error ?? 'Unable to delete that address.');
       setAddresses((current) => current.filter((item) => item.id !== deleteTarget.id));
+      clearUserDataCache();
       setDeleteTarget(null);
       if (editId === deleteTarget.id) {
         setForm(createEmptyForm());

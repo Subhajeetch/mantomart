@@ -37,6 +37,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { cn } from '@/lib/utils';
+import { requestUserJson } from '@/lib/user-data-cache';
 import {
   Dialog,
   DialogContent,
@@ -65,10 +66,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from '@/components/ui/drawer';
-
-function apiUrl(path: string) {
-  return `${(process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')}${path}`;
-}
 
 const iconMap = {
   Heart,
@@ -119,22 +116,11 @@ export default function WishlistFolderPage() {
     let mounted = true;
     setLoading(true);
     setError('');
-    void fetch(apiUrl(`/api/store/wishlists/${encodeURIComponent(folderId)}`), {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-    })
-      .then(async (response) => {
-        const body = (await response.json().catch(() => null)) as {
-          data?: { folder?: WishlistFolder };
-          error?: string;
-          message?: string;
-        } | null;
-        if (!response.ok || !body?.data?.folder) {
-          throw new Error(
-            body?.error ?? body?.message ?? 'Unable to load this wishlist.'
-          );
-        }
+    void requestUserJson<{ data?: { folder?: WishlistFolder } }>(
+      `/api/store/wishlists/${encodeURIComponent(folderId)}`
+    )
+      .then((body) => {
+        if (!body.data?.folder) throw new Error('Unable to load this wishlist.');
         if (mounted) {
           setFolder(body.data.folder);
           document.title = `${body.data.folder.name} — ${config.brandName}`;
@@ -185,24 +171,10 @@ export default function WishlistFolderPage() {
     setRequesting(true);
     setError('');
     try {
-      const response = await fetch(
-        apiUrl(
-          `/api/store/wishlists/${encodeURIComponent(folder.id)}/products/${encodeURIComponent(activeProduct.id)}`
-        ),
-        {
-          method: 'DELETE',
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-        }
+      await requestUserJson(
+        `/api/store/wishlists/${encodeURIComponent(folder.id)}/products/${encodeURIComponent(activeProduct.id)}`,
+        { method: 'DELETE' }
       );
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-      } | null;
-      if (!response.ok)
-        throw new Error(
-          body?.error ?? body?.message ?? 'Unable to remove this product.'
-        );
       setFolder((current) =>
         current
           ? {
@@ -235,29 +207,10 @@ export default function WishlistFolderPage() {
     setRequesting(true);
     setError('');
     try {
-      const response = await fetch(
-        apiUrl(
-          `/api/store/wishlists/${encodeURIComponent(folder.id)}/products/${encodeURIComponent(activeProduct.id)}/move`
-        ),
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ targetFolderId }),
-        }
+      await requestUserJson(
+        `/api/store/wishlists/${encodeURIComponent(folder.id)}/products/${encodeURIComponent(activeProduct.id)}/move`,
+        { method: 'POST', body: JSON.stringify({ targetFolderId }) }
       );
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-      } | null;
-      if (!response.ok) {
-        throw new Error(
-          body?.error ?? body?.message ?? 'Unable to update this wishlist.'
-        );
-      }
       setFolder((current) =>
         current
           ? {
@@ -290,28 +243,14 @@ export default function WishlistFolderPage() {
     setSavingEdit(true);
     setError('');
     try {
-      const response = await fetch(
-        apiUrl(`/api/store/wishlists/${encodeURIComponent(folder.id)}`),
+      const body = await requestUserJson<{ data?: { folder?: WishlistFolder } }>(
+        `/api/store/wishlists/${encodeURIComponent(folder.id)}`,
         {
           method: 'PATCH',
-          credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-          },
           body: JSON.stringify({ name: editName.trim(), icon: editIcon }),
         }
       );
-      const body = (await response.json().catch(() => null)) as {
-        data?: { folder?: WishlistFolder };
-        error?: string;
-        message?: string;
-      } | null;
-      if (!response.ok || !body?.data?.folder) {
-        throw new Error(
-          body?.error ?? body?.message ?? 'Unable to update this folder.'
-        );
-      }
+      if (!body.data?.folder) throw new Error('Unable to update this folder.');
       setFolder((current) =>
         current ? { ...current, ...body.data!.folder } : current
       );

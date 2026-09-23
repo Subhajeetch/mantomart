@@ -43,6 +43,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { clearUserDataCache, requestUserJson } from '@/lib/user-data-cache';
 import {
   Drawer,
   DrawerContent,
@@ -120,23 +121,6 @@ type WishlistContextValue = {
 
 const WishlistContext = createContext<WishlistContextValue | null>(null);
 
-function apiUrl(path: string) {
-  const base = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
-  return `${base}${path}`;
-}
-
-async function responseMessage(response: Response, fallback: string) {
-  try {
-    const body = (await response.json()) as {
-      error?: string;
-      message?: string;
-    };
-    return body.error || body.message || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function folderIcon(name: string) {
   return icons[(name in icons ? name : 'Heart') as IconName];
 }
@@ -175,35 +159,29 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     }
     setIsLoading(true);
     try {
-      const response = await fetch(apiUrl('/api/store/wishlists'), {
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
-        cache: 'no-store',
-      });
-      if (response.ok) {
-        const body = (await response.json()) as {
-          data?: { folders?: WishlistFolder[] };
-        };
-        setFolders(
-          Array.isArray(body.data?.folders)
-            ? body.data.folders.map((folder) => ({
-                ...folder,
-                productIds: Array.isArray(folder.productIds)
-                  ? folder.productIds
-                  : folder.products.map((product) => product.id),
-                products: Array.isArray(folder.products) ? folder.products : [],
-              }))
-            : []
-        );
-      }
+      const body = await requestUserJson<{ data?: { folders?: WishlistFolder[] } }>(
+        '/api/store/wishlists'
+      );
+      setFolders(
+        Array.isArray(body.data?.folders)
+          ? body.data.folders.map((folder) => ({
+              ...folder,
+              productIds: Array.isArray(folder.productIds)
+                ? folder.productIds
+                : folder.products.map((product) => product.id),
+              products: Array.isArray(folder.products) ? folder.products : [],
+            }))
+          : []
+      );
     } finally {
       setIsLoading(false);
     }
   }, [session?.user?.id]);
 
   useEffect(() => {
+    if (data !== undefined && !session?.user?.id) clearUserDataCache();
     void loadFolders();
-  }, [loadFolders]);
+  }, [data, loadFolders, session?.user?.id]);
 
   const savedIds = useMemo(
     () => new Set(folders.flatMap((folder) => folder.productIds)),
@@ -256,24 +234,13 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       setRequesting(true);
       setError('');
       try {
-        const response = await fetch(
-          apiUrl(`/api/store/wishlists/${folderId}/products`),
+        await requestUserJson(
+          `/api/store/wishlists/${folderId}/products`,
           {
             method: 'POST',
-            credentials: 'include',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-            },
             body: JSON.stringify({ productId: product.id }),
           }
         );
-        if (!response.ok) {
-          setError(
-            await responseMessage(response, 'Unable to save this product.')
-          );
-          return false;
-        }
         setFolders((current) =>
           current.map((folder) =>
             folder.id === folderId &&
@@ -314,20 +281,10 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       setRequesting(true);
       setError('');
       try {
-        const response = await fetch(
-          apiUrl(`/api/store/wishlists/${folderId}/products/${productId}`),
-          {
-            method: 'DELETE',
-            credentials: 'include',
-            headers: { Accept: 'application/json' },
-          }
+        await requestUserJson(
+          `/api/store/wishlists/${folderId}/products/${productId}`,
+          { method: 'DELETE' }
         );
-        if (!response.ok) {
-          setError(
-            await responseMessage(response, 'Unable to remove this product.')
-          );
-          return false;
-        }
         setFolders((current) =>
           current.map((folder) =>
             folder.id === folderId
@@ -434,24 +391,12 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     setRequesting(true);
     setError('');
     try {
-      const response = await fetch(apiUrl('/api/store/wishlists/folders'), {
+      const body = await requestUserJson<{
+        data?: { folder?: WishlistFolder };
+      }>('/api/store/wishlists/folders', {
         method: 'POST',
-        credentials: 'include',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ name, icon: newFolderIcon }),
       });
-      if (!response.ok) {
-        setError(
-          await responseMessage(response, 'Unable to create this folder.')
-        );
-        return;
-      }
-      const body = (await response.json()) as {
-        data?: { folder?: WishlistFolder };
-      };
       const folder = body.data?.folder;
       if (folder) {
         setFolders((current) => [

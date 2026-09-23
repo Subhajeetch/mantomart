@@ -7,6 +7,7 @@ import { useSession } from "@/lib/auth-client";
 import { UserSidebar } from "./sidebar";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { clearUserDataCache } from "@/lib/user-data-cache";
 
 export default function UserLayout({ children }: { children: React.ReactNode }) {
   const { data, isPending } = useSession();
@@ -34,6 +35,10 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
       router.replace(`/login?returnTo=${encodeURIComponent(pathname)}`);
     }
   }, [isPending, isRoot, mounted, pathname, router, session]);
+
+  useEffect(() => {
+    if (mounted && !isPending && !session) clearUserDataCache();
+  }, [isPending, mounted, session]);
 
   if (!mounted || isPending) {
     return (
