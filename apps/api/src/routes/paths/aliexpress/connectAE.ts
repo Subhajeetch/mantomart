@@ -8,9 +8,12 @@ import {
 } from '@/utils/manageAEauthTokens';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
+  getActor,
+  getDb,
   requireAdminMiddleware,
   requireAnyPermission,
 } from '@/middleware/permission';
+import { adminHasPermission } from '@/utils/permissions';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
@@ -330,28 +333,36 @@ aeAuth.get(
   }
 );
 
-aeAuth.get(
-  '/status',
-  requireAnyPermission(
-    PERMISSIONS.AE_CONNECTION_REFRESH,
-    PERMISSIONS.AE_CONNECTION_MANAGE
-  ),
-  async (c) => {
-    try {
-      let status = await getAliExpressConnectionStatus(c.env);
-      if (status.connected && status.should_refresh) {
-        await refreshAliExpressTokens(c.env);
-        status = await getAliExpressConnectionStatus(c.env);
-      }
-      return c.json({ success: true, ...status });
-    } catch (error) {
-      console.error('Error checking AliExpress connection status:', error);
-
-      const response = parseAliExpressError(error);
-      return c.json(response.body, response.status);
+aeAuth.get('/status', requireAdminMiddleware, async (c) => {
+  try {
+    const actor = getActor(c);
+    const db = getDb(c);
+    const [canManage, canRefresh] = await Promise.all([
+      adminHasPermission(db, actor.id, PERMISSIONS.AE_CONNECTION_MANAGE),
+      adminHasPermission(db, actor.id, PERMISSIONS.AE_CONNECTION_REFRESH),
+    ]);
+    let status = await getAliExpressConnectionStatus(c.env);
+    if (
+      status.connected &&
+      status.should_refresh &&
+      (canManage || canRefresh)
+    ) {
+      await refreshAliExpressTokens(c.env);
+      status = await getAliExpressConnectionStatus(c.env);
     }
+
+    return c.json({
+      success: true,
+      ...status,
+      meta: { canManage, canRefresh },
+    });
+  } catch (error) {
+    console.error('Error checking AliExpress connection status:', error);
+
+    const response = parseAliExpressError(error);
+    return c.json(response.body, response.status);
   }
-);
+});
 
 aeAuth.get(
   '/refresh',

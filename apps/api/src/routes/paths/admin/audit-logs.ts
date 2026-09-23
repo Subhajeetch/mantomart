@@ -123,6 +123,47 @@ function serializeAuditLog(row: typeof auditLogs.$inferSelect) {
   };
 }
 
+function serializeAuditLogSummary(
+  row: Pick<
+    typeof auditLogs.$inferSelect,
+    | 'id'
+    | 'action'
+    | 'category'
+    | 'description'
+    | 'status'
+    | 'severity'
+    | 'actorId'
+    | 'actorName'
+    | 'actorEmail'
+    | 'actorRole'
+    | 'targetType'
+    | 'targetLabel'
+    | 'ipAddress'
+    | 'requestMethod'
+    | 'requestPath'
+    | 'createdAt'
+  >
+) {
+  return {
+    id: row.id,
+    action: row.action,
+    category: row.category,
+    description: row.description,
+    status: row.status,
+    severity: row.severity,
+    actorId: row.actorId,
+    actorName: row.actorName,
+    actorEmail: row.actorEmail,
+    actorRole: row.actorRole,
+    targetType: row.targetType,
+    targetLabel: row.targetLabel,
+    ipAddress: row.ipAddress,
+    requestMethod: row.requestMethod,
+    requestPath: row.requestPath,
+    createdAt: row.createdAt,
+  };
+}
+
 function buildWhere(filters: {
   search: string | null;
   action: string | null;
@@ -266,7 +307,24 @@ async function listAuditLogsHandler(c: AppContext) {
     const [totalResult, rows, capResult] = await Promise.all([
       db.select({ value: count() }).from(auditLogs).where(where),
       db
-        .select()
+        .select({
+          id: auditLogs.id,
+          action: auditLogs.action,
+          category: auditLogs.category,
+          description: auditLogs.description,
+          status: auditLogs.status,
+          severity: auditLogs.severity,
+          actorId: auditLogs.actorId,
+          actorName: auditLogs.actorName,
+          actorEmail: auditLogs.actorEmail,
+          actorRole: auditLogs.actorRole,
+          targetType: auditLogs.targetType,
+          targetLabel: auditLogs.targetLabel,
+          ipAddress: auditLogs.ipAddress,
+          requestMethod: auditLogs.requestMethod,
+          requestPath: auditLogs.requestPath,
+          createdAt: auditLogs.createdAt,
+        })
         .from(auditLogs)
         .where(where)
         .orderBy(orderBy)
@@ -281,7 +339,7 @@ async function listAuditLogsHandler(c: AppContext) {
 
     return c.json({
       success: true,
-      data: rows.map(serializeAuditLog),
+      data: rows.map(serializeAuditLogSummary),
       meta: {
         currentUserId: actor.id,
         currentUserRole: actor.role,

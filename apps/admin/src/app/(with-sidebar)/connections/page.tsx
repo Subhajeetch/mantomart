@@ -77,6 +77,10 @@ type StatusResponse = {
   can_refresh?: boolean;
   refresh_token_obtained_at?: number | null;
   refresh_inactivity_expires_at?: number | null;
+  meta?: {
+    canManage: boolean;
+    canRefresh: boolean;
+  };
 };
 
 type ConnectResponse = {
@@ -267,10 +271,9 @@ async function requestJson<T>(
       ...options,
     });
   } catch {
-    throw new ApiRequestError(
-      'Unable to reach the server. Please try again.',
-      { code: 'NETWORK_ERROR' }
-    );
+    throw new ApiRequestError('Unable to reach the server. Please try again.', {
+      code: 'NETWORK_ERROR',
+    });
   }
 
   let data: unknown = null;
@@ -302,10 +305,10 @@ async function requestJson<T>(
   }
 
   if (body.success === false) {
-    throw new ApiRequestError(
-      body.error || body.message || 'Request failed.',
-      { code: body.code, status: response.status }
-    );
+    throw new ApiRequestError(body.error || body.message || 'Request failed.', {
+      code: body.code,
+      status: response.status,
+    });
   }
 
   return data as T;
@@ -380,8 +383,7 @@ function connectionFromStatus(
     data.is_refresh_expired ??
     (refreshExpiresAt !== null ? refreshExpiresAt <= Date.now() : false);
   const canRefresh =
-    data.can_refresh ??
-    (data.has_refresh_token !== false && !isRefreshExpired);
+    data.can_refresh ?? (data.has_refresh_token !== false && !isRefreshExpired);
 
   return {
     connected: true,
@@ -411,8 +413,7 @@ function connectionFromMutateResponse(
     data.is_refresh_expired ??
     (refreshExpiresAt !== null ? refreshExpiresAt <= Date.now() : false);
   const canRefresh =
-    data.can_refresh ??
-    (previous?.canRefresh !== false && !isRefreshExpired);
+    data.can_refresh ?? (previous?.canRefresh !== false && !isRefreshExpired);
 
   return {
     connected: true,
@@ -842,6 +843,8 @@ function AliExpressCard() {
   const [now, setNow] = useState(Date.now());
   const [oauthRedirecting, setOauthRedirecting] = useState(false);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  const [canRefresh, setCanRefresh] = useState(false);
 
   const isBusy = loading || action !== null || oauthRedirecting;
 
@@ -859,6 +862,8 @@ function AliExpressCard() {
     try {
       const data = await requestJson<StatusResponse>(`${AE_API_BASE}/status`);
       setConnection((current) => connectionFromStatus(data, current));
+      setCanManage(data.meta?.canManage ?? false);
+      setCanRefresh(data.meta?.canRefresh ?? false);
     } catch (err) {
       setError(errorMessage(err, 'Failed to check AliExpress status.'));
     } finally {
@@ -983,7 +988,9 @@ function AliExpressCard() {
 
     if (oauthError) {
       const message =
-        oauthErrorDescription || oauthError || 'AliExpress authorization failed.';
+        oauthErrorDescription ||
+        oauthError ||
+        'AliExpress authorization failed.';
       setError(message);
       toast.error(message);
       cleanOAuthParams();
@@ -1072,11 +1079,13 @@ function AliExpressCard() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   onClick={refreshToken}
-                  disabled={isBusy || !connection.canRefresh}
+                  disabled={isBusy || !connection.canRefresh || !canRefresh}
                   title={
-                    !connection.canRefresh
-                      ? 'Refresh token expired — reconnect required'
-                      : 'Renew the access token using the stored refresh token'
+                    !canRefresh
+                      ? 'You do not have permission to refresh AliExpress'
+                      : !connection.canRefresh
+                        ? 'Refresh token expired — reconnect required'
+                        : 'Renew the access token using the stored refresh token'
                   }
                 >
                   {action === 'refresh' ? (
@@ -1094,8 +1103,12 @@ function AliExpressCard() {
                 <Button
                   variant={showReconnectCta ? 'default' : 'outline'}
                   onClick={startOAuth}
-                  disabled={isBusy}
-                  title="Start a new OAuth flow and replace tokens without disconnecting"
+                  disabled={isBusy || !canManage}
+                  title={
+                    !canManage
+                      ? 'You do not have permission to manage AliExpress'
+                      : 'Start a new OAuth flow and replace tokens without disconnecting'
+                  }
                   className={
                     showReconnectCta
                       ? 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600/30'
@@ -1113,8 +1126,12 @@ function AliExpressCard() {
                 <Button
                   variant="destructive"
                   onClick={() => setDisconnectDialogOpen(true)}
-                  disabled={isBusy}
-                  title="Remove tokens from storage. API calls will fail until reconnected."
+                  disabled={isBusy || !canManage}
+                  title={
+                    !canManage
+                      ? 'You do not have permission to manage AliExpress'
+                      : 'Remove tokens from storage. API calls will fail until reconnected.'
+                  }
                 >
                   <Unplug className="mr-2 h-4 w-4" />
                   Disconnect
@@ -1122,8 +1139,9 @@ function AliExpressCard() {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Reconnect replaces tokens in place — no need to disconnect first.
-                Disconnect only when you intentionally want to remove access.
+                Reconnect replaces tokens in place — no need to disconnect
+                first. Disconnect only when you intentionally want to remove
+                access.
               </p>
             </div>
 
@@ -1143,7 +1161,15 @@ function AliExpressCard() {
               Connect your AliExpress account to enable product sync and order
               APIs. Tokens are stored securely and renewed automatically.
             </p>
-            <Button onClick={startOAuth} disabled={isBusy}>
+            <Button
+              onClick={startOAuth}
+              disabled={isBusy || !canManage}
+              title={
+                !canManage
+                  ? 'You do not have permission to manage AliExpress'
+                  : undefined
+              }
+            >
               {oauthRedirecting || action === 'connect' ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -1174,6 +1200,8 @@ function GoogleAdsCard() {
   const [now, setNow] = useState(Date.now());
   const [connectingRedirect, setConnectingRedirect] = useState(false);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  const [canRefresh, setCanRefresh] = useState(false);
 
   const isBusy = loading || action !== null || connectingRedirect;
 
@@ -1188,6 +1216,8 @@ function GoogleAdsCard() {
         `${GOOGLE_API_BASE}/status`
       );
       setConnection((current) => connectionFromStatus(data, current));
+      setCanManage(data.meta?.canManage ?? false);
+      setCanRefresh(data.meta?.canRefresh ?? false);
     } catch (err) {
       setError(errorMessage(err, 'Failed to check Google Ads status.'));
     } finally {
@@ -1326,7 +1356,9 @@ function GoogleAdsCard() {
 
     if (oauthError) {
       const message =
-        oauthErrorDescription || oauthError || 'Google Ads authorization failed.';
+        oauthErrorDescription ||
+        oauthError ||
+        'Google Ads authorization failed.';
       setError(message);
       toast.error(message);
       cleanOAuthParams();
@@ -1422,11 +1454,13 @@ function GoogleAdsCard() {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={refreshToken}
-                disabled={isBusy || !connection.canRefresh}
+                disabled={isBusy || !connection.canRefresh || !canRefresh}
                 title={
-                  !connection.canRefresh
-                    ? 'Refresh token unavailable — reconnect required'
-                    : undefined
+                  !canRefresh
+                    ? 'You do not have permission to refresh Google Ads'
+                    : !connection.canRefresh
+                      ? 'Refresh token unavailable — reconnect required'
+                      : undefined
                 }
               >
                 {action === 'refresh' ? (
@@ -1440,7 +1474,12 @@ function GoogleAdsCard() {
               <Button
                 variant="destructive"
                 onClick={() => setDisconnectDialogOpen(true)}
-                disabled={isBusy}
+                disabled={isBusy || !canManage}
+                title={
+                  !canManage
+                    ? 'You do not have permission to manage Google Ads'
+                    : undefined
+                }
               >
                 <Unplug className="mr-2 h-4 w-4" />
                 Disconnect
@@ -1450,7 +1489,12 @@ function GoogleAdsCard() {
                 <Button
                   onClick={startConnect}
                   variant="outline"
-                  disabled={isBusy}
+                  disabled={isBusy || !canManage}
+                  title={
+                    !canManage
+                      ? 'You do not have permission to manage Google Ads'
+                      : undefined
+                  }
                 >
                   {connectingRedirect ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1477,7 +1521,15 @@ function GoogleAdsCard() {
             <p className="text-sm text-muted-foreground">
               Connect Google Ads to power keyword research tools.
             </p>
-            <Button onClick={startConnect} disabled={isBusy}>
+            <Button
+              onClick={startConnect}
+              disabled={isBusy || !canManage}
+              title={
+                !canManage
+                  ? 'You do not have permission to manage Google Ads'
+                  : undefined
+              }
+            >
               {connectingRedirect || action === 'connect' ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -1516,9 +1568,7 @@ const IntegrationsPage = () => {
 
       <main className="flex flex-col gap-6 p-4">
         <div className="space-y-1">
-          <h1 className="text-lg font-semibold tracking-tight">
-            Integrations
-          </h1>
+          <h1 className="text-lg font-semibold tracking-tight">Integrations</h1>
           <p className="text-sm text-muted-foreground">
             Manage third-party API connections used by the admin tools.
           </p>

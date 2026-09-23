@@ -15,9 +15,12 @@ import {
 } from '@/utils/callGoogleAds';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
+  getActor,
+  getDb,
   requireAdminMiddleware,
   requireAnyPermission,
 } from '@/middleware/permission';
+import { adminHasPermission } from '@/utils/permissions';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
@@ -324,33 +327,37 @@ googleAuth.get(
   }
 );
 
-googleAuth.get(
-  '/status',
-  requireAnyPermission(
-    PERMISSIONS.GOOGLE_CONNECTION_REFRESH,
-    PERMISSIONS.GOOGLE_CONNECTION_MANAGE,
-    PERMISSIONS.GOOGLE_KEYWORD_RESEARCH
-  ),
-  async (c) => {
-    try {
-      let status = await getGoogleAdsConnectionStatus(c.env);
-      if (
-        status.connected &&
-        status.should_refresh &&
-        status.has_refresh_token
-      ) {
-        await refreshGoogleAdsTokens(c.env);
-        status = await getGoogleAdsConnectionStatus(c.env);
-      }
-      return c.json({ success: true, ...status });
-    } catch (error) {
-      console.error('Error checking Google Ads connection status:', error);
-
-      const response = parseGoogleError(error);
-      return c.json(response.body, response.status);
+googleAuth.get('/status', requireAdminMiddleware, async (c) => {
+  try {
+    const actor = getActor(c);
+    const db = getDb(c);
+    const [canManage, canRefresh] = await Promise.all([
+      adminHasPermission(db, actor.id, PERMISSIONS.GOOGLE_CONNECTION_MANAGE),
+      adminHasPermission(db, actor.id, PERMISSIONS.GOOGLE_CONNECTION_REFRESH),
+    ]);
+    let status = await getGoogleAdsConnectionStatus(c.env);
+    if (
+      status.connected &&
+      status.should_refresh &&
+      status.has_refresh_token &&
+      (canManage || canRefresh)
+    ) {
+      await refreshGoogleAdsTokens(c.env);
+      status = await getGoogleAdsConnectionStatus(c.env);
     }
+
+    return c.json({
+      success: true,
+      ...status,
+      meta: { canManage, canRefresh },
+    });
+  } catch (error) {
+    console.error('Error checking Google Ads connection status:', error);
+
+    const response = parseGoogleError(error);
+    return c.json(response.body, response.status);
   }
-);
+});
 
 googleAuth.get(
   '/accessible-customers',

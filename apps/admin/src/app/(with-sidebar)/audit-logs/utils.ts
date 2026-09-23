@@ -3,7 +3,7 @@
 export type AuditStatus = 'success' | 'failure' | 'partial';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 
-export type AuditLog = {
+export type AuditLogSummary = {
   id: string;
   action: string;
   category: string;
@@ -15,16 +15,21 @@ export type AuditLog = {
   actorEmail: string | null;
   actorRole: string | null;
   targetType: string | null;
-  targetId: string | null;
   targetLabel: string | null;
-  changes: Record<string, unknown> | null;
-  metadata: Record<string, unknown> | null;
   ipAddress: string | null;
-  userAgent: string | null;
   requestMethod: string | null;
   requestPath: string | null;
   createdAt: string;
 };
+
+export type AuditLogDetail = AuditLogSummary & {
+  targetId: string | null;
+  changes: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  userAgent: string | null;
+};
+
+export type AuditLog = AuditLogSummary;
 
 export type ListMeta = {
   currentUserId: string;
