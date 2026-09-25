@@ -46,6 +46,10 @@ export default interface Env {
    * Create at https://aistudio.google.com/apikey
    */
   GOOGLE_AI_STUDIO_API_KEY: string;
+  OPENROUTER_API_KEY?: string;
+  GROQ_API_KEY?: string;
+  MISTRAL_API_KEY?: string;
+  NVIDIA_BUILD_API_KEY?: string;
 
   // ─── Cloudflare R2 (image uploads) ─────────────────────────────────────────
   /**

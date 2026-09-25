@@ -396,7 +396,7 @@ export default function CartPage() {
               <Button
                 type="button"
                 variant="ghost"
-                className="h-12 rounded-none text-xs font-semibold text-primary"
+                className="h-12 rounded-none text-xs font-semibold text-primary hover:text-primary/80"
                 disabled={isItemBusy(confirmItem.id)}
                 onClick={() => moveToWishlist(confirmItem)}
               >

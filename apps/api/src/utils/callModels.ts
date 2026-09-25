@@ -1,6 +1,12 @@
 import config from '@/base.config';
 import type Env from '@/types/env';
 import {
+  AI_DEFAULT_MODEL,
+  AI_PROVIDERS,
+  getAiModelConfig,
+  type AiProviderId,
+} from '@/data-raw/ai-models-config';
+import {
   parseSeoCopyText,
   SeoMarkerStreamParser,
   SeoParseError,
@@ -13,85 +19,24 @@ export {
   type SeoStreamFieldName,
 } from '@/utils/seoMarkerStream';
 
-// ─── Models (text → text only; no image/audio models) ─────────────────────────
-
-export type GeminiModelOption = {
-  id: string;
-  label: string;
-  description: string;
-  tier: 'recommended' | 'balanced' | 'fast' | 'premium' | 'preview';
-};
-
-/**
- * Allowlisted Gemini models for product SEO generation.
- * IDs must match Google AI Studio model codes.
- * @see https://ai.google.dev/gemini-api/docs/models
- */
-export const GEMINI_SEO_MODELS: readonly GeminiModelOption[] = [
-  {
-    id: 'gemini-3.6-flash',
-    label: 'Gemini 3.6 Flash',
-    description: 'Latest balanced model — best default for SEO copy.',
-    tier: 'recommended',
-  },
-  {
-    id: 'gemini-3.5-flash',
-    label: 'Gemini 3.5 Flash',
-    description: 'Strong sustained quality for writing and structure.',
-    tier: 'balanced',
-  },
-  {
-    id: 'gemini-3-flash-preview',
-    label: 'Gemini 3 Flash',
-    description: 'Preview — strong price/performance for bulk copy.',
-    tier: 'preview',
-  },
-  {
-    id: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    description: 'Proven workhorse with solid reasoning and speed.',
-    tier: 'balanced',
-  },
-  {
-    id: 'gemini-3.5-flash-lite',
-    label: 'Gemini 3.5 Flash-Lite',
-    description: 'Fastest 3.5 variant — high throughput, lower cost.',
-    tier: 'fast',
-  },
-  {
-    id: 'gemini-3.1-flash-lite',
-    label: 'Gemini 3.1 Flash-Lite',
-    description: 'Frontier-class lite model at a fraction of the cost.',
-    tier: 'fast',
-  },
-  {
-    id: 'gemini-2.5-flash-lite',
-    label: 'Gemini 2.5 Flash-Lite',
-    description: 'Budget-friendly 2.5 model for high volume.',
-    tier: 'fast',
-  },
-] as const;
-
-const MODEL_IDS = new Set(GEMINI_SEO_MODELS.map((m) => m.id));
-
-export function isAllowedGeminiModel(modelId: string): boolean {
-  return MODEL_IDS.has(modelId);
+export function isAllowedModel(modelId: string): boolean {
+  return Boolean(getAiModelConfig(modelId));
 }
 
-export function getDefaultGeminiModel(): string {
-  return config.GOOGLE_AI_DEFAULT_MODEL;
+export function getDefaultModel(): string {
+  return AI_DEFAULT_MODEL || config.GOOGLE_AI_DEFAULT_MODEL;
 }
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
-export class GeminiConfigError extends Error {
-  constructor(message = 'Google AI Studio API key is not configured.') {
+export class AiConfigError extends Error {
+  constructor(message = 'The selected AI provider is not configured.') {
     super(message);
-    this.name = 'GeminiConfigError';
+    this.name = 'AiConfigError';
   }
 }
 
-export class GeminiApiError extends Error {
+export class AiApiError extends Error {
   status: number;
   code: string;
   publicMessage: string;
@@ -101,9 +46,9 @@ export class GeminiApiError extends Error {
     opts: { status?: number; code?: string; publicMessage?: string } = {}
   ) {
     super(message);
-    this.name = 'GeminiApiError';
+    this.name = 'AiApiError';
     this.status = opts.status ?? 502;
-    this.code = opts.code ?? 'GEMINI_API_ERROR';
+    this.code = opts.code ?? 'AI_API_ERROR';
     this.publicMessage =
       opts.publicMessage ??
       'The AI service returned an error. Please try again.';
@@ -166,12 +111,91 @@ type GeminiResponse = {
   };
 };
 
+type OpenAiResponse = {
+  error?: { message?: string };
+  message?: string;
+  type?: string;
+  code?: string | number;
+  choices?: Array<{
+    delta?: { content?: string | null };
+    message?: { content?: string | null };
+  }>;
+};
+
+const PROVIDER_ENV_KEYS: Record<Exclude<AiProviderId, 'gemini'>, keyof Env> = {
+  openrouter: 'OPENROUTER_API_KEY',
+  groq: 'GROQ_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  nvidia: 'NVIDIA_BUILD_API_KEY',
+};
+
+const PROVIDER_ENDPOINTS: Record<Exclude<AiProviderId, 'gemini'>, string> = {
+  openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  groq: 'https://api.groq.com/openai/v1/chat/completions',
+  mistral: 'https://api.mistral.ai/v1/chat/completions',
+  nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
+};
+
+function providerForModel(modelId: string) {
+  return getAiModelConfig(modelId);
+}
+
+function providerApiKey(
+  env: Env,
+  provider: Exclude<AiProviderId, 'gemini'>
+): string {
+  const key = env[PROVIDER_ENV_KEYS[provider]];
+  if (typeof key !== 'string' || !key.trim()) {
+    throw new AiConfigError(
+      `${provider.toUpperCase()}_API_KEY is missing. Add it as a Worker secret.`
+    );
+  }
+  return key.trim();
+}
+
+function openAiModelId(modelId: string): string {
+  const separator = modelId.indexOf(':');
+  return separator === -1 ? modelId : modelId.slice(separator + 1);
+}
+
+function mapProviderError(
+  provider: Exclude<AiProviderId, 'gemini'>,
+  status: number,
+  body: OpenAiResponse | null
+): AiApiError {
+  const providerLabel =
+    AI_PROVIDERS.find((item) => item.id === provider)?.label ?? provider;
+  const message =
+    body?.error?.message ||
+    body?.message ||
+    `${providerLabel} request failed (${status}).`;
+  let code = 'AI_API_ERROR';
+  let publicMessage = message;
+  if (status === 401 || status === 403) {
+    code = `${provider.toUpperCase()}_AUTH_ERROR`;
+    publicMessage = `${providerLabel} API key is invalid or unauthorized.`;
+  } else if (status === 404) {
+    code = `${provider.toUpperCase()}_MODEL_NOT_FOUND`;
+    publicMessage = 'That model is not available. Pick another model.';
+  } else if (status === 429) {
+    code = `${provider.toUpperCase()}_RATE_LIMITED`;
+    publicMessage = `${providerLabel} rate limit hit. Wait a moment or switch providers.`;
+  } else if (status === 402) {
+    code = `${provider.toUpperCase()}_PAYMENT_REQUIRED`;
+    publicMessage = `${providerLabel} requires an active billing account or available credits.`;
+  } else if (status >= 500) {
+    code = `${provider.toUpperCase()}_UNAVAILABLE`;
+    publicMessage = `${providerLabel} is temporarily unavailable. Try another provider.`;
+  }
+  return new AiApiError(message, { status, code, publicMessage });
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getApiKey(env: Env): string {
   const key = (env.GOOGLE_AI_STUDIO_API_KEY || '').trim();
   if (!key) {
-    throw new GeminiConfigError(
+    throw new AiConfigError(
       'GOOGLE_AI_STUDIO_API_KEY is missing. Add it as a Worker secret.'
     );
   }
@@ -186,7 +210,7 @@ function truncate(text: string, max: number): string {
 
 function throwGeminiParseError(err: unknown): never {
   if (err instanceof SeoParseError) {
-    throw new GeminiApiError(err.message, {
+    throw new AiApiError(err.message, {
       status: 502,
       code: err.code,
       publicMessage: err.publicMessage,
@@ -198,7 +222,7 @@ function throwGeminiParseError(err: unknown): never {
 function mapHttpError(
   status: number,
   body: GeminiResponse | null
-): GeminiApiError {
+): AiApiError {
   const message =
     body?.error?.message ||
     (status === 429
@@ -207,7 +231,7 @@ function mapHttpError(
         ? 'Google AI Studio rejected the API key.'
         : `Google AI Studio request failed (${status}).`);
 
-  let code = 'GEMINI_API_ERROR';
+  let code = 'AI_API_ERROR';
   let publicMessage = message;
 
   if (status === 401 || status === 403) {
@@ -228,7 +252,7 @@ function mapHttpError(
       'Google AI Studio is temporarily unavailable. Please try again shortly.';
   }
 
-  return new GeminiApiError(message, { status, code, publicMessage });
+  return new AiApiError(message, { status, code, publicMessage });
 }
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
@@ -435,8 +459,8 @@ function buildSeoGenerationRequest(
   input: SeoGenerateInput
 ): GeminiRequest {
   const apiKey = getApiKey(env);
-  if (input.model && !isAllowedGeminiModel(input.model)) {
-    throw new GeminiApiError(`Model not allowed: ${input.model}`, {
+  if (input.model && !isAllowedModel(input.model)) {
+    throw new AiApiError(`Model not allowed: ${input.model}`, {
       status: 400,
       code: 'GEMINI_MODEL_NOT_ALLOWED',
       publicMessage: 'Selected model is not supported for SEO generation.',
@@ -444,12 +468,12 @@ function buildSeoGenerationRequest(
   }
 
   const model =
-    input.model && isAllowedGeminiModel(input.model)
+    input.model && isAllowedModel(input.model)
       ? input.model
-      : getDefaultGeminiModel();
+      : getDefaultModel();
 
   if (!input.keyword.trim()) {
-    throw new GeminiApiError('Keyword is required.', {
+    throw new AiApiError('Keyword is required.', {
       status: 400,
       code: 'MISSING_KEYWORD',
       publicMessage: 'Enter at least one focus keyword.',
@@ -480,9 +504,9 @@ function buildSeoGenerationRequest(
   };
 }
 
-function mapNetworkError(err: unknown): GeminiApiError {
+function mapNetworkError(err: unknown): AiApiError {
   const msg = err instanceof Error ? err.message : 'Network error';
-  return new GeminiApiError(msg, {
+  return new AiApiError(msg, {
     status: 503,
     code: 'GEMINI_NETWORK_ERROR',
     publicMessage:
@@ -492,7 +516,7 @@ function mapNetworkError(err: unknown): GeminiApiError {
 
 function inspectGeminiPayload(payload: GeminiResponse): void {
   if (payload.promptFeedback?.blockReason) {
-    throw new GeminiApiError(
+    throw new AiApiError(
       `Prompt blocked: ${payload.promptFeedback.blockReason}`,
       {
         status: 400,
@@ -509,7 +533,7 @@ function inspectGeminiPayload(payload: GeminiResponse): void {
     finish === 'BLOCKLIST' ||
     finish === 'PROHIBITED_CONTENT'
   ) {
-    throw new GeminiApiError(`Generation blocked: ${finish}`, {
+    throw new AiApiError(`Generation blocked: ${finish}`, {
       status: 400,
       code: 'GEMINI_BLOCKED',
       publicMessage:
@@ -571,12 +595,187 @@ function* emitFallbackFields(
   }
 }
 
+async function* generateOpenAiCompatibleSeoCopyStream(
+  env: Env,
+  input: SeoGenerateInput,
+  provider: Exclude<AiProviderId, 'gemini'>,
+  model: string,
+  signal?: AbortSignal
+): AsyncGenerator<SeoStreamEvent> {
+  let apiKey: string;
+  try {
+    apiKey = providerApiKey(env, provider);
+  } catch (error) {
+    if (error instanceof AiConfigError) {
+      yield {
+        type: 'error',
+        code: `${provider.toUpperCase()}_CONFIG_MISSING`,
+        message: error.message,
+      };
+      return;
+    }
+    throw error;
+  }
+
+  yield { type: 'start', model };
+  if (signal?.aborted) return;
+
+  let response: Response;
+  try {
+    response = await fetch(PROVIDER_ENDPOINTS[provider], {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(provider === 'openrouter'
+          ? {
+              'HTTP-Referer': 'https://mantomart.com',
+              'X-Title': 'Mantomart AI SEO',
+            }
+          : {}),
+      },
+      body: JSON.stringify({
+        model: openAiModelId(model),
+        stream: true,
+        temperature: 0.55,
+        max_tokens: 8192,
+        messages: [
+          { role: 'system', content: SYSTEM_INSTRUCTION },
+          { role: 'user', content: buildUserPrompt(input) },
+        ],
+      }),
+      signal,
+    });
+  } catch {
+    if (signal?.aborted) return;
+    yield {
+      type: 'error',
+      code: `${provider.toUpperCase()}_NETWORK_ERROR`,
+      message: 'Could not reach the selected AI provider. Try another provider.',
+    };
+    return;
+  }
+
+  if (!response.ok) {
+    let payload: OpenAiResponse | null = null;
+    try {
+      payload = (await response.json()) as OpenAiResponse;
+    } catch {
+      payload = null;
+    }
+    const mapped = mapProviderError(provider, response.status, payload);
+    yield { type: 'error', code: mapped.code, message: mapped.publicMessage };
+    return;
+  }
+  if (!response.body) {
+    yield {
+      type: 'error',
+      code: `${provider.toUpperCase()}_EMPTY`,
+      message: 'The AI returned no content. Try another provider or model.',
+    };
+    return;
+  }
+
+  const parser = new SeoMarkerStreamParser();
+  let accumulated = '';
+  try {
+    for await (const data of readSseDataLines(response.body, signal)) {
+      if (signal?.aborted) return;
+      let payload: OpenAiResponse;
+      try {
+        payload = JSON.parse(data) as OpenAiResponse;
+      } catch {
+        continue;
+      }
+      if (payload.error) {
+        yield {
+          type: 'error',
+          code: `${provider.toUpperCase()}_API_ERROR`,
+          message: payload.error.message || 'The AI provider returned an error.',
+        };
+        return;
+      }
+      const text = payload.choices?.[0]?.delta?.content || '';
+      if (text) {
+        accumulated += text;
+        yield* emitParserEvents(parser.push(text));
+      }
+    }
+  } catch {
+    if (signal?.aborted) return;
+    yield {
+      type: 'error',
+      code: `${provider.toUpperCase()}_NETWORK_ERROR`,
+      message: 'The AI provider connection ended unexpectedly. Try again.',
+    };
+    return;
+  }
+
+  if (signal?.aborted) return;
+  yield* emitParserEvents(parser.finish());
+  try {
+    const result = finalizeSeoResult(accumulated, model);
+    const closed = new Set<SeoStreamFieldName>(
+      SEO_STREAM_FIELD_ORDER.filter((field) => parser.isClosed(field))
+    );
+    if (!parser.sawMarker) {
+      yield* emitFallbackFields(result, closed);
+    } else {
+      for (const field of SEO_STREAM_FIELD_ORDER) {
+        if (!closed.has(field)) {
+          yield { type: 'field', field, delta: '', done: true };
+        }
+      }
+    }
+    yield { type: 'done', data: result };
+  } catch (error) {
+    if (error instanceof AiApiError || error instanceof SeoParseError) {
+      yield {
+        type: 'error',
+        code: error.code,
+        message: error.publicMessage,
+      };
+      return;
+    }
+    yield {
+      type: 'error',
+      code: `${provider.toUpperCase()}_INVALID_RESPONSE`,
+      message: 'The AI response could not be parsed. Try another provider or model.',
+    };
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function generateProductSeoCopy(
   env: Env,
   input: SeoGenerateInput
 ): Promise<SeoGenerateResult> {
+  const selected = input.model ? providerForModel(input.model) : undefined;
+  if (selected && selected.provider !== 'gemini') {
+    for await (const event of generateOpenAiCompatibleSeoCopyStream(
+      env,
+      input,
+      selected.provider,
+      selected.model.id
+    )) {
+      if (event.type === 'done') return event.data;
+      if (event.type === 'error') {
+        throw new AiApiError(event.message, {
+          status: 502,
+          code: event.code,
+          publicMessage: event.message,
+        });
+      }
+    }
+    throw new AiApiError('The AI provider returned no content.', {
+      status: 502,
+      code: 'AI_EMPTY',
+      publicMessage: 'The AI returned no content. Try another provider or model.',
+    });
+  }
+
   const { apiKey, model, body } = buildSeoGenerationRequest(env, input);
   const url = `${config.GOOGLE_AI_API_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
@@ -606,7 +805,7 @@ export async function generateProductSeoCopy(
   }
 
   if (!payload) {
-    throw new GeminiApiError('Empty AI response.', {
+    throw new AiApiError('Empty AI response.', {
       status: 502,
       code: 'GEMINI_EMPTY',
       publicMessage:
@@ -620,7 +819,7 @@ export async function generateProductSeoCopy(
 }
 
 /**
- * Stream SEO copy as marked text arrives from Gemini.
+ * Stream SEO copy as marked text arrives from the selected provider.
  * Yields `start`, incremental `{ field, delta, done }`, then `done` or `error`.
  */
 export async function* generateProductSeoCopyStream(
@@ -628,11 +827,23 @@ export async function* generateProductSeoCopyStream(
   input: SeoGenerateInput,
   signal?: AbortSignal
 ): AsyncGenerator<SeoStreamEvent> {
+  const selected = input.model ? providerForModel(input.model) : undefined;
+  if (selected && selected.provider !== 'gemini') {
+    yield* generateOpenAiCompatibleSeoCopyStream(
+      env,
+      input,
+      selected.provider,
+      selected.model.id,
+      signal
+    );
+    return;
+  }
+
   let request: GeminiRequest;
   try {
     request = buildSeoGenerationRequest(env, input);
   } catch (err) {
-    if (err instanceof GeminiConfigError) {
+    if (err instanceof AiConfigError) {
       yield {
         type: 'error',
         code: 'GEMINI_CONFIG_MISSING',
@@ -642,7 +853,7 @@ export async function* generateProductSeoCopyStream(
       };
       return;
     }
-    if (err instanceof GeminiApiError) {
+    if (err instanceof AiApiError) {
       yield {
         type: 'error',
         code: err.code,
@@ -737,7 +948,7 @@ export async function* generateProductSeoCopyStream(
       try {
         inspectGeminiPayload(payload);
       } catch (err) {
-        if (err instanceof GeminiApiError) {
+        if (err instanceof AiApiError) {
           yield {
             type: 'error',
             code: err.code,
@@ -756,7 +967,7 @@ export async function* generateProductSeoCopyStream(
     }
   } catch (err) {
     if (signal?.aborted) return;
-    if (err instanceof GeminiApiError) {
+    if (err instanceof AiApiError) {
       yield {
         type: 'error',
         code: err.code,
@@ -794,7 +1005,7 @@ export async function* generateProductSeoCopyStream(
     }
     yield { type: 'done', data: result };
   } catch (err) {
-    if (err instanceof GeminiApiError) {
+    if (err instanceof AiApiError) {
       yield {
         type: 'error',
         code: err.code,

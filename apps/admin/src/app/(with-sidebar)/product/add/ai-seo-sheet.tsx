@@ -19,13 +19,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -34,6 +27,12 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+
+import {
+  AiModelSelector,
+  type AiModelOption,
+  type AiModelProvider,
+} from './ai-model-selector';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,20 +62,13 @@ export type AiSeoProductContext = {
   tags: string[];
 };
 
-type GeminiModelOption = {
-  id: string;
-  label: string;
-  description: string;
-  tier: string;
-  recommended?: boolean;
-};
-
 type ModelsResponse = {
   success: true;
   data: {
     configured: boolean;
     defaultModel: string;
-    models: GeminiModelOption[];
+    providers: AiModelProvider[];
+    models: AiModelOption[];
   };
 };
 
@@ -130,54 +122,6 @@ function waitAnimationFrame(): Promise<void> {
     }
   });
 }
-
-// ─── Fallback models (used if /models fails) ──────────────────────────────────
-
-const FALLBACK_MODELS: GeminiModelOption[] = [
-  {
-    id: 'gemini-3.6-flash',
-    label: 'Gemini 3.6 Flash',
-    description: 'Latest balanced model — best default for SEO copy.',
-    tier: 'recommended',
-    recommended: true,
-  },
-  {
-    id: 'gemini-3.5-flash',
-    label: 'Gemini 3.5 Flash',
-    description: 'Strong sustained quality for writing and structure.',
-    tier: 'balanced',
-  },
-  {
-    id: 'gemini-3.5-flash-lite',
-    label: 'Gemini 3.5 Flash-Lite',
-    description: 'Fastest 3.5 variant — high throughput, lower cost.',
-    tier: 'fast',
-  },
-  {
-    id: 'gemini-3.1-flash-lite',
-    label: 'Gemini 3.1 Flash-Lite',
-    description: 'Frontier-class lite model at a fraction of the cost.',
-    tier: 'fast',
-  },
-  {
-    id: 'gemini-3-flash-preview',
-    label: 'Gemini 3 Flash',
-    description: 'Preview — strong price/performance for bulk copy.',
-    tier: 'preview',
-  },
-  {
-    id: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    description: 'Proven workhorse with solid reasoning and speed.',
-    tier: 'balanced',
-  },
-  {
-    id: 'gemini-2.5-pro',
-    label: 'Gemini 2.5 Pro',
-    description: 'Highest quality in the 2.5 family — slower, richer copy.',
-    tier: 'premium',
-  },
-];
 
 const FIELD_ORDER: readonly FieldKey[] = [
   'title',
@@ -964,8 +908,9 @@ export default function AiSeoSheet({
   const [keyword, setKeyword] = useState('');
   const [secondaryKeywords, setSecondaryKeywords] = useState('');
   const [notes, setNotes] = useState('');
-  const [model, setModel] = useState('gemini-3.6-flash');
-  const [models, setModels] = useState<GeminiModelOption[]>(FALLBACK_MODELS);
+  const [model, setModel] = useState('');
+  const [models, setModels] = useState<AiModelOption[]>([]);
+  const [providers, setProviders] = useState<AiModelProvider[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
 
@@ -1138,19 +1083,22 @@ export default function AiSeoSheet({
     setModelsLoading(true);
     try {
       const res = await requestJson<ModelsResponse>(`${getAiApiBase()}/models`);
-      setModels(res.data.models?.length ? res.data.models : FALLBACK_MODELS);
+      setModels(res.data.models ?? []);
+      setProviders(res.data.providers ?? []);
       setConfigured(Boolean(res.data.configured));
       if (res.data.defaultModel) {
         setModel((prev) => {
           const ids = new Set(res.data.models.map((m) => m.id));
-          if (ids.has(prev)) return prev;
-          return res.data.defaultModel;
+          if (prev && ids.has(prev)) return prev;
+          return ids.has(res.data.defaultModel)
+            ? res.data.defaultModel
+            : res.data.models[0]?.id ?? '';
         });
       }
       modelsLoadedRef.current = true;
     } catch (err) {
-      // Non-fatal — fall back to static list; generate will surface real errors.
-      setModels(FALLBACK_MODELS);
+      setModels([]);
+      setProviders([]);
       setConfigured(null);
       if (err instanceof ApiError && err.code === 'INSUFFICIENT_PERMISSION') {
         setError(err.message);
@@ -1189,6 +1137,10 @@ export default function AiSeoSheet({
   const selectedModelMeta = useMemo(
     () => models.find((m) => m.id === model) ?? null,
     [models, model]
+  );
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.id === selectedModelMeta?.providerId) ?? null,
+    [providers, selectedModelMeta]
   );
 
   const activeField = useMemo(
@@ -1363,7 +1315,10 @@ export default function AiSeoSheet({
       setErrorCode(code);
       toast.error(message);
 
-      if (code === 'GEMINI_CONFIG_MISSING' || code === 'GEMINI_AUTH_ERROR') {
+      if (
+        code?.endsWith('_CONFIG_MISSING') ||
+        code?.endsWith('_AUTH_ERROR')
+      ) {
         setConfigured(false);
       }
     } finally {
@@ -1424,10 +1379,7 @@ export default function AiSeoSheet({
     transitionTo('input', 'back');
   };
 
-  const configMissing =
-    configured === false ||
-    errorCode === 'GEMINI_CONFIG_MISSING' ||
-    errorCode === 'GEMINI_AUTH_ERROR';
+  const configMissing = configured === false;
 
   const permissionDenied = errorCode === 'INSUFFICIENT_PERMISSION';
 
@@ -1453,7 +1405,7 @@ export default function AiSeoSheet({
             AI SEO generator
           </SheetTitle>
           <SheetDescription className="text-xs sm:text-sm sr-only">
-            Write a focus keyword, pick a Gemini model, then generate
+            Write a focus keyword, pick an AI model, then generate
             human-quality title, descriptions, meta tags, and product tags.
             Closing this panel keeps your last results.
           </SheetDescription>
@@ -1485,10 +1437,10 @@ export default function AiSeoSheet({
                 {configMissing ? (
                   <Alert variant="destructive">
                     <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Google AI Studio not configured</AlertTitle>
+                    <AlertTitle>No AI provider configured</AlertTitle>
                     <AlertDescription>
                       {error ||
-                        'Set the GOOGLE_AI_STUDIO_API_KEY Worker secret, then restart the API.'}
+                        'Configure at least one provider API key in the API Worker, then restart the API.'}
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -1549,7 +1501,7 @@ export default function AiSeoSheet({
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="ai-seo-model">Model</Label>
+                      <Label>Model</Label>
                       {selectedModelMeta ? (
                         <Badge
                           variant={tierBadgeVariant(selectedModelMeta.tier)}
@@ -1559,30 +1511,19 @@ export default function AiSeoSheet({
                         </Badge>
                       ) : null}
                     </div>
-                    <Select
-                      value={model}
-                      onValueChange={setModel}
-                      disabled={loading || permissionDenied}
-                    >
-                      <SelectTrigger id="ai-seo-model">
-                        <SelectValue placeholder="Select a Gemini model" />
-                      </SelectTrigger>
-                      <SelectContent className="z-[80]">
-                        {models.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.label}
-                            {m.recommended || m.tier === 'recommended'
-                              ? ' (Recommended)'
-                              : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <AiModelSelector
+                      providers={providers}
+                      selectedModel={selectedModelMeta}
+                      selectedProvider={selectedProvider}
+                      onSelect={(selected) => setModel(selected.id)}
+                      disabled={loading || permissionDenied || modelsLoading}
+                    />
                     {selectedModelMeta ? (
                       <p className="text-xs text-muted-foreground">
                         {selectedModelMeta.description}
                       </p>
                     ) : null}
+
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -1591,6 +1532,7 @@ export default function AiSeoSheet({
                       disabled={
                         loading ||
                         !keyword.trim() ||
+                        !model ||
                         permissionDenied ||
                         phase !== 'idle'
                       }
@@ -1637,7 +1579,7 @@ export default function AiSeoSheet({
                 !error &&
                 !permissionDenied ? (
                   <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                    Enter a focus keyword, choose a Gemini model, then generate
+                    Enter a focus keyword, choose an AI model, then generate
                     organised product title, description, mobile markdown, and
                     SEO metadata. Your product title and description are
                     included for better context.

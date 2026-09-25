@@ -5,14 +5,17 @@ import {
   requireAnyPermission,
 } from '@/middleware/permission';
 import {
-  GEMINI_SEO_MODELS,
-  GeminiApiError,
-  GeminiConfigError,
+  AiApiError,
+  AiConfigError,
   generateProductSeoCopyStream,
-  getDefaultGeminiModel,
-  isAllowedGeminiModel,
+  getDefaultModel,
+  isAllowedModel,
   type SeoGenerateInput,
-} from '@/utils/callGemini';
+} from '@/utils/callModels';
+import {
+  AI_PROVIDERS,
+  type AiProviderId,
+} from '@/data-raw/ai-models-config';
 import { errorJson, type AppEnv, type ErrorStatus } from '@/utils/errorJson';
 
 const aiEndpoints = new Hono<AppEnv>();
@@ -43,17 +46,19 @@ function toErrorStatus(status: number): ErrorStatus {
 }
 
 function mapUpstreamError(error: unknown): MappedError {
-  if (error instanceof GeminiConfigError) {
+  if (error instanceof AiConfigError) {
+    const providerCode =
+      error.message.match(/^([A-Z]+)_API_KEY is missing/)?.[1] || 'GEMINI';
     return {
       status: 503,
-      code: 'GEMINI_CONFIG_MISSING',
+      code: `${providerCode}_CONFIG_MISSING`,
       message:
         error.message ||
-        'Google AI Studio is not configured. Set GOOGLE_AI_STUDIO_API_KEY.',
+        'The selected AI provider is not configured.',
     };
   }
 
-  if (error instanceof GeminiApiError) {
+  if (error instanceof AiApiError) {
     return {
       status: toErrorStatus(error.status),
       code: error.code,
@@ -151,10 +156,10 @@ function parseGenerateBody(body: unknown): {
   }
 
   const modelRaw = asTrimmedString(raw.model, 80);
-  if (modelRaw && !isAllowedGeminiModel(modelRaw)) {
+  if (modelRaw && !isAllowedModel(modelRaw)) {
     return {
       ok: false,
-      code: 'GEMINI_MODEL_NOT_ALLOWED',
+      code: 'AI_MODEL_NOT_ALLOWED',
       message: `Model "${modelRaw}" is not supported. Use GET /api/ai/models for the allowlist.`,
     };
   }
@@ -170,7 +175,7 @@ function parseGenerateBody(body: unknown): {
       raw.secondaryKeywords ?? raw.keywords,
       MAX_SECONDARY
     ),
-    model: modelRaw || getDefaultGeminiModel(),
+    model: modelRaw || getDefaultModel(),
     productTitle: asTrimmedString(
       raw.productTitle ?? raw.title ?? product?.title ?? product?.name,
       MAX_TITLE
@@ -206,30 +211,41 @@ const seoPermissions = requireAnyPermission(
 );
 
 /**
- * List allowlisted Gemini models for the AI SEO generator.
+ * List allowlisted AI models for the AI SEO generator.
  * GET /api/ai/models
  */
 aiEndpoints.get('/models', seoPermissions, (c) => {
-  const configured = Boolean((c.env.GOOGLE_AI_STUDIO_API_KEY || '').trim());
+  const keyNames: Record<AiProviderId, keyof typeof c.env> = {
+    gemini: 'GOOGLE_AI_STUDIO_API_KEY',
+    openrouter: 'OPENROUTER_API_KEY',
+    groq: 'GROQ_API_KEY',
+    mistral: 'MISTRAL_API_KEY',
+    nvidia: 'NVIDIA_BUILD_API_KEY',
+  };
+  const providers = AI_PROVIDERS.map((provider) => ({
+    id: provider.id,
+    label: provider.label,
+    shortLabel: provider.shortLabel,
+    configured: Boolean(String(c.env[keyNames[provider.id]] ?? '').trim()),
+    models: provider.models.map((model) => ({
+      ...model,
+      providerId: provider.id,
+    })),
+  }));
 
   return c.json({
     success: true,
     data: {
-      configured,
-      defaultModel: getDefaultGeminiModel(),
-      models: GEMINI_SEO_MODELS.map((m) => ({
-        id: m.id,
-        label: m.label,
-        description: m.description,
-        tier: m.tier,
-        recommended: m.tier === 'recommended',
-      })),
+      configured: providers.some((provider) => provider.configured),
+      defaultModel: getDefaultModel(),
+      providers,
+      models: providers.flatMap((provider) => provider.models),
     },
   });
 });
 
 /**
- * Stream SEO product copy (title, descriptions, meta, tags) via Gemini.
+ * Stream SEO product copy (title, descriptions, meta, tags) via the selected AI provider.
  * POST /api/ai/seo/generate
  *
  * Validation / auth errors are JSON. A successful start is text/event-stream:
@@ -241,7 +257,7 @@ aiEndpoints.get('/models', seoPermissions, (c) => {
  * Body:
  * {
  *   keyword: string;                 // required focus keyword(s)
- *   model?: string;                  // Gemini model id
+ *   model?: string;                  // model id from GET /api/ai/models
  *   secondaryKeywords?: string;
  *   productTitle?: string;
  *   productDescription?: string;
@@ -262,15 +278,6 @@ aiEndpoints.post('/seo/generate', seoPermissions, async (c) => {
   const parsed = parseGenerateBody(body);
   if (!parsed.ok) {
     return errorJson(c, 400, parsed.code, parsed.message);
-  }
-
-  if (!(c.env.GOOGLE_AI_STUDIO_API_KEY || '').trim()) {
-    return errorJson(
-      c,
-      503,
-      'GEMINI_CONFIG_MISSING',
-      'Google AI Studio is not configured. Set GOOGLE_AI_STUDIO_API_KEY.'
-    );
   }
 
   const encoder = new TextEncoder();
