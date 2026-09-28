@@ -341,7 +341,6 @@ export async function generateKeywordIdeas(
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
-    'developer-token': cfg.developerToken,
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
@@ -353,7 +352,6 @@ export async function generateKeywordIdeas(
   console.log('[GoogleAds] Calling:', url);
   console.log('[GoogleAds] Headers:', {
     Authorization: `Bearer ${accessToken.slice(0, 10)}...`,
-    'developer-token': `${cfg.developerToken.slice(0, 10)}...`,
     'login-customer-id': cfg.loginCustomerId || '(not set)',
   });
   console.log('[GoogleAds] Body:', JSON.stringify(body).slice(0, 500));
@@ -440,7 +438,6 @@ export async function generateKeywordHistoricalMetrics(
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
-    'developer-token': cfg.developerToken,
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
@@ -543,7 +540,6 @@ export async function listAccessibleGoogleAdsCustomers(
       method: 'GET',
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        'developer-token': cfg.developerToken,
         Accept: 'application/json',
       },
     }

@@ -28,8 +28,6 @@ export default interface Env {
    */
   GOOGLE_ADS_CLIENT_ID: string;
   GOOGLE_ADS_CLIENT_SECRET: string;
-  /** Google Ads API developer token (from MCC / API Center). */
-  GOOGLE_ADS_DEVELOPER_TOKEN: string;
   /** Ads customer id (digits only or dashed; dashes stripped). */
   GOOGLE_ADS_CUSTOMER_ID: string;
   /** Optional MCC / manager account id when accessing a client account. */

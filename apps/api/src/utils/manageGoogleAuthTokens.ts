@@ -58,7 +58,6 @@ export type GoogleConnectionStatus = {
 export type GoogleAdsEnv = {
   GOOGLE_ADS_CLIENT_ID: string;
   GOOGLE_ADS_CLIENT_SECRET: string;
-  GOOGLE_ADS_DEVELOPER_TOKEN: string;
   GOOGLE_ADS_CUSTOMER_ID: string;
   GOOGLE_ADS_LOGIN_CUSTOMER_ID?: string;
   GOOGLE_ADS_REDIRECT_URI: string;
@@ -141,7 +140,6 @@ function requireEnvString(
 export function assertGoogleAdsConfig(env: GoogleAdsEnv): {
   clientId: string;
   clientSecret: string;
-  developerToken: string;
   customerId: string;
   loginCustomerId: string | null;
   redirectUri: string;
@@ -152,11 +150,6 @@ export function assertGoogleAdsConfig(env: GoogleAdsEnv): {
       env,
       'GOOGLE_ADS_CLIENT_SECRET',
       'GOOGLE_ADS_CLIENT_SECRET'
-    ),
-    developerToken: requireEnvString(
-      env,
-      'GOOGLE_ADS_DEVELOPER_TOKEN',
-      'GOOGLE_ADS_DEVELOPER_TOKEN'
     ),
     customerId: normalizeCustomerId(
       requireEnvString(env, 'GOOGLE_ADS_CUSTOMER_ID', 'GOOGLE_ADS_CUSTOMER_ID')

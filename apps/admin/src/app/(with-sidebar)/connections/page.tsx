@@ -1200,7 +1200,7 @@ function GoogleAdsCard() {
   const [now, setNow] = useState(Date.now());
   const [connectingRedirect, setConnectingRedirect] = useState(false);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
-  const [canManage, setCanManage] = useState(false);
+  const [canManage, setCanManage] = useState<boolean | null>(null);
   const [canRefresh, setCanRefresh] = useState(false);
 
   const isBusy = loading || action !== null || connectingRedirect;
@@ -1209,21 +1209,37 @@ function GoogleAdsCard() {
     return connection.expiresAt !== null && connection.expiresAt <= now;
   }, [connection.expiresAt, now]);
 
-  const loadStatus = useCallback(async () => {
-    setError(null);
-    try {
-      const data = await requestJson<StatusResponse>(
-        `${GOOGLE_API_BASE}/status`
-      );
-      setConnection((current) => connectionFromStatus(data, current));
-      setCanManage(data.meta?.canManage ?? false);
-      setCanRefresh(data.meta?.canRefresh ?? false);
-    } catch (err) {
-      setError(errorMessage(err, 'Failed to check Google Ads status.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const refreshUrgency = useMemo(
+    () => getExpiryUrgency(connection.refreshExpiresAt, now),
+    [connection.refreshExpiresAt, now]
+  );
+
+  const showReconnectCta =
+    connection.connected &&
+    (connection.isRefreshExpired ||
+      refreshUrgency === 'critical' ||
+      refreshUrgency === 'expired');
+
+  const loadStatus = useCallback(
+    async (options?: { preserveError?: boolean }) => {
+      if (!options?.preserveError) setError(null);
+      try {
+        const data = await requestJson<StatusResponse>(
+          `${GOOGLE_API_BASE}/status`
+        );
+        setConnection((current) => connectionFromStatus(data, current));
+        setCanManage(data.meta?.canManage ?? null);
+        setCanRefresh(data.meta?.canRefresh ?? false);
+      } catch (err) {
+        if (!options?.preserveError) {
+          setError(errorMessage(err, 'Failed to check Google Ads status.'));
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   const connectWithCode = useCallback(
     async (code: string) => {
@@ -1242,7 +1258,7 @@ function GoogleAdsCard() {
         setError(message);
         toast.error(message);
         cleanOAuthParams();
-        await loadStatus();
+        await loadStatus({ preserveError: true });
       } finally {
         setAction(null);
         setLoading(false);
@@ -1289,7 +1305,7 @@ function GoogleAdsCard() {
       const message = errorMessage(err, 'Failed to refresh Google Ads token.');
       setError(message);
       toast.error(message);
-      await loadStatus();
+      await loadStatus({ preserveError: true });
     } finally {
       setAction(null);
     }
@@ -1307,7 +1323,7 @@ function GoogleAdsCard() {
       const message = errorMessage(err, 'Failed to disconnect Google Ads.');
       setError(message);
       toast.error(message);
-      await loadStatus();
+      await loadStatus({ preserveError: true });
     } finally {
       setAction(null);
     }
@@ -1472,11 +1488,34 @@ function GoogleAdsCard() {
               </Button>
 
               <Button
+                onClick={startConnect}
+                variant={showReconnectCta ? 'default' : 'outline'}
+                disabled={isBusy || canManage === false}
+                title={
+                  canManage === false
+                    ? 'You do not have permission to manage Google Ads'
+                    : 'Start a new OAuth flow and replace tokens without disconnecting'
+                }
+                className={
+                  showReconnectCta
+                    ? 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600/30'
+                    : undefined
+                }
+              >
+                {connectingRedirect ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="mr-2 h-4 w-4" />
+                )}
+                Reconnect
+              </Button>
+
+              <Button
                 variant="destructive"
                 onClick={() => setDisconnectDialogOpen(true)}
-                disabled={isBusy || !canManage}
+                disabled={isBusy || canManage === false}
                 title={
-                  !canManage
+                  canManage === false
                     ? 'You do not have permission to manage Google Ads'
                     : undefined
                 }
@@ -1484,26 +1523,6 @@ function GoogleAdsCard() {
                 <Unplug className="mr-2 h-4 w-4" />
                 Disconnect
               </Button>
-
-              {connection.isRefreshExpired || !connection.canRefresh ? (
-                <Button
-                  onClick={startConnect}
-                  variant="outline"
-                  disabled={isBusy || !canManage}
-                  title={
-                    !canManage
-                      ? 'You do not have permission to manage Google Ads'
-                      : undefined
-                  }
-                >
-                  {connectingRedirect ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                  )}
-                  Reconnect
-                </Button>
-              ) : null}
             </div>
 
             <DisconnectConfirmDialog
@@ -1523,9 +1542,9 @@ function GoogleAdsCard() {
             </p>
             <Button
               onClick={startConnect}
-              disabled={isBusy || !canManage}
+              disabled={isBusy || canManage === false}
               title={
-                !canManage
+                canManage === false
                   ? 'You do not have permission to manage Google Ads'
                   : undefined
               }
