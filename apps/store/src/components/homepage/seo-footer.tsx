@@ -21,6 +21,20 @@ export function SeoFooter({ collections }: SeoFooterProps) {
           <p className="mt-2 text-sm text-muted-foreground">
             Shop fashion, electronics, and everyday essentials.
           </p>
+          <nav aria-label="Legal" className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            <Link
+              href="/imp/terms-of-service"
+              className="text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Terms of Service
+            </Link>
+            <Link
+              href="/imp/privacy-policy"
+              className="text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Privacy Policy
+            </Link>
+          </nav>
         </div>
         {safeCollections.slice(0, 3).map((collection) => (
           <nav
