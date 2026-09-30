@@ -65,7 +65,9 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
               <Link href="/user" aria-label="Back to account" className="text-muted-foreground hover:text-foreground">
                 <ArrowLeft className="size-4" />
               </Link>
-              <span className="text-sm font-semibold">{pageNames[pathname] ?? "Account"}</span>
+              <span className="text-sm font-semibold">
+                {pageNames[pathname] ?? (pathname.startsWith("/user/order/") ? "Order details" : "Account")}
+              </span>
             </div>
           )}
           {children}

@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type Env from "@/types/env";
 import { createAuth } from "@repo/auth/server";
 import { createDb } from "@repo/db";
+import { warnIfLiveWebhookMissing } from "@/utils/paypal";
 import sendResetPassEmail from "@/utils/sendResetPassEmail";
 import {
   recordUserLogin,
@@ -37,7 +38,10 @@ import {
   storeWishlists,
   storeCart,
   storeCheckout,
+  storePayPal,
+  storeShipping,
   storeAddresses,
+  storeOrders,
 } from "./routes";
 import config from "./mine.config";
 
@@ -45,6 +49,7 @@ import config from "./mine.config";
 const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", async (c, next) => {
+  warnIfLiveWebhookMissing(c.env);
   // The canonical store/admin origins are ALWAYS allowed, unioned with any
   // additional origins configured via the ORIGINS env var — so cross-origin
   // requests keep working in production even if ORIGINS is set incompletely.
@@ -139,7 +144,10 @@ app.route("/api/store/account", storeAccount);
 app.route("/api/store/wishlists", storeWishlists);
 app.route("/api/store/cart", storeCart);
 app.route("/api/store/checkout", storeCheckout);
+app.route("/api/store/paypal", storePayPal);
+app.route("/api/store/shipping", storeShipping);
 app.route("/api/store/addresses", storeAddresses);
+app.route("/api/store/orders", storeOrders);
 /** Public R2 object serve — used when R2_PUBLIC_URL is unset (local + default prod). */
 app.route("/api/images", storeImages);
 

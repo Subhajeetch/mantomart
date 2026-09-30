@@ -31,7 +31,10 @@ import storeAccount from "./paths/store/account";
 import storeWishlists from "./paths/store/wishlists";
 import storeCart from "./paths/store/cart";
 import storeCheckout from "./paths/store/checkout";
+import storePayPal from "./paths/store/paypal";
+import storeShipping from "./paths/store/shipping";
 import storeAddresses from "./paths/store/addresses";
+import storeOrders from "./paths/store/orders";
 
 export {
   aeProduct,
@@ -60,5 +63,8 @@ export {
   storeWishlists,
   storeCart,
   storeCheckout,
+  storePayPal,
+  storeShipping,
   storeAddresses,
+  storeOrders,
 };

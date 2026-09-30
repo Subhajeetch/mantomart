@@ -10,6 +10,7 @@ import { useNeedLogin } from '@/components/need-login-context';
 import { useWishlist } from '@/components/wishlist-context';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Spinner } from '@/components/ui/spinner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatPriceCents, percentOff } from '@/components/homepage/format';
@@ -318,7 +319,7 @@ export default function CartPage() {
             <Button className="mt-6 w-full rounded-none" disabled={busyId === 'checkout' || !selectedItems.length} onClick={() => {
               if (!isLoggedIn) { setPendingCheckout(); openNeedLogin({ title: 'Log in to continue', description: 'Log in to review your selected items and complete your purchase.', returnTo: window.location.href, onDismiss: clearPendingCheckout }); return; }
               void checkout();
-            }}>{busyId === 'checkout' ? <Loader2 className="animate-spin" /> : 'CHECKOUT'}</Button>
+            }}>{busyId === 'checkout' ? <Spinner /> : 'CHECKOUT'}</Button>
           </aside>
           <aside className="hidden h-fit border p-5 lg:block">
             <h2 className="text-sm font-semibold">PRICE DETAILS</h2>
@@ -329,7 +330,7 @@ export default function CartPage() {
             <Button className="mt-6 w-full rounded-none" disabled={busyId === 'checkout' || !selectedItems.length} onClick={() => {
               if (!isLoggedIn) { setPendingCheckout(); openNeedLogin({ title: 'Log in to continue', description: 'Log in to review your selected items and complete your purchase.', returnTo: window.location.href, onDismiss: clearPendingCheckout }); return; }
               void checkout();
-            }}>{busyId === 'checkout' ? <Loader2 className="animate-spin" /> : 'CHECKOUT'}</Button>
+            }}>{busyId === 'checkout' ? <Spinner /> : 'CHECKOUT'}</Button>
           </aside>
         </div>
       )}
@@ -367,7 +368,7 @@ export default function CartPage() {
               }
               void checkout();
             }}>
-              {busyId === 'checkout' ? <Loader2 className="animate-spin" /> : 'CHECKOUT'}
+              {busyId === 'checkout' ? <Spinner /> : 'CHECKOUT'}
             </Button>
           </div>
         </div>

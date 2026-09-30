@@ -36,6 +36,7 @@ export type EnvContext = Context<{ Bindings: Env }>;
 type ErrorStatus =
   | 400
   | 401
+  | 402
   | 403
   | 404
   | 405
@@ -43,6 +44,7 @@ type ErrorStatus =
   | 410
   | 413
   | 415
+  | 422
   | 429
   | 500
   | 502

@@ -66,8 +66,10 @@ export async function callAE(
       'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
     },
     body,
+    signal: AbortSignal.timeout(15_000),
   });
 
+  if (!res.ok) throw new Error(`AliExpress request failed with HTTP ${res.status}.`);
   const data = await res.json();
   // console.log("response:", data);
   return data;

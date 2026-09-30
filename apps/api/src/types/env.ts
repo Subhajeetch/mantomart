@@ -4,7 +4,7 @@ export default interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   /**
-   * Signs OAuth state + session cookies. Required in production.
+   * Signs OAuth state, session cookies, and checkout shipping quotes. Required in production.
    * Must be ≥32 random chars. Pass via wrangler secret / .dev.vars —
    * better-auth does not read CF bindings from process.env.
    */
@@ -21,6 +21,13 @@ export default interface Env {
   DOMAIN?: string;
   AE_APP_KEY: string;
   AE_APP_SECRET: string;
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_CLIENT_SECRET?: string;
+  /** Webhook ID from the PayPal app configuration. */
+  PAYPAL_WEBHOOK_ID?: string;
+  PAYPAL_ENVIRONMENT?: 'sandbox' | 'live';
+  /** Local sandbox-only opt-in for PayPal negative-testing responses. */
+  PAYPAL_ENABLE_NEGATIVE_TESTING?: string;
 
   /**
    * Google Ads / Keyword Planner OAuth + API credentials.
