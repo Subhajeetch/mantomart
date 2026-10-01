@@ -31,6 +31,7 @@ type ItemShippingResult = {
   };
   options: ShippingOption[];
   error?: string;
+  retryable?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -124,8 +125,8 @@ storeShipping.post('/:sessionId/quotes', async (c) => {
     return errorJson(c, 503, 'CHECKOUT_SECURITY_UNAVAILABLE', 'Checkout is temporarily unavailable due to a server configuration issue.');
   }
   try {
-    const input = await c.req.json<unknown>();
-    const addressId = asRecord(input)?.addressId;
+    const input = asRecord(await c.req.json<unknown>());
+    const addressId = input?.addressId;
     if (typeof addressId !== 'string' || !addressId.trim() || addressId.length > 128) {
       return errorJson(c, 400, 'INVALID_ADDRESS', 'Select a valid delivery address.');
     }
@@ -142,7 +143,21 @@ storeShipping.post('/:sessionId/quotes', async (c) => {
     )).limit(1);
     if (!address) return errorJson(c, 404, 'ADDRESS_NOT_FOUND', 'That delivery address was not found.');
 
-    const items = await access.db.select().from(checkoutSessionItems).where(eq(checkoutSessionItems.sessionId, session.id));
+    const checkoutItems = await access.db.select().from(checkoutSessionItems).where(eq(checkoutSessionItems.sessionId, session.id));
+    let items = checkoutItems;
+    if (input?.itemIds !== undefined) {
+      const requestedItemIds = input.itemIds;
+      if (!Array.isArray(requestedItemIds) || requestedItemIds.length === 0 || requestedItemIds.length > 30 ||
+        requestedItemIds.some((itemId) => typeof itemId !== 'string' || !itemId.trim()) ||
+        new Set(requestedItemIds).size !== requestedItemIds.length) {
+        return errorJson(c, 400, 'INVALID_SHIPPING_ITEMS', 'Select valid items for shipping quotes.');
+      }
+      const requestedIds = new Set(requestedItemIds);
+      items = checkoutItems.filter((item) => requestedIds.has(item.id));
+      if (items.length !== requestedItemIds.length) {
+        return errorJson(c, 400, 'INVALID_SHIPPING_ITEMS', 'Select valid items for shipping quotes.');
+      }
+    }
     if (items.length === 0 || items.length > 30) return errorJson(c, 409, 'INVALID_CHECKOUT_ITEMS', 'This checkout cannot be shipped.');
     let aliExpressSession: string;
     try {
@@ -165,6 +180,7 @@ storeShipping.post('/:sessionId/quotes', async (c) => {
             item,
             options: [],
             error: 'Shipping is unavailable for this item.',
+            retryable: false,
           };
         }
         let response: unknown;
@@ -190,6 +206,7 @@ storeShipping.post('/:sessionId/quotes', async (c) => {
             item,
             options: [],
             error: 'AliExpress could not calculate shipping for this item right now. Try again shortly.',
+            retryable: true,
           };
         }
 
@@ -202,12 +219,13 @@ storeShipping.post('/:sessionId/quotes', async (c) => {
             code,
             requestId,
           });
-          const error = code === '505' || result?.msg === 'DELIVERY_NOT_AVAILABLE_TO_YOUR_ADDRESS'
+          const addressUnavailable = code === '505' || result?.msg === 'DELIVERY_NOT_AVAILABLE_TO_YOUR_ADDRESS';
+          const error = addressUnavailable
             ? "AliExpress can't deliver this item to your address. Try another delivery address."
             : code === '506' || result?.msg === 'DELIVERY_SERVICE_EXCEPTION'
               ? 'AliExpress could not calculate shipping for this item right now. Try again shortly or use another address.'
               : 'AliExpress could not provide shipping options for this item. Please try again.';
-          return { item, options: [], error };
+          return { item, options: [], error, retryable: !addressUnavailable };
         }
 
         const options = parseShippingOptions(result);
@@ -216,6 +234,7 @@ storeShipping.post('/:sessionId/quotes', async (c) => {
             item,
             options,
             error: 'No delivery services are available for this item and address.',
+            retryable: false,
           };
         }
         return { item, options };
@@ -225,10 +244,10 @@ storeShipping.post('/:sessionId/quotes', async (c) => {
 
     const expiresAt = Date.now() + QUOTE_TTL_MS;
     const addressFingerprint = await fingerprintShippingAddress(address);
-    const result = await Promise.all(rows.map(async ({ item, options, error }) => ({
+    const result = await Promise.all(rows.map(async ({ item, options, error, retryable }) => ({
       itemId: item.id,
       productName: item.productNameSnapshot,
-      ...(error ? { error } : {}),
+      ...(error ? { error, retryable: retryable === true } : {}),
       options: await Promise.all(options.map(async (option) => {
         const payload: ShippingQuotePayload = {
           sessionId: session.id,

@@ -6,7 +6,9 @@ import Link from 'next/link';
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleAlert,
   CreditCard,
   LockKeyhole,
@@ -15,9 +17,12 @@ import {
   ArrowRight,
   ShieldCheck,
   Truck,
+  Plus,
+  ShoppingBag,
 } from 'lucide-react';
 import { getCountries, getCountryCallingCode } from 'libphonenumber-js';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import CustomImage from '@/components/custom-image';
 import { Input } from '@/components/ui/input';
 import { PayPalButtons, type PayPalActions } from '@/components/paypal-buttons';
@@ -96,7 +101,12 @@ type ApiResult<T> = { success: true; data: T } | {
   retryable?: boolean;
 };
 class ApiRequestError extends Error {
-  constructor(message: string, readonly code?: string, readonly retryable = false) {
+  constructor(
+    message: string,
+    readonly code?: string,
+    readonly retryable = false,
+    readonly status?: number,
+  ) {
     super(message);
   }
 }
@@ -104,6 +114,11 @@ type PayPalConfig = {
   clientId: string;
   environment: 'sandbox' | 'live';
   currency: 'USD';
+};
+type PayPalCaptureResult = {
+  orderId: string;
+  status: string;
+  paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
 };
 type Step = 1 | 2;
 type BusyAction = 'load' | 'quotes' | 'advance' | 'payment' | 'capture' | null;
@@ -202,6 +217,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       result && 'error' in result ? result.error ?? 'Request failed.' : 'Request failed.',
       result && 'code' in result ? result.code : undefined,
       result && 'retryable' in result ? result.retryable === true : false,
+      response.status,
     );
   }
   return result.data;
@@ -211,6 +227,18 @@ const money = (cents: number) => new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
 }).format(cents / 100);
+
+function isRetryableShippingError(reason: unknown) {
+  if (reason instanceof ApiRequestError) {
+    if (reason.code === 'CHECKOUT_SECURITY_UNAVAILABLE') return false;
+    return reason.retryable || reason.status === 429 || (reason.status !== undefined && reason.status >= 500);
+  }
+  return reason instanceof TypeError;
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+}
 
 function formatAddress(address: Partial<Address> | Record<string, unknown>) {
   const fields = [
@@ -226,9 +254,10 @@ function formatAddress(address: Partial<Address> | Record<string, unknown>) {
   return fields;
 }
 
-function StepMarker({ number, label, active, complete }: {
+function StepMarker({ number, label, icon, active, complete }: {
   number: number;
   label: string;
+  icon: React.ReactNode;
   active: boolean;
   complete: boolean;
 }) {
@@ -238,7 +267,8 @@ function StepMarker({ number, label, active, complete }: {
         complete ? 'border-emerald-600 bg-emerald-600 text-white' :
           active ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background text-muted-foreground'
       }`}>
-        {complete ? <Check className="size-4" /> : number}
+        <span className="sr-only">{number}</span>
+        {icon}
       </span>
       <span className={`truncate text-sm font-medium ${active || complete ? 'text-foreground' : 'text-muted-foreground'}`}>
         {label}
@@ -267,16 +297,23 @@ export default function CheckoutPage() {
   const [checkout, setCheckout] = useState<CheckoutData | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState('');
+  const [addressLoadError, setAddressLoadError] = useState('');
   const [addressForm, setAddressForm] = useState<AddressForm>(emptyAddress);
   const [useNewAddress, setUseNewAddress] = useState(false);
   const [quotes, setQuotes] = useState<Record<string, Quote[]>>({});
+  const [quotesLoaded, setQuotesLoaded] = useState(false);
   const [shippingErrors, setShippingErrors] = useState<Record<string, string>>({});
+  const [retryableShippingErrors, setRetryableShippingErrors] = useState<Record<string, boolean>>({});
+  const [loadingShippingItemIds, setLoadingShippingItemIds] = useState<string[]>([]);
+  const [shippingRequestError, setShippingRequestError] = useState('');
   const [selectedQuotes, setSelectedQuotes] = useState<Record<string, string>>({});
+  const [openAccordion, setOpenAccordion] = useState('address');
   const [step, setStep] = useState<Step>(1);
   const [busy, setBusy] = useState<BusyAction>('load');
   const [pageError, setPageError] = useState('');
   const [paymentError, setPaymentError] = useState('');
   const [paymentCancelled, setPaymentCancelled] = useState(false);
+  const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
   const [paypalConfig, setPayPalConfig] = useState<PayPalConfig | null>(null);
   const [paypalConfigLoading, setPayPalConfigLoading] = useState(false);
   const [paypalConfigAttempt, setPayPalConfigAttempt] = useState(0);
@@ -284,6 +321,13 @@ export default function CheckoutPage() {
   const paymentOperationInProgress = useRef(false);
   const captureInProgress = useRef(false);
   const paypalFailureHandled = useRef(false);
+  const pendingPayPalCapture = useRef<PayPalCaptureResult | null>(null);
+  const quoteRequestSequence = useRef(0);
+  const checkoutItemsRef = useRef<CheckoutItem[]>([]);
+
+  useEffect(() => {
+    checkoutItemsRef.current = checkout?.items ?? [];
+  }, [checkout?.items]);
 
   useEffect(() => {
     const isPaid = checkout?.paymentStatus === 'paid' ||
@@ -308,6 +352,121 @@ export default function CheckoutPage() {
   }, [quotes, selectedQuotes]);
   const estimatedTotal = (checkout?.subtotal ?? 0) + shippingTotal;
 
+  const fetchShippingOptions = useCallback(async (
+    addressId: string,
+    options?: { showLoading?: boolean; preferredQuotes?: Record<string, string>; itemIds?: string[] },
+  ) => {
+    const sequence = ++quoteRequestSequence.current;
+    const showLoading = options?.showLoading ?? true;
+    const itemIds = options?.itemIds ?? checkoutItemsRef.current.map((item) => item.id);
+    const maxAttempts = 4;
+    const loadedQuotes: Record<string, Quote[]> = {};
+    const selectedQuoteIds: Record<string, string> = {};
+    const itemErrors: Record<string, string> = {};
+    const retryableItemErrors: Record<string, boolean> = {};
+    let pendingItemIds = itemIds;
+    let requestErrorOccurred = false;
+    if (showLoading) setBusy('quotes');
+    setPageError('');
+    setShippingRequestError('');
+    setQuotes({});
+    setQuotesLoaded(false);
+    setShippingErrors({});
+    setRetryableShippingErrors({});
+    setLoadingShippingItemIds(itemIds);
+    setSelectedQuotes({});
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      if (sequence !== quoteRequestSequence.current) return;
+      if (attempt > 1) {
+        setLoadingShippingItemIds(pendingItemIds.length ? pendingItemIds : itemIds);
+        await wait(Math.min(300 * 2 ** (attempt - 2), 1200));
+        if (sequence !== quoteRequestSequence.current) return;
+      }
+      try {
+        const attemptItemIds = attempt === 1 ? itemIds : pendingItemIds;
+        const result = await request<{
+          items: Array<{ itemId: string; options: Quote[]; error?: string; retryable?: boolean }>;
+        }>(
+          `/api/store/shipping/${encodeURIComponent(sessionId)}/quotes`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              addressId,
+              ...(attempt > 1 ? { itemIds: attemptItemIds } : {}),
+            }),
+          },
+        );
+        if (sequence !== quoteRequestSequence.current) return;
+        if (!Array.isArray(result.items)) {
+          throw new ApiRequestError('Shipping options could not be loaded. Please try again.', undefined, true);
+        }
+
+        const nextPendingItemIds: string[] = [];
+        for (const itemId of attemptItemIds) {
+          const itemResult = result.items.find((entry) => entry.itemId === itemId);
+          if (!itemResult) {
+            nextPendingItemIds.push(itemId);
+            continue;
+          }
+          const firstOption = itemResult.options[0];
+          if (firstOption) {
+            loadedQuotes[itemId] = itemResult.options;
+            const preferredId = options?.preferredQuotes?.[itemId] ?? selectedQuoteIds[itemId];
+            selectedQuoteIds[itemId] = itemResult.options.find((quote) => quote.quoteId === preferredId)?.quoteId
+              ?? firstOption.quoteId;
+            delete itemErrors[itemId];
+            delete retryableItemErrors[itemId];
+          } else if (itemResult.retryable) {
+            nextPendingItemIds.push(itemId);
+            if (itemResult.error) itemErrors[itemId] = itemResult.error;
+            retryableItemErrors[itemId] = true;
+          } else {
+            itemErrors[itemId] = itemResult.error ?? 'No shipping options are currently available for this item.';
+            retryableItemErrors[itemId] = false;
+          }
+        }
+        pendingItemIds = nextPendingItemIds;
+        setQuotes({ ...loadedQuotes });
+        setSelectedQuotes({ ...selectedQuoteIds });
+        setShippingErrors({ ...itemErrors });
+        setRetryableShippingErrors({ ...retryableItemErrors });
+        setLoadingShippingItemIds(pendingItemIds);
+        if (pendingItemIds.length === 0) break;
+        if (attempt === maxAttempts) {
+          for (const itemId of pendingItemIds) {
+            itemErrors[itemId] ??= 'Shipping options could not be loaded. Please try again.';
+            retryableItemErrors[itemId] = true;
+          }
+          setShippingErrors({ ...itemErrors });
+          setRetryableShippingErrors({ ...retryableItemErrors });
+          break;
+        }
+      } catch (reason) {
+        if (sequence !== quoteRequestSequence.current) return;
+        if (!isRetryableShippingError(reason) || attempt === maxAttempts) {
+          const message = reason instanceof Error ? reason.message : 'Unable to calculate shipping.';
+          requestErrorOccurred = true;
+          setShippingRequestError(message);
+          toast.add({ title: 'Could not calculate shipping', description: message, type: 'error' });
+          break;
+        }
+        setLoadingShippingItemIds(pendingItemIds);
+      }
+    }
+    if (sequence === quoteRequestSequence.current) {
+      setQuotesLoaded(!requestErrorOccurred);
+      setLoadingShippingItemIds([]);
+      if (Object.keys(itemErrors).length) {
+        toast.add({
+          title: 'Some items need another delivery option',
+          description: `${Object.keys(itemErrors).length} item${Object.keys(itemErrors).length === 1 ? '' : 's'} could not be quoted. See the message under each item.`,
+          type: 'warning',
+        });
+      }
+      if (showLoading) setBusy(null);
+    }
+  }, [sessionId]);
+
   const load = useCallback(async () => {
     setBusy('load');
     setPageError('');
@@ -322,13 +481,30 @@ export default function CheckoutPage() {
       else if (data.shipping?.length) setStep(2);
       try {
         const addressResponse = await request<{ addresses: Address[] }>('/api/store/addresses');
+        if (!Array.isArray(addressResponse.addresses)) throw new Error('Saved addresses could not be loaded.');
         setAddresses(addressResponse.addresses);
-        const defaultAddress = addressResponse.addresses.find((address) => address.isDefault) ?? addressResponse.addresses[0];
-        if (defaultAddress) setSelectedAddressId(defaultAddress.id);
-        const savedAddress = addressResponse.addresses.find((address) => address.id === data.addressId);
-        if (savedAddress) setSelectedAddressId(savedAddress.id);
+        setAddressLoadError('');
+        const savedCheckoutAddress = addressResponse.addresses.find((address) => address.id === data.addressId);
+        const selected = (data.shipping?.length ? savedCheckoutAddress : null)
+          ?? addressResponse.addresses.find((address) => address.isDefault)
+          ?? null;
+        setSelectedAddressId(selected?.id ?? '');
+        setUseNewAddress(addressResponse.addresses.length === 0);
+        setOpenAccordion(selected ? 'shipping' : 'address');
+        if (selected && data.status !== 'completed' && !data.orderId) {
+          await fetchShippingOptions(selected.id, {
+            showLoading: false,
+            preferredQuotes: Object.fromEntries((data.shipping ?? []).map((quote) => [quote.itemId, quote.quoteId])),
+            itemIds: data.items.map((item) => item.id),
+          });
+        }
       } catch (reason) {
         const message = reason instanceof Error ? reason.message : 'Unable to load saved addresses.';
+        setAddresses([]);
+        setSelectedAddressId('');
+        setOpenAccordion('address');
+        setAddressLoadError(message);
+        setUseNewAddress(true);
         toast.add({ title: 'Saved addresses unavailable', description: `${message} You can still add a new address.`, type: 'warning' });
       }
     } catch (reason) {
@@ -338,7 +514,7 @@ export default function CheckoutPage() {
     } finally {
       setBusy(null);
     }
-  }, [sessionId]);
+  }, [fetchShippingOptions, sessionId]);
 
   useEffect(() => {
     if (sessionId) void load();
@@ -370,53 +546,25 @@ export default function CheckoutPage() {
     };
   }, [checkout?.orderId, checkout?.status, paypalConfigAttempt, sessionId, step]);
 
-  async function getQuotes() {
+  async function saveNewAddressAndGetQuotes() {
     setBusy('quotes');
     setPageError('');
-    setPaymentError('');
-    setQuotes({});
-    setShippingErrors({});
-    setSelectedQuotes({});
     try {
-      let addressId = selectedAddressId;
-      if (useNewAddress) {
-        const created = await request<{ address: Address }>('/api/store/addresses', {
-          method: 'POST',
-          body: JSON.stringify({ ...addressForm, isDefault: false }),
-        });
-        addressId = created.address.id;
-        setAddresses((current) => [created.address, ...current]);
-        setSelectedAddressId(addressId);
-        setUseNewAddress(false);
-        toast.add({ title: 'Address saved', description: 'Your delivery address is ready.', type: 'success' });
-      }
-      if (!addressId) throw new Error('Choose or add a delivery address to continue.');
-      const result = await request<{ items: Array<{ itemId: string; options: Quote[]; error?: string }> }>(
-        `/api/store/shipping/${encodeURIComponent(sessionId)}/quotes`,
-        { method: 'POST', body: JSON.stringify({ addressId }) },
-      );
-      const byItem = Object.fromEntries(result.items.map((item) => [item.itemId, item.options]));
-      const errorsByItem = Object.fromEntries(
-        result.items.flatMap((item) => item.error ? [[item.itemId, item.error] as const] : []),
-      );
-      const defaultSelections = Object.fromEntries(result.items.map((item) => [item.itemId, item.options[0]?.quoteId ?? '']));
-      setQuotes(byItem);
-      setShippingErrors(errorsByItem);
-      setSelectedQuotes(defaultSelections);
-      setSelectedAddressId(addressId);
-      if (Object.keys(errorsByItem).length) {
-        toast.add({
-          title: 'Some items need another delivery option',
-          description: `${Object.keys(errorsByItem).length} item${Object.keys(errorsByItem).length === 1 ? '' : 's'} could not be quoted. See the message under each item.`,
-          type: 'warning',
-        });
-      } else {
-        toast.add({ title: 'Shipping options ready', description: 'Choose the delivery service for each item.', type: 'success' });
-      }
+      const created = await request<{ address: Address }>('/api/store/addresses', {
+        method: 'POST',
+        body: JSON.stringify({ ...addressForm, isDefault: false }),
+      });
+      setAddresses((current) => [created.address, ...current]);
+      setSelectedAddressId(created.address.id);
+      setUseNewAddress(false);
+      setOpenAccordion('shipping');
+      setPageError('');
+      toast.add({ title: 'Address saved', description: 'Your delivery address is ready.', type: 'success' });
+      await fetchShippingOptions(created.address.id);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Unable to calculate shipping.';
       setPageError(message);
-      toast.add({ title: 'Could not calculate shipping', description: message, type: 'error' });
+      toast.add({ title: 'Could not save address', description: message, type: 'error' });
     } finally {
       setBusy(null);
     }
@@ -447,16 +595,19 @@ export default function CheckoutPage() {
         total: current.subtotal + saved.shippingTotal,
       } : current);
       setStep(2);
-      toast.add({ title: 'Delivery details saved', description: 'You are ready for secure payment.', type: 'success' });
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Unable to continue to payment.';
       setPageError(message);
       toast.add({ title: 'Could not continue', description: message, type: 'error' });
       if (message.toLowerCase().includes('shipping')) {
         setStep(1);
+        setOpenAccordion('shipping');
         setQuotes({});
+        setQuotesLoaded(false);
         setShippingErrors({});
+        setRetryableShippingErrors({});
         setSelectedQuotes({});
+        setShippingRequestError(message);
       }
     } finally {
       setBusy(null);
@@ -466,6 +617,7 @@ export default function CheckoutPage() {
   async function createPayPalOrder() {
     if (paymentOperationInProgress.current) throw new Error('Payment is already being prepared.');
     paymentOperationInProgress.current = true;
+    pendingPayPalCapture.current = null;
     setBusy('payment');
     setPaymentError('');
     setPaymentCancelled(false);
@@ -482,9 +634,13 @@ export default function CheckoutPage() {
       paypalFailureHandled.current = true;
       if (message.toLowerCase().includes('shipping quote')) {
         setStep(1);
+        setOpenAccordion('shipping');
         setQuotes({});
+        setQuotesLoaded(false);
         setShippingErrors({});
+        setRetryableShippingErrors({});
         setSelectedQuotes({});
+        setShippingRequestError(message);
         setPageError(message);
       } else {
         setPaymentError(message);
@@ -501,34 +657,17 @@ export default function CheckoutPage() {
     if (paymentOperationInProgress.current || captureInProgress.current) return;
     captureInProgress.current = true;
     paymentOperationInProgress.current = true;
+    pendingPayPalCapture.current = null;
     setBusy('capture');
     setPaymentError('');
     setPaymentCancelled(false);
     try {
       const captureAttemptId = crypto.randomUUID();
-      const result = await request<{
-        orderId: string;
-        status: string;
-        paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
-      }>(
+      const result = await request<PayPalCaptureResult>(
         `/api/store/checkout/${encodeURIComponent(sessionId)}/paypal/capture`,
         { method: 'POST', body: JSON.stringify({ paypalOrderId, captureAttemptId }) },
       );
-      const isPending = result.paymentStatus === 'pending';
-      toast.add({
-        title: isPending ? 'Payment pending' : 'Payment confirmed',
-        description: isPending
-          ? 'PayPal is reviewing your payment. Your order will not be processed until it clears.'
-          : 'Your order is placed and ready for processing.',
-        type: isPending ? 'warning' : 'success',
-      });
-      setCheckout((current) => current ? {
-        ...current,
-        status: isPending ? 'awaiting_payment' : 'completed',
-        orderId: result.orderId,
-        paymentStatus: result.paymentStatus,
-      } : current);
-      setStep(2);
+      pendingPayPalCapture.current = result;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'PayPal could not confirm your payment.';
       setPaymentError(message);
@@ -553,7 +692,29 @@ export default function CheckoutPage() {
     }
   }
 
+  function completePayPalApproval() {
+    const result = pendingPayPalCapture.current;
+    if (!result) return;
+    pendingPayPalCapture.current = null;
+    const isPending = result.paymentStatus === 'pending';
+    toast.add({
+      title: isPending ? 'Payment pending' : 'Payment confirmed',
+      description: isPending
+        ? 'PayPal is reviewing your payment. Your order will not be processed until it clears.'
+        : 'Your order is placed and ready for processing.',
+      type: isPending ? 'warning' : 'success',
+    });
+    setCheckout((current) => current ? {
+      ...current,
+      status: isPending ? 'awaiting_payment' : 'completed',
+      orderId: result.orderId,
+      paymentStatus: result.paymentStatus,
+    } : current);
+    setStep(2);
+  }
+
   function handlePayPalCancel() {
+    pendingPayPalCapture.current = null;
     paymentOperationInProgress.current = false;
     setBusy(null);
     setPaymentCancelled(true);
@@ -612,45 +773,23 @@ export default function CheckoutPage() {
   }
 
   return (
-    <main className={`mx-auto min-w-0 max-w-7xl px-4 pb-16 pt-8 transition-opacity duration-300 sm:px-6 lg:pt-12 ${isPaid ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
-      <div className="mb-7 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <Link href="/cart" className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
-            <ArrowLeft className="size-4" /> Back to cart
-          </Link>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-            {isPending
-              ? 'Payment pending'
-              : isPaid
-                ? 'Order confirmed'
-                : checkout.paymentStatus === 'refunded'
-                  ? 'Payment refunded'
-                  : checkout.paymentStatus === 'failed'
-                    ? 'Payment not completed'
-                    : 'Secure checkout'}
-          </h1>
-          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            {isPending
-              ? 'PayPal is reviewing your payment. We will process the order once it clears.'
-              : isPaid
-                ? 'Thank you — your payment is confirmed and your order is in our hands.'
-                : isFinalized
-                  ? 'See the payment status below for next steps.'
-                  : 'A few details, then your order is on its way.'}
-          </p>
-        </div>
-        <div className="hidden items-center gap-2 rounded-full border bg-card px-4 py-2 text-xs font-medium text-muted-foreground sm:flex">
-          <LockKeyhole className="size-3.5 text-emerald-600" />
-          Secure, encrypted checkout
-        </div>
-      </div>
+    <main className={`mx-auto min-w-0 max-w-7xl px-4 pb-[calc(12rem+env(safe-area-inset-bottom))] pt-8 transition-opacity duration-300 sm:px-6 sm:pb-16 lg:pt-12 ${isPaid ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
 
       {!isFinalized ? (
-        <div className="mb-8 flex items-center gap-3 rounded-xl border bg-card p-4 sm:gap-5 sm:px-6">
-          <StepMarker number={1} label="Address & shipping" active={step === 1} complete={step === 2} />
-          <div className="h-px min-w-5 flex-1 bg-border" />
-          <StepMarker number={2} label="Payment" active={step === 2} complete={false} />
-        </div>
+        <>
+          <div className="mb-8 flex items-center gap-3 rounded-xl border bg-card p-4 sm:gap-5 sm:px-6 lg:hidden">
+            <StepMarker number={1} label="Address & shipping" icon={<MapPin className="size-4" />} active={step === 1} complete={step === 2} />
+            <div className="h-px min-w-5 flex-1 bg-border" />
+            <StepMarker number={2} label="Payment" icon={<CreditCard className="size-4" />} active={step === 2} complete={false} />
+          </div>
+          <div className="mb-8 hidden items-center gap-5 rounded-xl border bg-card p-4 lg:flex lg:px-6">
+            <StepMarker number={1} label="Your Bag" icon={<ShoppingBag className="size-4" />} active={false} complete />
+            <div className="h-px min-w-5 flex-1 bg-border" />
+            <StepMarker number={2} label="Address & shipping" icon={<MapPin className="size-4" />} active={step === 1} complete={step === 2} />
+            <div className="h-px min-w-5 flex-1 bg-border" />
+            <StepMarker number={3} label="Payment" icon={<CreditCard className="size-4" />} active={step === 2} complete={false} />
+          </div>
+        </>
       ) : null}
 
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -716,159 +855,254 @@ export default function CheckoutPage() {
               {checkout.orderId ? <p className="mt-4 text-xs text-muted-foreground">Order reference <span className="font-mono font-medium text-foreground">{checkout.orderId}</span></p> : null}
             </section>
           ) : step === 1 ? (
-            <>
-              <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-7">
-                <div className="mb-6 flex items-start gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><MapPin className="size-5" /></span>
-                  <div>
-                    <h2 className="text-lg font-semibold">Delivery address</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">Choose where we should send your order.</p>
-                  </div>
-                </div>
-                {addresses.length ? (
-                  <div className="mb-5 grid gap-3 sm:grid-cols-2">
-                    {addresses.map((address) => (
-                      <button
-                        key={address.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedAddressId(address.id);
-                          setUseNewAddress(false);
-                          setQuotes({});
-                          setShippingErrors({});
-                          setSelectedQuotes({});
-                          setPageError('');
-                        }}
-                        className={`relative rounded-xl border p-4 text-left transition ${
-                          selectedAddressId === address.id && !useNewAddress
-                            ? 'border-primary bg-primary/[0.035] ring-1 ring-primary'
-                            : 'hover:border-foreground/30'
-                        }`}
-                      >
-                        {selectedAddressId === address.id && !useNewAddress ? <Check className="absolute right-3 top-3 size-4 text-primary" /> : null}
-                        <span className="block pr-5 text-sm font-semibold">{address.firstName} {address.lastName}</span>
-                        {address.isDefault ? <span className="mt-1 inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Default</span> : null}
-                        <span className="mt-2 block space-y-0.5 text-xs leading-5 text-muted-foreground">
-                          {formatAddress(address).slice(2).map((line, index) => <span key={`${index}-${line}`} className="block">{line}</span>)}
-                          <span className="block">{address.phone}</span>
+            <Accordion
+              value={openAccordion ? [openAccordion] : []}
+              multiple={false}
+              onValueChange={(value) => setOpenAccordion(value[0] === 'address' || value[0] === 'shipping' ? value[0] : '')}
+              className="gap-4"
+            >
+              <AccordionItem value="address" className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+                <AccordionTrigger className="items-center px-5 py-5 hover:no-underline sm:px-7">
+                  <span className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><MapPin className="size-5" /></span>
+                    <span className="w-0 min-w-0 flex-1">
+                      <span className="block text-base font-semibold">Delivery address</span>
+                      {selectedAddress && !useNewAddress ? (
+                        <span className="mt-1 block w-full truncate text-sm font-normal text-muted-foreground">
+                          {formatAddress(selectedAddress).slice(2).join(', ')}
                         </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseNewAddress(true);
-                    setSelectedAddressId('');
-                    setQuotes({});
-                    setShippingErrors({});
-                    setSelectedQuotes({});
-                  }}
-                  className={`mb-5 flex w-full items-center justify-between rounded-xl border p-4 text-left transition ${
-                    useNewAddress || addresses.length === 0 ? 'border-primary bg-primary/[0.035] ring-1 ring-primary' : 'hover:border-foreground/30'
-                  }`}
-                >
-                  <span>
-                    <span className="block text-sm font-semibold">{addresses.length ? 'Add a new address' : 'Add your delivery address'}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">Your address is securely saved to your account.</span>
+                      ) : (
+                        <span className="mt-1 block text-sm font-normal text-muted-foreground">Choose where we should send your order.</span>
+                      )}
+                    </span>
                   </span>
-                  <ChevronRight className="size-4 text-muted-foreground" />
-                </button>
-                {useNewAddress || addresses.length === 0 ? (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="First name" required><Input autoComplete="given-name" value={addressForm.firstName} onChange={(event) => setAddressForm({ ...addressForm, firstName: event.target.value })} /></Field>
-                    <Field label="Last name" required><Input autoComplete="family-name" value={addressForm.lastName} onChange={(event) => setAddressForm({ ...addressForm, lastName: event.target.value })} /></Field>
-                    <Field label="Country" required className="sm:col-span-2">
-                      <select
-                        value={addressForm.countryCode}
-                        onChange={(event) => {
-                          const country = countries.find((entry) => entry.code === event.target.value);
-                          if (country) setAddressForm({ ...addressForm, countryCode: country.code, countryName: country.name, phoneCountryCode: country.code });
-                        }}
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        {countries.map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Street address" required className="sm:col-span-2"><Input autoComplete="address-line1" value={addressForm.addressLine1} onChange={(event) => setAddressForm({ ...addressForm, addressLine1: event.target.value })} /></Field>
-                    <Field label="Apartment, suite, etc."><Input autoComplete="address-line2" value={addressForm.addressLine2} onChange={(event) => setAddressForm({ ...addressForm, addressLine2: event.target.value })} /></Field>
-                    <Field label="City" required><Input autoComplete="address-level2" value={addressForm.city} onChange={(event) => setAddressForm({ ...addressForm, city: event.target.value })} /></Field>
-                    <Field label="State / province" required><Input autoComplete="address-level1" value={addressForm.state} onChange={(event) => setAddressForm({ ...addressForm, state: event.target.value })} /></Field>
-                    <Field label="ZIP / postal code" required><Input autoComplete="postal-code" value={addressForm.postalCode} onChange={(event) => setAddressForm({ ...addressForm, postalCode: event.target.value })} /></Field>
-                    <Field label="Phone number" required className="sm:col-span-2">
-                      <div className="flex gap-2">
-                        <div className="grid h-10 min-w-20 place-items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground">+{getCountryCallingCode(addressForm.phoneCountryCode)}</div>
-                        <Input autoComplete="tel" inputMode="tel" value={addressForm.phone} onChange={(event) => setAddressForm({ ...addressForm, phone: event.target.value })} />
-                      </div>
-                    </Field>
-                  </div>
-                ) : null}
-                {pageError ? <p className="mt-4 flex items-center gap-2 text-sm text-destructive"><CircleAlert className="size-4" />{pageError}</p> : null}
-                <Button className="mt-6 w-full sm:w-auto" disabled={busy !== null} onClick={() => void getQuotes()}>
-                  {busy === 'quotes'
-                    ? <><Spinner className="mr-2" />Finding shipping options…</>
-                    : <>{Object.keys(quotes).length ? 'Refresh shipping options' : 'Find shipping options'} <ChevronRight className="ml-2 size-4" /></>}
-                </Button>
-              </section>
-
-              {Object.keys(quotes).length || Object.keys(shippingErrors).length ? (
-                <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-7">
-                  <div className="mb-5 flex items-start gap-3">
-                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Truck className="size-5" /></span>
-                    <div>
-                      <h2 className="text-lg font-semibold">Shipping method</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">Delivery options are calculated for your address.</p>
+                  <span className="mr-3 shrink-0 text-xs font-medium text-primary">
+                    {openAccordion === 'address' ? 'Choose' : selectedAddress ? 'Edit' : ''}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="px-5 transition-[height] duration-300 ease-in-out sm:px-7">
+                  {addressLoadError ? (
+                    <p role="status" className="mb-4 flex items-start gap-2 rounded-xl border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-900">
+                      <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                      <span>{addressLoadError} You can still add a new delivery address below.</span>
+                    </p>
+                  ) : null}
+                  {!addresses.length && !addressLoadError ? (
+                    <p className="mb-5 rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                      You have no delivery address saved. Add one below to get shipping options.
+                    </p>
+                  ) : null}
+                  {addresses.length ? (
+                    <div className="mb-5 grid gap-3 sm:grid-cols-2">
+                      {addresses.map((address) => {
+                        const isSelected = selectedAddressId === address.id && !useNewAddress;
+                        return (
+                          <button
+                            key={address.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedAddressId(address.id);
+                              setUseNewAddress(false);
+                              setPageError('');
+                              setOpenAccordion('shipping');
+                              if (!isSelected || !quotesLoaded) {
+                                void fetchShippingOptions(address.id);
+                              }
+                            }}
+                            className={`relative rounded-xl border p-4 text-left transition-colors ${
+                              isSelected
+                                ? 'border-primary bg-primary/[0.035] ring-1 ring-primary'
+                                : 'hover:border-foreground/30'
+                            }`}
+                          >
+                            {isSelected ? <Check className="absolute right-3 top-3 size-4 text-primary" /> : null}
+                            <span className="block pr-5 text-sm font-semibold">{address.firstName} {address.lastName}</span>
+                            {address.isDefault ? <span className="mt-1 inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Default</span> : null}
+                            <span className="mt-2 block space-y-0.5 text-xs leading-5 text-muted-foreground">
+                              {formatAddress(address).slice(2).map((line, index) => <span key={`${index}-${line}`} className="block">{line}</span>)}
+                              <span className="block">{address.phone}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="space-y-5">
-                    {checkout.items.map((item) => (
-                      <div key={item.id} className="border-t pt-4 first:border-0 first:pt-0">
-                        <h3 className="mb-3 text-sm font-medium">{item.productNameSnapshot}</h3>
-                        <div className="grid gap-2">
-                          {(quotes[item.id] ?? []).map((option) => (
-                            <label key={option.quoteId} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${
-                              selectedQuotes[item.id] === option.quoteId ? 'border-primary bg-primary/[0.035] ring-1 ring-primary' : 'hover:border-foreground/30'
-                            }`}>
-                              <input
-                                type="radio"
-                                name={`shipping-${item.id}`}
-                                checked={selectedQuotes[item.id] === option.quoteId}
-                                onChange={() => setSelectedQuotes((current) => ({ ...current, [item.id]: option.quoteId }))}
-                                className="accent-primary"
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-medium">{option.serviceName}</span>
-                                <span className="mt-0.5 block text-xs text-muted-foreground">
-                                  {option.minDays != null && option.maxDays != null ? `${option.minDays}–${option.maxDays} day delivery` : 'Delivery estimate unavailable'}
-                                </span>
-                              </span>
-                              <span className="text-sm font-semibold">{money(option.amountCents)}</span>
-                            </label>
-                          ))}
-                          {shippingErrors[item.id] ? (
-                            <p role="status" className="flex items-start gap-2 rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-900">
-                              <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                              <span>{shippingErrors[item.id]}</span>
-                            </p>
-                          ) : null}
+                  ) : null}
+                  {addresses.length ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        quoteRequestSequence.current += 1;
+                        setBusy(null);
+                        setUseNewAddress(true);
+                        setSelectedAddressId('');
+                        setQuotes({});
+                        setQuotesLoaded(false);
+                        setShippingErrors({});
+                        setRetryableShippingErrors({});
+                        setLoadingShippingItemIds([]);
+                        setShippingRequestError('');
+                        setSelectedQuotes({});
+                        setPageError('');
+                      }}
+                      className={`mb-5 flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors ${
+                        useNewAddress ? 'border-primary bg-primary/[0.035] ring-1 ring-primary' : 'hover:border-foreground/30'
+                      }`}
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-foreground"><Plus className="size-4" /></span>
+                      <span>
+                        <span className="block text-sm font-semibold">Add a new address</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">Your address is securely saved to your account.</span>
+                      </span>
+                    </button>
+                  ) : null}
+                  {useNewAddress || addresses.length === 0 ? (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field label="First name" required><Input autoComplete="given-name" value={addressForm.firstName} onChange={(event) => setAddressForm({ ...addressForm, firstName: event.target.value })} /></Field>
+                      <Field label="Last name" required><Input autoComplete="family-name" value={addressForm.lastName} onChange={(event) => setAddressForm({ ...addressForm, lastName: event.target.value })} /></Field>
+                      <Field label="Country" required className="sm:col-span-2">
+                        <select
+                          value={addressForm.countryCode}
+                          onChange={(event) => {
+                            const country = countries.find((entry) => entry.code === event.target.value);
+                            if (country) setAddressForm({ ...addressForm, countryCode: country.code, countryName: country.name, phoneCountryCode: country.code });
+                          }}
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          {countries.map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Street address" required className="sm:col-span-2"><Input autoComplete="address-line1" value={addressForm.addressLine1} onChange={(event) => setAddressForm({ ...addressForm, addressLine1: event.target.value })} /></Field>
+                      <Field label="Apartment, suite, etc."><Input autoComplete="address-line2" value={addressForm.addressLine2} onChange={(event) => setAddressForm({ ...addressForm, addressLine2: event.target.value })} /></Field>
+                      <Field label="City" required><Input autoComplete="address-level2" value={addressForm.city} onChange={(event) => setAddressForm({ ...addressForm, city: event.target.value })} /></Field>
+                      <Field label="State / province" required><Input autoComplete="address-level1" value={addressForm.state} onChange={(event) => setAddressForm({ ...addressForm, state: event.target.value })} /></Field>
+                      <Field label="ZIP / postal code" required><Input autoComplete="postal-code" value={addressForm.postalCode} onChange={(event) => setAddressForm({ ...addressForm, postalCode: event.target.value })} /></Field>
+                      <Field label="Phone number" required className="sm:col-span-2">
+                        <div className="flex gap-2">
+                          <div className="grid h-10 min-w-20 place-items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground">+{getCountryCallingCode(addressForm.phoneCountryCode)}</div>
+                          <Input autoComplete="tel" inputMode="tel" value={addressForm.phone} onChange={(event) => setAddressForm({ ...addressForm, phone: event.target.value })} />
                         </div>
+                      </Field>
+                    </div>
+                  ) : null}
+                  {pageError ? <p role="alert" className="mt-4 flex items-center gap-2 text-sm text-destructive"><CircleAlert className="size-4 shrink-0" />{pageError}</p> : null}
+                  {useNewAddress || addresses.length === 0 ? (
+                    <Button className="mt-6 w-full" disabled={busy !== null} onClick={() => void saveNewAddressAndGetQuotes()}>
+                      {busy === 'quotes'
+                        ? <><Spinner className="mr-2" />Saving address & finding options…</>
+                        : <>Save address & find shipping options <ChevronRight className="ml-2 size-4" /></>}
+                    </Button>
+                  ) : null}
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="shipping" disabled={!selectedAddressId} className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+                <AccordionTrigger className="items-center px-5 py-5 hover:no-underline sm:px-7">
+                  <span className="flex min-w-0 items-start gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Truck className="size-5" /></span>
+                    <span className="min-w-0">
+                      <span className="block text-base font-semibold">Shipping method</span>
+                      <span className="mt-1 block text-sm font-normal text-muted-foreground">
+                        {selectedAddress ? `Delivery options for ${selectedAddress.city}, ${selectedAddress.countryName}` : 'Choose a delivery address to see available options.'}
+                      </span>
+                    </span>
+                  </span>
+                  {busy === 'quotes' && openAccordion === 'shipping' ? <Spinner className="mr-3 size-4 shrink-0" /> : null}
+                </AccordionTrigger>
+                <AccordionContent className="px-5 transition-[height] duration-300 ease-in-out sm:px-7">
+                  {shippingRequestError ? (
+                    <div role="alert" className="flex flex-col items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="flex items-start gap-2 text-sm text-destructive"><CircleAlert className="mt-0.5 size-4 shrink-0" />{shippingRequestError}</p>
+                      <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void fetchShippingOptions(selectedAddressId)}>
+                        Try again
+                      </Button>
+                    </div>
+                  ) : null}
+                  <>
+                      <p className="mb-5 text-sm text-muted-foreground">Choose a delivery service for each item in your order.</p>
+                      <div className="space-y-5">
+                        {checkout.items.map((item) => (
+                          <div key={item.id} className="border-t pt-4 first:border-0 first:pt-0">
+                            <div className="mb-3 flex min-w-0 items-center gap-3">
+                              <div className="size-12 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                                {item.imageSnapshot ? (
+                                  <CustomImage
+                                    src={item.imageSnapshot}
+                                    alt={item.productNameSnapshot}
+                                    width={48}
+                                    height={48}
+                                    className="size-full"
+                                  />
+                                ) : (
+                                  <div aria-hidden="true" className="size-full bg-gradient-to-br from-muted to-muted-foreground/10" />
+                                )}
+                              </div>
+                              <h3 title={item.productNameSnapshot} className="line-clamp-2 min-w-0 text-sm font-medium leading-5">
+                                {item.productNameSnapshot}
+                              </h3>
+                            </div>
+                            <div className="grid gap-2">
+                              {loadingShippingItemIds.includes(item.id) ? (
+                                <div role="status" aria-label={`Loading shipping methods for ${item.productNameSnapshot}`} className="space-y-2">
+                                  <div className="h-[4.5rem] animate-pulse rounded-xl border bg-muted/50" />
+                                  <div className="h-[4.5rem] animate-pulse rounded-xl border bg-muted/50" />
+                                  <span className="sr-only">Finding delivery options…</span>
+                                </div>
+                              ) : null}
+                              {(quotes[item.id] ?? []).map((option) => (
+                                <label key={option.quoteId} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
+                                  selectedQuotes[item.id] === option.quoteId ? 'border-primary bg-primary/[0.035] ring-1 ring-primary' : 'hover:border-foreground/30'
+                                }`}>
+                                  <input
+                                    type="radio"
+                                    name={`shipping-${item.id}`}
+                                    checked={selectedQuotes[item.id] === option.quoteId}
+                                    onChange={() => setSelectedQuotes((current) => ({ ...current, [item.id]: option.quoteId }))}
+                                    className="accent-primary"
+                                  />
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-sm font-medium">{option.serviceName}</span>
+                                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                                      {option.minDays != null && option.maxDays != null ? `${option.minDays}–${option.maxDays} day delivery` : 'Delivery estimate unavailable'}
+                                    </span>
+                                  </span>
+                                  <span className="text-sm font-semibold">{money(option.amountCents)}</span>
+                                </label>
+                              ))}
+                              {!loadingShippingItemIds.includes(item.id) && shippingErrors[item.id] ? (
+                                <p role="status" className="flex items-start gap-2 rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-900">
+                                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                                  <span>{shippingErrors[item.id]}</span>
+                                </p>
+                              ) : !shippingRequestError && !loadingShippingItemIds.includes(item.id) && quotesLoaded && !(quotes[item.id]?.length) ? (
+                                <p role="status" className="text-sm text-muted-foreground">No shipping options are currently available for this item.</p>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div className="mt-5 flex items-center justify-between border-t pt-4 text-sm">
-                    <span className="text-muted-foreground">Shipping total</span><span className="font-semibold">{money(shippingTotal)}</span>
-                  </div>
-                  <Button
-                    className="mt-5 w-full"
-                    disabled={busy !== null || checkout.items.some((item) => !selectedQuotes[item.id])}
-                    onClick={() => void continueToPayment()}
-                  >
-                    {busy === 'advance' ? <><Spinner className="mr-2" />Securing delivery details…</> : <>Continue to payment <ChevronRight className="ml-2 size-4" /></>}
-                  </Button>
-                </section>
-              ) : null}
-            </>
+                      {Object.values(retryableShippingErrors).some(Boolean) ? (
+                        <Button className="mt-5" variant="outline" size="sm" disabled={busy !== null} onClick={() => void fetchShippingOptions(selectedAddressId)}>
+                          Try shipping options again
+                        </Button>
+                      ) : null}
+                      {quotesLoaded ? (
+                        <>
+                          <div className="mt-5 flex items-center justify-between border-t pt-4 text-sm">
+                            <span className="text-muted-foreground">Shipping total</span><span className="font-semibold">{money(shippingTotal)}</span>
+                          </div>
+                          <Button
+                            className="mt-5 hidden h-11 w-full font-bold lg:flex"
+                            disabled={busy !== null || checkout.items.some((item) => !selectedQuotes[item.id])}
+                            onClick={() => void continueToPayment()}
+                          >
+                            {busy === 'advance' ? <><Spinner className="mr-2" />Securing delivery details…</> : <>Continue to payment <ChevronRight className="ml-2 size-4" /></>}
+                          </Button>
+                        </>
+                      ) : null}
+                  </>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           ) : isFinalized ? null : (
             <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-7">
               <div className="mb-6 flex items-start gap-3">
@@ -876,18 +1110,6 @@ export default function CheckoutPage() {
                 <div>
                   <h2 className="text-lg font-semibold">Payment</h2>
                   <p className="mt-1 text-sm text-muted-foreground">Pay securely with PayPal without leaving checkout.</p>
-                </div>
-              </div>
-              <div className="rounded-xl border bg-muted/30 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <span className="grid size-10 place-items-center rounded-lg border bg-white font-bold italic text-[#003087]">P</span>
-                    <div>
-                      <p className="text-sm font-semibold">PayPal</p>
-                      <p className="text-xs text-muted-foreground">Pay securely with your PayPal account</p>
-                    </div>
-                  </div>
-                  <ShieldCheck className="size-5 shrink-0 text-emerald-600" />
                 </div>
               </div>
               {selectedAddress ? (
@@ -923,6 +1145,7 @@ export default function CheckoutPage() {
                   clientId={paypalConfig.clientId}
                   createOrder={createPayPalOrder}
                   onApprove={capturePayPalOrder}
+                  onApprovalComplete={completePayPalApproval}
                   onCancel={handlePayPalCancel}
                   onError={handlePayPalError}
                 />
@@ -948,7 +1171,7 @@ export default function CheckoutPage() {
           )}
         </div>
 
-        <aside className="h-fit rounded-2xl border bg-card p-5 shadow-sm lg:sticky lg:top-24">
+        <aside className="hidden h-fit rounded-2xl border bg-card p-5 shadow-sm lg:sticky lg:top-24 lg:block">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold">Order summary</h2>
             <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{checkout.items.length} {checkout.items.length === 1 ? 'item' : 'items'}</span>
@@ -970,8 +1193,8 @@ export default function CheckoutPage() {
           </div>
           <div className="mt-5 space-y-3 border-t pt-4 text-sm">
             <div className="flex justify-between gap-3"><span className="text-muted-foreground">Subtotal</span><span>{money(checkout.subtotal)}</span></div>
-            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Shipping</span><span>{money(Object.keys(quotes).length ? shippingTotal : checkout.shippingTotal)}</span></div>
-            <div className="flex justify-between gap-3 border-t pt-4 text-base font-semibold"><span>Total</span><span>{money(Object.keys(quotes).length ? estimatedTotal : checkout.total)}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Shipping</span><span>{money(step === 1 ? (quotesLoaded ? shippingTotal : 0) : checkout.shippingTotal)}</span></div>
+            <div className="flex justify-between gap-3 border-t pt-4 text-base font-semibold"><span>Total</span><span>{money(step === 1 ? (quotesLoaded ? estimatedTotal : checkout.subtotal) : checkout.total)}</span></div>
           </div>
           <div className="mt-5 flex gap-2 rounded-xl bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">
             <ShieldCheck className="mt-0.5 size-4 shrink-0" />
@@ -981,6 +1204,97 @@ export default function CheckoutPage() {
             <div className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground"><Spinner /> Moving to secure payment…</div>
           ) : null}
         </aside>
+      </div>
+      <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 border-t bg-background/95 p-3 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
+        <div className="mx-auto max-w-6xl">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between text-left mb-1"
+            aria-expanded={mobileSummaryOpen}
+            aria-controls="mobile-checkout-summary"
+            onClick={() => setMobileSummaryOpen((open) => !open)}
+          >
+            <span className="text-[18px] font-bold">Order Total</span>
+            <span className="flex items-center gap-2">
+              <span className="text-right">
+                <strong className="text-[18px] tabular-nums text-foreground">
+                  {money(step === 1 ? (quotesLoaded ? estimatedTotal : checkout.subtotal) : checkout.total)}
+                </strong>
+              </span>
+              {mobileSummaryOpen ? <ChevronDown className="size-5" /> : <ChevronUp className="size-5" />}
+            </span>
+          </button>
+          <div
+            id="mobile-checkout-summary"
+            className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+              mobileSummaryOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+            }`}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div className="max-h-[40svh] space-y-4 overflow-y-auto border-t mt-2 py-3">
+                {checkout.items.map((item) => (
+                  <div key={item.id} className="flex min-w-0 items-center gap-3">
+                    <div className="relative size-12 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                      {item.imageSnapshot ? (
+                        <CustomImage
+                          src={item.imageSnapshot}
+                          alt={item.productNameSnapshot}
+                          width={48}
+                          height={48}
+                          className="size-full"
+                        />
+                      ) : null}
+                      <span className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-foreground text-[10px] font-medium text-background">
+                        {item.quantity}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-2 text-sm font-medium">{item.productNameSnapshot}</p>
+                      {item.variantLabelSnapshot ? (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.variantLabelSnapshot}</p>
+                      ) : null}
+                    </div>
+                    <p className="shrink-0 text-sm font-medium">{money(item.unitPriceSnapshot * item.quantity)}</p>
+                  </div>
+                ))}
+                <div className="space-y-2 border-t pt-3 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span>{money(checkout.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Shipping</span>
+                    <span>{money(step === 1 ? (quotesLoaded ? shippingTotal : 0) : checkout.shippingTotal)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 border-t pt-2 font-semibold">
+                    <span>Total</span>
+                    <span>{money(step === 1 ? (quotesLoaded ? estimatedTotal : checkout.subtotal) : checkout.total)}</span>
+                  </div>
+                </div>
+                <div className="flex gap-2 rounded-xl bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">
+                  <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+                  <span>Protected checkout. Your order is only placed after PayPal confirms your payment.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {step === 1 ? (
+            <Button
+              className="mt-2 h-11 w-full font-bold"
+              disabled={
+                busy !== null ||
+                !quotesLoaded ||
+                !selectedAddressId ||
+                checkout.items.some((item) => !selectedQuotes[item.id])
+              }
+              onClick={() => void continueToPayment()}
+            >
+              {busy === 'advance'
+                ? <><Spinner className="mr-2" />Securing delivery details…</>
+                : <>Continue to payment <ChevronRight className="ml-2 size-4" /></>}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </main>
   );
