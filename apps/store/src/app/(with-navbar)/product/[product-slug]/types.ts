@@ -53,6 +53,15 @@ export type PublicCategoryRef = {
   href: string;
 };
 
+export type PublicReview = {
+  id: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
+  imageUrls: string[];
+  reviewDate: string;
+};
+
 export type PublicProduct = {
   id: string;
   slug: string;
@@ -65,6 +74,9 @@ export type PublicProduct = {
   sizeChartDescription: string | null;
   aeRating: number | null;
   aeReviewCount: number | null;
+  reviewCount: number;
+  averageReview: number | null;
+  reviews: PublicReview[];
   aeSalesCount: string | null;
   tags: string[];
   metaTitle: string | null;

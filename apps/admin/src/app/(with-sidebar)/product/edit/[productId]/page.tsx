@@ -40,6 +40,7 @@ import {
   Save,
   Search,
   ShieldAlert,
+  Star,
   Tag,
   Trash2,
   Video,
@@ -76,6 +77,7 @@ import { isAliExpressImageUrl } from '@/app/(with-sidebar)/settings/settings';
 
 import {
   flattenCategories,
+  formatDateTime,
   formatMoney,
   getProductsApiBase,
   normalizeProductPayload,
@@ -126,7 +128,8 @@ const STEPS = [
   { key: 'media', label: 'Media' },
   { key: 'variants', label: 'Variants' },
   { key: 'attributes', label: 'Attributes' },
-  { key: 'review', label: 'Review' },
+  { key: 'reviews', label: 'Reviews' },
+  { key: 'overview', label: 'Overview' },
 ] as const;
 
 function emptyAttribute(position: number): ProductAttribute {
@@ -379,6 +382,8 @@ export default function ProductEditPage() {
 
   const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  const [reviewToDelete, setReviewToDelete] = useState<string | null>(null);
+  const [deletingReview, setDeletingReview] = useState(false);
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const [hostingImages, setHostingImages] = useState(false);
   const [hostProgress, setHostProgress] = useState<{
@@ -549,6 +554,41 @@ export default function ProductEditPage() {
   useEffect(() => {
     void loadProduct();
   }, [loadProduct]);
+
+  const deleteReview = useCallback(async () => {
+    if (!reviewToDelete || !product) return;
+    setDeletingReview(true);
+    try {
+      const response = await requestJson<{
+        success: true;
+        data: {
+          reviewId: string;
+          reviewCount: number;
+          averageReview: number | null;
+        };
+      }>(`/${productId}/reviews/${reviewToDelete}`, { method: 'DELETE' });
+      setProduct((current) =>
+        current
+          ? {
+              ...current,
+              reviews: current.reviews.filter(
+                (review) => review.id !== response.data.reviewId
+              ),
+              reviewCount: response.data.reviewCount,
+              averageReview: response.data.averageReview,
+            }
+          : current
+      );
+      toast.success('Review deleted.');
+      setReviewToDelete(null);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to delete review.'
+      );
+    } finally {
+      setDeletingReview(false);
+    }
+  }, [product, productId, reviewToDelete]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -1647,12 +1687,99 @@ export default function ProductEditPage() {
               </Card>
             )}
 
-            {/* ── Step 4: Review ── */}
+            {/* ── Step 4: Reviews ── */}
             {step === 4 && (
+              <Card>
+                <CardContent className="space-y-4 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="font-medium">Product reviews</h2>
+                      <p className="text-sm text-muted-foreground">
+                        {product.reviewCount} total ·{' '}
+                        {product.averageReview !== null
+                          ? `${product.averageReview.toFixed(1)} / 5 average`
+                          : 'No average rating'}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">
+                      {product.reviews.length} shown
+                    </Badge>
+                  </div>
+
+                  {product.reviews.length === 0 ? (
+                    <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                      This product has no reviews.
+                    </p>
+                  ) : (
+                    <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+                      {product.reviews.map((review) => (
+                        <article
+                          key={review.id}
+                          className="space-y-3 rounded-lg border p-4"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1">
+                              <p className="font-medium">
+                                {review.reviewerName}
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                <Badge variant="outline" className="gap-1">
+                                  <Star className="size-3 fill-current" />
+                                  {review.rating} / 5
+                                </Badge>
+                                <span>{formatDateTime(review.reviewDate)}</span>
+                                {review.isAe ? (
+                                  <Badge variant="secondary">AliExpress</Badge>
+                                ) : null}
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              disabled={!meta?.canUpdate || deletingReview}
+                              onClick={() => setReviewToDelete(review.id)}
+                              className="gap-1.5"
+                            >
+                              <Trash2 className="size-3.5" />
+                              Delete
+                            </Button>
+                          </div>
+                          {review.comment ? (
+                            <p className="whitespace-pre-wrap text-sm">
+                              {review.comment}
+                            </p>
+                          ) : (
+                            <p className="text-sm italic text-muted-foreground">
+                              No written comment.
+                            </p>
+                          )}
+                          {review.imageUrls.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {review.imageUrls.map((url, index) => (
+                                <ProxiedImg
+                                  key={`${review.id}-${url}-${index}`}
+                                  src={url}
+                                  alt={`Review image ${index + 1} by ${review.reviewerName}`}
+                                  className="size-20 rounded-md border object-cover"
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── Step 5: Overview ── */}
+            {step === 5 && (
               <section className="grid gap-4 lg:grid-cols-3">
                 <Card className="lg:col-span-2">
                   <CardContent className="space-y-4 p-4">
-                    <h2 className="font-medium">Review changes</h2>
+                    <h2 className="font-medium">Product overview</h2>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="rounded-lg border p-3">
                         <p className="text-xs text-muted-foreground">Name</p>
@@ -1863,6 +1990,47 @@ export default function ProductEditPage() {
                 <Save className="size-4" />
               )}
               Confirm save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={reviewToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingReview) setReviewToDelete(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this review?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the review from the product and updates
+              its review count and average rating.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletingReview}
+              onClick={() => setReviewToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletingReview || !meta?.canUpdate}
+              onClick={() => void deleteReview()}
+              className="gap-1.5"
+            >
+              {deletingReview ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              Delete review
             </Button>
           </DialogFooter>
         </DialogContent>

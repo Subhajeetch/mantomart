@@ -115,6 +115,16 @@ export function normalizeProductCard(raw: unknown): PublicProductCard | null {
       if (n === null || n < 0) return null;
       return Math.floor(n);
     })(),
+    reviewCount: (() => {
+      const n = asNullableNumber(raw.reviewCount);
+      if (n === null || n < 0) return 0;
+      return Math.floor(n);
+    })(),
+    averageReview: (() => {
+      const n = asNullableNumber(raw.averageReview);
+      if (n === null || n <= 0 || n > 5) return null;
+      return n;
+    })(),
     defaultPrice,
   };
 }

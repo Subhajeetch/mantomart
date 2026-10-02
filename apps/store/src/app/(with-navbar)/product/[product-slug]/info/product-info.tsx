@@ -4,10 +4,7 @@ import type { RefObject } from 'react';
 import Link from 'next/link';
 import { Heart, Share2 } from 'lucide-react';
 
-import {
-  formatPriceCents,
-  percentOff,
-} from '@/components/homepage/format';
+import { formatPriceCents, percentOff } from '@/components/homepage/format';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useWishlist } from '@/components/wishlist-context';
@@ -78,8 +75,14 @@ export function ProductInfo({
             {product.name}
           </h1>
           <StarRating
-            rating={product.aeRating}
-            reviewCount={product.aeReviewCount}
+            rating={
+              product.reviewCount > 0 ? product.averageReview : product.aeRating
+            }
+            reviewCount={
+              product.reviewCount > 0
+                ? product.reviewCount
+                : product.aeReviewCount
+            }
             salesCount={product.aeSalesCount}
           />
         </div>
@@ -100,7 +103,8 @@ export function ProductInfo({
                 slug: product.slug,
                 name: product.name,
                 image:
-                  product.gallery.find((item) => item.type === 'image')?.url ?? null,
+                  product.gallery.find((item) => item.type === 'image')?.url ??
+                  null,
                 price,
               })
             }
@@ -128,7 +132,10 @@ export function ProductInfo({
         </div>
       </div>
 
-      <p className="mt-4 flex flex-wrap items-baseline gap-2" aria-live="polite">
+      <p
+        className="mt-4 flex flex-wrap items-baseline gap-2"
+        aria-live="polite"
+      >
         {priceLabel ? (
           <span className="text-2xl font-bold tabular-nums">{priceLabel}</span>
         ) : (

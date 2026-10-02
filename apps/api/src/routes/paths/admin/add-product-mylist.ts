@@ -9,6 +9,7 @@ import {
   productCategories,
   products,
   productSkus,
+  reviews as productReviews,
   skuProperties,
   type Database,
   type ProductImage,
@@ -35,9 +36,11 @@ import {
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
   hostProductImages,
+  isAliExpressImageUrl,
   persistProductImageUrl,
   persistProductImages,
   requestOriginFromUrl,
+  hostAliExpressReviewImages,
 } from '@/utils/productImageHost';
 
 // ─── Limits ───────────────────────────────────────────────────────────────────
@@ -60,6 +63,10 @@ const MAX_VIDEOS = 20;
 const MAX_SKUS = 200;
 const MAX_PROPERTIES_PER_SKU = 20;
 const MAX_ATTRIBUTES = 100;
+const MAX_REVIEWS = 347;
+const MAX_REVIEW_IMAGES = 5;
+const MAX_REVIEW_COMMENT_LENGTH = 5000;
+const REVIEW_PAGE_SIZE = 20;
 const MAX_CATEGORIES = 20;
 const MAX_VARIANT_KEYS = 30;
 /** Fixed buffer for payment-processor fees / tax leakage ($1.50 in cents). */
@@ -514,6 +521,15 @@ type ParsedAttribute = {
   position: number;
 };
 
+type ParsedReview = {
+  sourceReviewId: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
+  images: string[];
+  reviewDate: Date;
+};
+
 function parseSku(
   value: unknown,
   index: number
@@ -699,11 +715,348 @@ function parseAttribute(
   };
 }
 
+function findRemoteReviewList(value: unknown): unknown[] | null {
+  let envelope: unknown = value;
+  for (let depth = 0; depth < 3; depth++) {
+    if (typeof envelope === 'string') {
+      try {
+        envelope = JSON.parse(envelope);
+      } catch {
+        return null;
+      }
+    }
+    if (!isRecord(envelope)) return null;
+    if (
+      envelope.evaViewList !== undefined ||
+      envelope.reviewList !== undefined ||
+      envelope.reviews !== undefined
+    ) {
+      const rawRows =
+        envelope.evaViewList ?? envelope.reviewList ?? envelope.reviews;
+      if (Array.isArray(rawRows)) return rawRows;
+      if (typeof rawRows === 'string') {
+        try {
+          const parsed: unknown = JSON.parse(rawRows);
+          return Array.isArray(parsed) ? parsed : null;
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+    envelope = envelope.data;
+  }
+  return null;
+}
+
+function parseRemoteReviewRows(value: unknown): Record<string, unknown>[] {
+  return (findRemoteReviewList(value) ?? []).filter(isRecord);
+}
+
+function hasRemoteReviewList(value: unknown): boolean {
+  return findRemoteReviewList(value) !== null;
+}
+
+function parseRemoteReviewCount(value: unknown): number | null {
+  if (!isRecord(value)) return null;
+  let envelope: unknown = value;
+  for (let depth = 0; depth < 3; depth++) {
+    if (typeof envelope === 'string') {
+      try {
+        envelope = JSON.parse(envelope);
+      } catch {
+        return null;
+      }
+    }
+    if (!isRecord(envelope)) return null;
+    for (const key of ['totalNum', 'totalCount', 'evaCount', 'count']) {
+      const count = Number(envelope[key]);
+      if (Number.isInteger(count) && count >= 0) return count;
+    }
+    const statistics = envelope.productEvaluationStatistic;
+    if (isRecord(statistics)) {
+      const count = Number(statistics.totalNum);
+      if (Number.isInteger(count) && count >= 0) return count;
+    }
+    envelope = envelope.data;
+  }
+  return null;
+}
+
+function parseRemoteReviewDate(value: unknown): Date | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const numeric = typeof value === 'number' ? value : Number(value);
+  const dateString = String(value).trim();
+  const timestamp =
+    Number.isFinite(numeric) && numeric > 0
+      ? new Date(numeric < 100_000_000_000 ? numeric * 1000 : numeric)
+      : new Date(dateString);
+  if (!Number.isFinite(timestamp.getTime())) {
+    const datetime = new Date(dateString.replace(' ', 'T'));
+    return Number.isFinite(datetime.getTime()) ? datetime : null;
+  }
+  return Number.isFinite(timestamp.getTime()) ? timestamp : null;
+}
+
+function normalizeReviewReviewerName(value: unknown): string | null {
+  const name = sanitizeRequiredString(value, 160);
+  if (!name) return null;
+  return name.toLowerCase() === 'aliexpress shopper' ? 'Shopper' : name;
+}
+
+function normalizeRemoteReview(
+  row: Record<string, unknown>,
+  productId: string,
+  index: number
+): ParsedReview | null {
+  const rawRating = Number(row.buyerEval ?? row.rating ?? row.eval);
+  const rating =
+    rawRating > 5 && rawRating <= 100
+      ? Math.round(rawRating / 20)
+      : Math.round(rawRating);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return null;
+
+  const reviewerName =
+    normalizeReviewReviewerName(row.buyerName ?? row.reviewerName) ?? 'Shopper';
+  const comment = sanitizeRequiredString(
+    row.buyerTranslationFeedback ??
+      row.buyerFeedbackTranslation ??
+      row.buyerFeedback ??
+      row.comment ??
+      row.content,
+    MAX_REVIEW_COMMENT_LENGTH
+  );
+  const reviewDate = parseRemoteReviewDate(
+    row.evalDate ?? row.reviewDate ?? row.createdAt
+  );
+  if (!reviewDate) return null;
+
+  const rawImages = Array.isArray(row.images)
+    ? row.images
+    : Array.isArray(row.thumbnails)
+      ? row.thumbnails
+      : [];
+  const images: string[] = [];
+  for (const image of rawImages) {
+    const rawUrl =
+      typeof image === 'string'
+        ? image
+        : isRecord(image)
+          ? ((image.imageUrl ?? image.url ?? image.image) as unknown)
+          : null;
+    if (typeof rawUrl !== 'string') continue;
+    const url = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl.trim();
+    if (isAliExpressImageUrl(url) && !images.includes(url)) {
+      images.push(url);
+      if (images.length === MAX_REVIEW_IMAGES) break;
+    }
+  }
+
+  const sourceReviewId = sanitizeOptionalString(
+    row.evaluationIdStr ?? row.evaluationId ?? row.evalId ?? row.id,
+    160
+  );
+  return {
+    sourceReviewId:
+      sourceReviewId || `${productId}:${reviewDate.getTime()}:${index}`,
+    reviewerName,
+    rating,
+    comment: comment ?? '',
+    images,
+    reviewDate,
+  };
+}
+
+async function fetchAliExpressReviewPage(
+  productId: string,
+  page: number
+): Promise<unknown> {
+  const url = new URL('https://feedback.aliexpress.com/pc/searchEvaluation.do');
+  url.search = new URLSearchParams({
+    productId,
+    lang: 'en_US',
+    country: 'US',
+    page: String(page),
+    pageSize: String(REVIEW_PAGE_SIZE),
+    filter: 'all',
+    sort: 'complex_default',
+  }).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+
+  try {
+    const headers = {
+      Accept: 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      Referer: `https://www.aliexpress.com/item/${productId}.html`,
+      'User-Agent': 'Mozilla/5.0 (compatible; MantomartReviewImporter/1.0)',
+    };
+    let requestUrl = url;
+    let response: Response | null = null;
+    for (let redirects = 0; redirects <= 2; redirects++) {
+      response = await fetch(requestUrl, {
+        headers,
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      if (redirects === 2) {
+        throw new Error(
+          'AliExpress redirected the review request too many times.'
+        );
+      }
+      const location = response.headers.get('location');
+      if (!location) {
+        throw new Error(
+          'AliExpress redirected the review request without a location.'
+        );
+      }
+      const redirectUrl = new URL(location, requestUrl);
+      if (
+        redirectUrl.protocol !== 'https:' ||
+        !(
+          redirectUrl.hostname === 'aliexpress.com' ||
+          redirectUrl.hostname.endsWith('.aliexpress.com')
+        )
+      ) {
+        throw new Error(
+          'AliExpress redirected the review request to an unsupported host.'
+        );
+      }
+      requestUrl = redirectUrl;
+    }
+    if (!response) {
+      throw new Error('AliExpress review service did not return a response.');
+    }
+    if (!response.ok) {
+      throw new Error(
+        response.status === 429
+          ? 'AliExpress is temporarily rate limiting review requests.'
+          : `AliExpress review service returned ${response.status}.`
+      );
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('AliExpress review request timed out.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function randomReviewLimit(): number {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return 300 + (bytes[0]! % (MAX_REVIEWS - 300 + 1));
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 const addProductMyList = new Hono<AppEnv>();
 
 addProductMyList.use('*', requireAdminMiddleware);
+
+/**
+ * GET /reviews/:aeProductId
+ * Retrieve a bounded, randomized sample from AliExpress' public review page.
+ */
+addProductMyList.get(
+  '/reviews/:aeProductId',
+  requireAnyPermission(PERMISSIONS.PRODUCT_CREATE),
+  async (c) => {
+    const productId = (c.req.param('aeProductId') ?? '').trim();
+    if (
+      !productId ||
+      productId.length > MAX_AE_ID_LENGTH ||
+      !isValidId(productId)
+    ) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_AE_PRODUCT_ID',
+        'Invalid AliExpress product id.'
+      );
+    }
+
+    try {
+      const firstPage = await fetchAliExpressReviewPage(productId, 1);
+      if (!hasRemoteReviewList(firstPage)) {
+        console.error('AliExpress returned an unexpected review response.');
+        return errorJson(
+          c,
+          502,
+          'INVALID_REVIEW_RESPONSE',
+          'AliExpress returned reviews in an unsupported format.'
+        );
+      }
+
+      const firstRows = parseRemoteReviewRows(firstPage);
+      const reportedTotal = parseRemoteReviewCount(firstPage);
+      const randomizedLimit = randomReviewLimit();
+      const limit =
+        reportedTotal !== null && reportedTotal > 0
+          ? Math.min(randomizedLimit, reportedTotal)
+          : firstRows.length === 0
+            ? 0
+            : randomizedLimit;
+      const pageCount = Math.ceil(limit / REVIEW_PAGE_SIZE);
+      const rawRows = [...firstRows];
+
+      for (let startPage = 2; startPage <= pageCount; startPage += 3) {
+        const pages = Array.from(
+          { length: Math.min(3, pageCount - startPage + 1) },
+          (_unused, offset) => startPage + offset
+        );
+        const results = await Promise.all(
+          pages.map((page) => fetchAliExpressReviewPage(productId, page))
+        );
+        for (const result of results) {
+          if (!hasRemoteReviewList(result)) {
+            throw new Error('AliExpress returned an invalid review page.');
+          }
+          rawRows.push(...parseRemoteReviewRows(result));
+        }
+      }
+
+      const uniqueReviews = new Map<string, ParsedReview>();
+      rawRows.forEach((row, index) => {
+        const review = normalizeRemoteReview(row, productId, index);
+        if (review && !uniqueReviews.has(review.sourceReviewId)) {
+          uniqueReviews.set(review.sourceReviewId, review);
+        }
+      });
+      const reviews = [...uniqueReviews.values()].slice(0, limit);
+
+      return c.json({
+        success: true,
+        data: {
+          reviews: reviews.map((review) => ({
+            ...review,
+            reviewDate: review.reviewDate.toISOString(),
+          })),
+          selectionLimit: Math.min(randomizedLimit, reviews.length),
+          sourceReviewCount: reportedTotal ?? reviews.length,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to retrieve AliExpress reviews:', error);
+      const isRateLimited =
+        error instanceof Error && error.message.includes('rate limiting');
+      return errorJson(
+        c,
+        isRateLimited ? 503 : 502,
+        isRateLimited
+          ? 'REVIEW_SOURCE_RATE_LIMITED'
+          : 'REVIEW_SOURCE_UNAVAILABLE',
+        error instanceof Error
+          ? error.message
+          : 'Could not retrieve AliExpress reviews. Please retry.'
+      );
+    }
+  }
+);
 
 /**
  * GET /ae-exists/:aeProductId
@@ -1169,6 +1522,107 @@ addProductMyList.post(
       attributes.push(attr);
     }
 
+    const reviewsRaw = body.reviews === undefined ? [] : body.reviews;
+    if (!Array.isArray(reviewsRaw)) {
+      return errorJson(c, 400, 'INVALID_REVIEWS', 'reviews must be an array.');
+    }
+    if (reviewsRaw.length > MAX_REVIEWS) {
+      return errorJson(
+        c,
+        400,
+        'TOO_MANY_REVIEWS',
+        `At most ${MAX_REVIEWS} reviews can be added to a product.`
+      );
+    }
+    const importedReviews: ParsedReview[] = [];
+    const sourceReviewIds = new Set<string>();
+    for (let i = 0; i < reviewsRaw.length; i++) {
+      const value = reviewsRaw[i];
+      if (!isRecord(value)) {
+        return errorJson(
+          c,
+          400,
+          'INVALID_REVIEW',
+          `Review ${i + 1} is invalid.`
+        );
+      }
+
+      const sourceReviewId = sanitizeRequiredString(value.sourceReviewId, 160);
+      const reviewerName = normalizeReviewReviewerName(value.reviewerName);
+      const rating = sanitizeInteger(value.rating, { min: 1, max: 5 });
+      const comment = sanitizeOptionalString(
+        value.comment,
+        MAX_REVIEW_COMMENT_LENGTH
+      );
+      const reviewDate =
+        typeof value.reviewDate === 'string' &&
+        value.reviewDate.length <= 64 &&
+        Number.isFinite(Date.parse(value.reviewDate))
+          ? new Date(value.reviewDate)
+          : null;
+      if (
+        !sourceReviewId ||
+        !reviewerName ||
+        rating === null ||
+        rating === undefined ||
+        (comment === undefined && value.comment !== undefined) ||
+        !reviewDate
+      ) {
+        return errorJson(
+          c,
+          400,
+          'INVALID_REVIEW',
+          `Review ${i + 1} has invalid reviewer, rating, text, or date data.`
+        );
+      }
+      if (sourceReviewIds.has(sourceReviewId)) {
+        return errorJson(
+          c,
+          400,
+          'DUPLICATE_REVIEW',
+          `Review source id "${sourceReviewId}" appears more than once.`
+        );
+      }
+      sourceReviewIds.add(sourceReviewId);
+
+      const rawImages = value.images === undefined ? [] : value.images;
+      if (!Array.isArray(rawImages) || rawImages.length > MAX_REVIEW_IMAGES) {
+        return errorJson(
+          c,
+          400,
+          'INVALID_REVIEW_IMAGES',
+          `Review ${i + 1} may contain at most ${MAX_REVIEW_IMAGES} images.`
+        );
+      }
+      const images: string[] = [];
+      for (const rawImage of rawImages) {
+        const image = sanitizeUrl(rawImage);
+        if (
+          typeof image !== 'string' ||
+          !isAliExpressImageUrl(
+            image.startsWith('//') ? `https:${image}` : image
+          )
+        ) {
+          return errorJson(
+            c,
+            400,
+            'INVALID_REVIEW_IMAGE',
+            `Review ${i + 1} contains an invalid AliExpress image URL.`
+          );
+        }
+        images.push(image.startsWith('//') ? `https:${image}` : image);
+      }
+
+      importedReviews.push({
+        sourceReviewId,
+        reviewerName,
+        rating,
+        comment: comment ?? '',
+        images,
+        reviewDate,
+      });
+    }
+
     // ── Pre-flight (JSON errors — before the upload stream starts) ───────────
 
     try {
@@ -1241,11 +1695,44 @@ addProductMyList.post(
         return;
       }
 
+      const hostedReviews = await hostAliExpressReviewImages({
+        env,
+        imageUrls: importedReviews.map((review) => review.images),
+        origin,
+        signal,
+        onProgress: (event) => write('progress', event),
+      });
+      if (!hostedReviews.ok) {
+        await deleteUploadedProductImageKeys(env, [
+          ...hosted.uploadedKeys,
+          ...hostedReviews.uploadedKeys,
+        ]);
+        write('error', {
+          success: false,
+          code: hostedReviews.error.code,
+          message: hostedReviews.error.message,
+          error: hostedReviews.error.message,
+        });
+        return;
+      }
+
       const now = new Date();
       const productId = nanoid();
       const primaryCategoryId = categoryIds[0] ?? null;
       const hostedImages = persistProductImages(hosted.productImages);
       const hostedSizeChart = hosted.sizeChartImage;
+      const averageReview =
+        importedReviews.length > 0
+          ? Math.round(
+              (importedReviews.reduce((sum, review) => sum + review.rating, 0) /
+                importedReviews.length) *
+                100
+            ) / 100
+          : null;
+      const uploadedKeys = [
+        ...hosted.uploadedKeys,
+        ...hostedReviews.uploadedKeys,
+      ];
 
       try {
         // D1 does not support SQL BEGIN/SAVEPOINT statements. Drizzle's batch
@@ -1270,6 +1757,8 @@ addProductMyList.post(
             aeCategoryId: aeCategoryId ?? null,
             aeRating: aeRating ?? null,
             aeReviewCount: aeReviewCount ?? null,
+            reviewCount: importedReviews.length,
+            averageReview,
             aeSalesCount: aeSalesCount ?? null,
             aeStatus: aeStatus ?? null,
             aeLastSynced: isAEProduct ? now : null,
@@ -1371,6 +1860,25 @@ addProductMyList.post(
           }
         }
 
+        if (importedReviews.length > 0) {
+          const reviewRows = importedReviews.map((review, index) => ({
+            id: nanoid(),
+            productId,
+            reviewerId: null,
+            reviewerName: review.reviewerName,
+            rating: review.rating,
+            comment: review.comment || null,
+            imageUrls: hostedReviews.imageUrls[index] ?? [],
+            isAe: true,
+            sourceReviewId: review.sourceReviewId,
+            reviewDate: review.reviewDate,
+            createdAt: now,
+          }));
+          for (const chunk of chunkArray(reviewRows)) {
+            queries.push(db.insert(productReviews).values(chunk));
+          }
+        }
+
         for (let offset = 0; offset < queries.length; offset += D1_BATCH_SIZE) {
           const batch = queries.slice(offset, offset + D1_BATCH_SIZE);
           await db.batch(
@@ -1381,7 +1889,7 @@ addProductMyList.post(
         await incrementAdminProductsAdded(db, actor.id, now);
       } catch (error) {
         console.error('Error creating product from my-list:', error);
-        await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+        await deleteUploadedProductImageKeys(env, uploadedKeys);
 
         const message =
           error instanceof Error ? error.message.toLowerCase() : '';
@@ -1462,9 +1970,7 @@ addProductMyList.post(
         },
       });
       c.executionCtx.waitUntil(
-        Promise.all([
-          invalidateHomepageCache(c.env.KV),
-        ]).then(() => undefined)
+        Promise.all([invalidateHomepageCache(c.env.KV)]).then(() => undefined)
       );
     });
   }

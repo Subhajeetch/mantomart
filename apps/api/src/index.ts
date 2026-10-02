@@ -1,14 +1,11 @@
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import type Env from "@/types/env";
-import { createAuth } from "@repo/auth/server";
-import { createDb } from "@repo/db";
-import { warnIfLiveWebhookMissing } from "@/utils/paypal";
-import sendResetPassEmail from "@/utils/sendResetPassEmail";
-import {
-  recordUserLogin,
-  touchLastActive,
-} from "@/utils/userActivity";
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import type Env from '@/types/env';
+import { createAuth } from '@repo/auth/server';
+import { createDb } from '@repo/db';
+import { warnIfLiveWebhookMissing } from '@/utils/paypal';
+import sendResetPassEmail from '@/utils/sendResetPassEmail';
+import { recordUserLogin, touchLastActive } from '@/utils/userActivity';
 
 // routes import
 import {
@@ -30,6 +27,7 @@ import {
   imageProxy,
   getAdminAccount,
   adminStats,
+  reviews,
   storeHeader,
   storeHomepage,
   storeImages,
@@ -42,13 +40,12 @@ import {
   storeShipping,
   storeAddresses,
   storeOrders,
-} from "./routes";
-import config from "./mine.config";
-
+} from './routes';
+import config from './mine.config';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use("*", async (c, next) => {
+app.use('*', async (c, next) => {
   warnIfLiveWebhookMissing(c.env);
   // The canonical store/admin origins are ALWAYS allowed, unioned with any
   // additional origins configured via the ORIGINS env var — so cross-origin
@@ -56,31 +53,33 @@ app.use("*", async (c, next) => {
   const secureDefaults = [
     config.storeFrontURI,
     config.adminURI,
-    "http://localhost:8000",
-    "http://localhost:8001",
+    'http://localhost:8000',
+    'http://localhost:8001',
   ];
-  const configured = c.env.ORIGINS ? c.env.ORIGINS.split(",") : [];
+  const configured = c.env.ORIGINS ? c.env.ORIGINS.split(',') : [];
   const origins = Array.from(
-    new Set([...configured, ...secureDefaults].map((o) => o.trim()).filter(Boolean))
+    new Set(
+      [...configured, ...secureDefaults].map((o) => o.trim()).filter(Boolean)
+    )
   );
 
   return cors({
     origin: origins,
     allowHeaders: [
-      "Content-Type",
-      "Authorization",
-      "Accept",
+      'Content-Type',
+      'Authorization',
+      'Accept',
       // Cross-origin guest cart identity. Omitted, browsers block the
       // preflight for cart reads/writes with a CORS error.
-      "X-Guest-Id",
+      'X-Guest-Id',
     ],
-    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
     maxAge: 86400,
   })(c, next);
 });
 
-app.all("/api/auth/*", (c) => {
+app.all('/api/auth/*', (c) => {
   const db = createDb(c.env.DB);
   const kv = c.env.KV;
 
@@ -108,47 +107,48 @@ app.all("/api/auth/*", (c) => {
         touchLastActive(db, kv, userId, {
           waitUntil: (p) => c.executionCtx.waitUntil(p),
         }),
-    },
+    }
   );
 
   return auth.handler(c.req.raw);
 });
 
-app.get("/api/health", () => {
-  return new Response("OK");
+app.get('/api/health', () => {
+  return new Response('OK');
 });
 
 //routes
-app.route("/api/ae/", aeProduct);
-app.route("/api/ae/", aeAuth);
-app.route("/api/google/", googleAuth);
-app.route("/api/google/keywords", googleKeywords);
-app.route("/api/admins", admins);
-app.route("/api/users", users);
-app.route("/api/audit-logs", auditLogs);
-app.route("/api/categories", categories);
-app.route("/api/products/mylist", addProductMyList);
-app.route("/api/products/manage", manageProducts);
-app.route("/api/ai", aiEndpoints);
-app.route("/api/admin/header", editHeader);
-app.route("/api/admin/homepage", homepage);
-app.route("/api/admin/security", security);
-app.route("/api/admin/images", imageUpload);
-app.route("/api/admin/image-proxy", imageProxy);
-app.route("/api/admin/account", getAdminAccount);
-app.route("/api/admin-stats", adminStats);
-app.route("/api/store/header", storeHeader);
-app.route("/api/store/homepage", storeHomepage);
-app.route("/api/store/product", storeProduct);
-app.route("/api/store/account", storeAccount);
-app.route("/api/store/wishlists", storeWishlists);
-app.route("/api/store/cart", storeCart);
-app.route("/api/store/checkout", storeCheckout);
-app.route("/api/store/paypal", storePayPal);
-app.route("/api/store/shipping", storeShipping);
-app.route("/api/store/addresses", storeAddresses);
-app.route("/api/store/orders", storeOrders);
+app.route('/api/ae/', aeProduct);
+app.route('/api/ae/', aeAuth);
+app.route('/api/google/', googleAuth);
+app.route('/api/google/keywords', googleKeywords);
+app.route('/api/admins', admins);
+app.route('/api/users', users);
+app.route('/api/audit-logs', auditLogs);
+app.route('/api/categories', categories);
+app.route('/api/products/mylist', addProductMyList);
+app.route('/api/products/manage', manageProducts);
+app.route('/api/ai', aiEndpoints);
+app.route('/api/admin/header', editHeader);
+app.route('/api/admin/homepage', homepage);
+app.route('/api/admin/security', security);
+app.route('/api/admin/images', imageUpload);
+app.route('/api/admin/image-proxy', imageProxy);
+app.route('/api/admin/account', getAdminAccount);
+app.route('/api/admin-stats', adminStats);
+app.route('/api/admin/reviews', reviews);
+app.route('/api/store/header', storeHeader);
+app.route('/api/store/homepage', storeHomepage);
+app.route('/api/store/product', storeProduct);
+app.route('/api/store/account', storeAccount);
+app.route('/api/store/wishlists', storeWishlists);
+app.route('/api/store/cart', storeCart);
+app.route('/api/store/checkout', storeCheckout);
+app.route('/api/store/paypal', storePayPal);
+app.route('/api/store/shipping', storeShipping);
+app.route('/api/store/addresses', storeAddresses);
+app.route('/api/store/orders', storeOrders);
 /** Public R2 object serve — used when R2_PUBLIC_URL is unset (local + default prod). */
-app.route("/api/images", storeImages);
+app.route('/api/images', storeImages);
 
 export default app;

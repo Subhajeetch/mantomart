@@ -86,6 +86,7 @@ import {
 } from './import-wizard-utils';
 import { composeProductImageAlt } from '../manage/utils';
 import { ImportWizardMedia } from './import-wizard-media';
+import { ImportWizardReviews } from './import-wizard-reviews';
 import { ImportWizardVariants } from './import-wizard-variants';
 import AiSeoSheet, { type AiSeoApplyPayload } from './ai-seo-sheet';
 import KeywordResearchSheet from './keyword-research-sheet';
@@ -475,6 +476,8 @@ export default function ImportWizard({
     message: string;
   } | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   // Categories
   const [categoryTree, setCategoryTree] = useState<CategoryNode[]>([]);
@@ -508,7 +511,9 @@ export default function ImportWizard({
   const [notesOpen, setNotesOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  const reviewAbortRef = useRef<AbortController | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftStorageErrorShownRef = useRef(false);
   const listItemId = listItem?.id ?? resumeDraft?.listItemId ?? null;
 
   const flatCategories = useMemo(
@@ -550,6 +555,105 @@ export default function ImportWizard({
     []
   );
 
+  const fetchReviews = useCallback(async (aeProductId: string) => {
+    const productId = aeProductId.trim();
+    if (!productId) {
+      setReviewError('This product is missing its AliExpress product id.');
+      return;
+    }
+
+    reviewAbortRef.current?.abort();
+    const controller = new AbortController();
+    reviewAbortRef.current = controller;
+    setReviewLoading(true);
+    setReviewError(null);
+
+    try {
+      const response = await requestJson<{
+        success: true;
+        data: {
+          reviews: Array<{
+            sourceReviewId: string;
+            reviewerName: string;
+            rating: number;
+            comment: string;
+            images: string[];
+            reviewDate: string;
+          }>;
+          selectionLimit: number;
+        };
+      }>(`/api/products/mylist/reviews/${encodeURIComponent(productId)}`, {
+        signal: controller.signal,
+      });
+
+      if (
+        !Array.isArray(response.data?.reviews) ||
+        !Number.isInteger(response.data.selectionLimit)
+      ) {
+        throw new ApiError('AliExpress returned an invalid reviews response.', {
+          code: 'INVALID_REVIEWS_RESPONSE',
+        });
+      }
+
+      const reviews = response.data.reviews.flatMap((review) => {
+        if (
+          typeof review.sourceReviewId !== 'string' ||
+          typeof review.reviewerName !== 'string' ||
+          !Number.isInteger(review.rating) ||
+          review.rating < 1 ||
+          review.rating > 5 ||
+          typeof review.comment !== 'string' ||
+          !Array.isArray(review.images) ||
+          typeof review.reviewDate !== 'string' ||
+          !Number.isFinite(Date.parse(review.reviewDate))
+        ) {
+          return [];
+        }
+        return [
+          {
+            sourceReviewId: review.sourceReviewId,
+            reviewerName: review.reviewerName,
+            rating: review.rating,
+            comment: review.comment,
+            imageUrls: review.images
+              .filter((url): url is string => typeof url === 'string')
+              .slice(0, 5),
+            reviewDate: review.reviewDate,
+            selected: false,
+          },
+        ];
+      });
+
+      if (controller.signal.aborted) return;
+      setForm((previous) =>
+        previous
+          ? {
+              ...previous,
+              aeReviews: reviews,
+              reviewSelectionLimit: Math.min(
+                Math.max(0, response.data.selectionLimit),
+                reviews.length,
+                347
+              ),
+              reviewTargetAverage: null,
+            }
+          : previous
+      );
+    } catch (error) {
+      if (isAbortError(error) || controller.signal.aborted) return;
+      setReviewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to fetch AliExpress reviews.'
+      );
+    } finally {
+      if (reviewAbortRef.current === controller) {
+        reviewAbortRef.current = null;
+        setReviewLoading(false);
+      }
+    }
+  }, []);
+
   // Auto-save draft
   useEffect(() => {
     if (!open || !form || !listItemId || alreadyAdded) return;
@@ -576,8 +680,19 @@ export default function ImportWizard({
           null,
         form,
       };
-      upsertDraft(draft);
-      onDraftSaved();
+      try {
+        upsertDraft(draft);
+        draftStorageErrorShownRef.current = false;
+        onDraftSaved();
+      } catch (error) {
+        console.error('Failed to save product import draft:', error);
+        if (!draftStorageErrorShownRef.current) {
+          draftStorageErrorShownRef.current = true;
+          toast.error(
+            'Browser storage is full; your review selection may not be saved. Clear space and try again.'
+          );
+        }
+      }
     }, 600);
 
     return () => {
@@ -610,7 +725,9 @@ export default function ImportWizard({
 
     // Resume from draft without re-fetch when form is complete
     if (resumeDraft?.form) {
-      setForm(normalizeImportForm(resumeDraft.form));
+      const restored = normalizeImportForm(resumeDraft.form);
+      setForm(restored);
+      if (restored.aeReviews === null) void fetchReviews(restored.aeProductId);
       setStep(resumeDraft.currentStep ?? 0);
       void loadCategories();
       return;
@@ -620,7 +737,10 @@ export default function ImportWizard({
     if (listItem) {
       const existing = getDraft(listItem.id);
       if (existing?.form) {
-        setForm(normalizeImportForm(existing.form));
+        const restored = normalizeImportForm(existing.form);
+        setForm(restored);
+        if (restored.aeReviews === null)
+          void fetchReviews(restored.aeProductId);
         setStep(existing.currentStep ?? 0);
         void loadCategories();
         return;
@@ -646,7 +766,9 @@ export default function ImportWizard({
       }
       if (controller.signal.aborted) return;
       const initial = buildInitialForm(listItem, detail);
-      setForm(normalizeImportForm(initial));
+      const normalized = normalizeImportForm(initial);
+      setForm(normalized);
+      void fetchReviews(normalized.aeProductId);
       void loadCategories();
     } catch (err) {
       if (isAbortError(err) || controller.signal.aborted) return;
@@ -655,7 +777,9 @@ export default function ImportWizard({
       );
       // Still allow editing with search-card data
       if (listItem) {
-        setForm(normalizeImportForm(buildInitialForm(listItem, null)));
+        const fallback = normalizeImportForm(buildInitialForm(listItem, null));
+        setForm(fallback);
+        void fetchReviews(fallback.aeProductId);
         void loadCategories();
       }
     } finally {
@@ -663,12 +787,13 @@ export default function ImportWizard({
         setLoadingDetail(false);
       }
     }
-  }, [listItem, resumeDraft, loadCategories]);
+  }, [listItem, resumeDraft, loadCategories, fetchReviews]);
 
   const bootstrapWizard = useCallback(async () => {
     if (!listItem && !resumeDraft) return;
 
     abortRef.current?.abort();
+    reviewAbortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -679,6 +804,8 @@ export default function ImportWizard({
     setRemovingFromList(false);
     setDetailError(null);
     setStepError(null);
+    setReviewError(null);
+    setReviewLoading(false);
     setForm(null);
     setStep(0);
     setLoadingDetail(false);
@@ -744,9 +871,12 @@ export default function ImportWizard({
       void bootstrapWizard();
     } else {
       abortRef.current?.abort();
+      reviewAbortRef.current?.abort();
       setForm(null);
       setStep(0);
       setDetailError(null);
+      setReviewLoading(false);
+      setReviewError(null);
       setStepError(null);
       setCheckingExists(false);
       setAlreadyAdded(false);
@@ -792,8 +922,7 @@ export default function ImportWizard({
   const showStepValidationError = (err: string) => {
     setStepError(err);
     // Short toast so the error is visible without scrolling; full detail stays at bottom
-    const short =
-      err.length > 72 ? `${err.slice(0, 69).trimEnd()}…` : err;
+    const short = err.length > 72 ? `${err.slice(0, 69).trimEnd()}…` : err;
     toast.error(short, {
       description: 'Scroll down for more info.',
       duration: 4500,
@@ -1022,13 +1151,14 @@ export default function ImportWizard({
   const review = useMemo(() => {
     if (!form) return null;
     const selectedSkus = form.skus.filter((s) => s.selected && s.stock > 0);
+    const selectedReviews = (form.aeReviews ?? []).filter(
+      (item) => item.selected
+    );
 
     const prices = selectedSkus.map((s) => s.price);
     const compares = selectedSkus
       .map((s) => s.compareAtPrice)
-      .filter(
-        (n): n is number => n != null && Number.isFinite(n) && n > 0
-      );
+      .filter((n): n is number => n != null && Number.isFinite(n) && n > 0);
     const discounts = selectedSkus
       .map((s) => computeDiscountPercent(s.price, s.compareAtPrice))
       .filter((n): n is number => n !== null);
@@ -1052,6 +1182,12 @@ export default function ImportWizard({
 
     return {
       selectedSkuCount: selectedSkus.length,
+      selectedReviewCount: selectedReviews.length,
+      averageReview:
+        selectedReviews.length > 0
+          ? selectedReviews.reduce((sum, item) => sum + item.rating, 0) /
+            selectedReviews.length
+          : null,
       mainImage,
       categoryLabels,
       priceRange: centsRange(prices),
@@ -1254,8 +1390,7 @@ export default function ImportWizard({
                         <div className="flex items-center gap-3 p-3">
                           {listItem?.normalized.imageUrl ? (
                             <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
+                              <ProxiedImg
                                 src={listItem.normalized.imageUrl}
                                 alt={existingProduct.name || 'Product image'}
                                 className="h-full w-full object-cover transition-transform group-hover:scale-105"
@@ -1966,8 +2101,29 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 5: SEO & Tags ── */}
+                {/* ── Step 5: Reviews ── */}
                 {step === 5 ? (
+                  <ImportWizardReviews
+                    reviews={form.aeReviews}
+                    loading={reviewLoading}
+                    error={reviewError}
+                    selectionLimit={form.reviewSelectionLimit}
+                    targetAverage={form.reviewTargetAverage}
+                    onRefresh={() => void fetchReviews(form.aeProductId)}
+                    onChange={(aeReviews) =>
+                      updateForm((prev) => ({ ...prev, aeReviews }))
+                    }
+                    onTargetChange={(reviewTargetAverage) =>
+                      updateForm((prev) => ({
+                        ...prev,
+                        reviewTargetAverage,
+                      }))
+                    }
+                  />
+                ) : null}
+
+                {/* ── Step 6: SEO & Tags ── */}
+                {step === 6 ? (
                   <div className="space-y-6 p-2 md:p-0">
                     <GooglePreview
                       title={form.metaTitle}
@@ -2067,8 +2223,8 @@ export default function ImportWizard({
                   </div>
                 ) : null}
 
-                {/* ── Step 6: Publish ── */}
-                {step === 6 && review ? (
+                {/* ── Step 7: Publish ── */}
+                {step === 7 && review ? (
                   <div className="space-y-4 p-2 md:p-0">
                     {/* Header */}
                     <div className="flex items-start gap-3">
@@ -2101,22 +2257,32 @@ export default function ImportWizard({
                             </div>
                           )}
                           {/* Floating image count */}
-                          <div className="absolute right-2 bottom-1 inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur">
-                            <ImageIcon className="h-3.5 w-3.5" />
+                          <div className="absolute right-2 bottom-1 inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2.5 py-0.5 text-[10px] text-foreground">
+                            <ImageIcon className="h-3 w-3" />
                             {selectedImageCount} Image
                             {selectedImageCount === 1 ? '' : 's'}
                           </div>
 
-                          <div className="absolute right-2 bottom-8 shadow-sm backdrop-blur">
+                          <div className="absolute inset-x-2 bottom-6.5 flex flex-col items-end gap-0.5">
                             <Badge
-                                variant="secondary"
-                                className="shrink-0 gap-1"
-                              >
-                                <Layers className="h-3 w-3" />
-                                {review.selectedSkuCount} variant
-                                {review.selectedSkuCount === 1 ? '' : 's'}
-                              </Badge>
-                            </div>
+                              variant="secondary"
+                              className="max-w-full shrink gap-1 truncate whitespace-nowrap px-1.5 text-[10px]"
+                            >
+                              <Layers className="h-3 w-3" />
+                              {review.selectedSkuCount} variant
+                              {review.selectedSkuCount === 1 ? '' : 's'}
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className="max-w-full shrink gap-1 truncate whitespace-nowrap px-1.5 text-[10px]"
+                            >
+                              <Star className="h-3 w-3" />
+                              {review.selectedReviewCount} reviews
+                              {review.averageReview !== null
+                                ? ` · ${review.averageReview.toFixed(1)}/5`
+                                : ''}
+                            </Badge>
+                          </div>
                         </div>
 
                         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
@@ -2245,8 +2411,7 @@ export default function ImportWizard({
                           </p>
                           {publishProgress && publishProgress.total > 0 ? (
                             <span className="shrink-0 tabular-nums text-muted-foreground">
-                              {publishProgress.current}/
-                              {publishProgress.total}
+                              {publishProgress.current}/{publishProgress.total}
                             </span>
                           ) : null}
                         </div>

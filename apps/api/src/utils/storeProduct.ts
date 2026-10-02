@@ -1,10 +1,22 @@
-import { and, asc, eq, gt, inArray, ne, not, or, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  ne,
+  not,
+  or,
+  type SQL,
+} from 'drizzle-orm';
 import {
   categories,
   productAttributes,
   productCategories,
   products,
   productSkus,
+  reviews as productReviews,
   skuProperties,
   type Database,
   type ProductImage,
@@ -102,6 +114,16 @@ export type PublicProduct = {
   sizeChartDescription: string | null;
   aeRating: number | null;
   aeReviewCount: number | null;
+  reviewCount: number;
+  averageReview: number | null;
+  reviews: Array<{
+    id: string;
+    reviewerName: string;
+    rating: number;
+    comment: string;
+    imageUrls: string[];
+    reviewDate: string;
+  }>;
   aeSalesCount: string | null;
   tags: string[];
   metaTitle: string | null;
@@ -337,7 +359,11 @@ function buildGallery(
   }
 
   const seenVideo = new Set<string>();
-  const pushVideo = (url: string, poster: string | null, alt: string | null) => {
+  const pushVideo = (
+    url: string,
+    poster: string | null,
+    alt: string | null
+  ) => {
     const trimmed = url.trim();
     if (!trimmed) return;
     const key = urlKey(trimmed);
@@ -447,10 +473,7 @@ function categoryRef(row: CategoryRow): PublicCategoryRef {
   };
 }
 
-function categoryDepth(
-  id: string,
-  byId: Map<string, CategoryRow>
-): number {
+function categoryDepth(id: string, byId: Map<string, CategoryRow>): number {
   let depth = 0;
   const seen = new Set<string>();
   let current: string | null = id;
@@ -502,7 +525,8 @@ function pickPrimaryCategoryId(
       depth > bestDepth ||
       (depth === bestDepth &&
         (row.position < best.position ||
-          (row.position === best.position && row.name.localeCompare(best.name) < 0)))
+          (row.position === best.position &&
+            row.name.localeCompare(best.name) < 0)))
     ) {
       best = row;
       bestDepth = depth;
@@ -521,10 +545,7 @@ function cursorClause(
   );
 }
 
-function categoryMembership(
-  db: Database,
-  categoryIds: string[]
-) {
+function categoryMembership(db: Database, categoryIds: string[]) {
   if (categoryIds.length === 0) return undefined;
   const joinQuery =
     categoryIds.length === 1
@@ -560,9 +581,7 @@ export function encodeMoreCursor(
   ).toString('base64');
 }
 
-export function decodeMoreCursor(
-  raw: string | null | undefined
-): {
+export function decodeMoreCursor(raw: string | null | undefined): {
   level: number;
   position: number | null;
   id: string | null;
@@ -597,7 +616,8 @@ export function decodeMoreCursor(
     const level = Number.parseInt(decoded.slice(0, sep1), 10);
     const position = Number.parseInt(decoded.slice(sep1 + 1, sep2), 10);
     const id = decoded.slice(sep2 + 1, sep3 === -1 ? undefined : sep3);
-    const served = sep3 === -1 ? 0 : Number.parseInt(decoded.slice(sep3 + 1), 10);
+    const served =
+      sep3 === -1 ? 0 : Number.parseInt(decoded.slice(sep3 + 1), 10);
     if (!Number.isFinite(level) || level < 0) return null;
     if (!Number.isFinite(position) || !isValidId(id)) return null;
     if (!Number.isFinite(served) || served < 0) return null;
@@ -607,7 +627,9 @@ export function decodeMoreCursor(
   }
 }
 
-async function loadAllCategories(db: Database): Promise<Map<string, CategoryRow>> {
+async function loadAllCategories(
+  db: Database
+): Promise<Map<string, CategoryRow>> {
   const rows = await db
     .select({
       id: categories.id,
@@ -681,7 +703,10 @@ async function loadNested(
       })
       .from(productAttributes)
       .where(eq(productAttributes.productId, productId))
-      .orderBy(asc(productAttributes.position), asc(productAttributes.attrName)),
+      .orderBy(
+        asc(productAttributes.position),
+        asc(productAttributes.attrName)
+      ),
   ]);
 
   const skuIds = skuRows.map((row) => row.id);
@@ -788,6 +813,8 @@ export async function loadPublicProduct(
         sizeChartDescription: products.sizeChartDescription,
         aeRating: products.aeRating,
         aeReviewCount: products.aeReviewCount,
+        reviewCount: products.reviewCount,
+        averageReview: products.averageReview,
         aeSalesCount: products.aeSalesCount,
         images: products.images,
         videos: products.videos,
@@ -803,9 +830,26 @@ export async function loadPublicProduct(
 
     if (!row) return { ok: false, code: 'NOT_FOUND' };
 
-    const [byId, nested] = await Promise.all([
+    const [byId, nested, reviewRows] = await Promise.all([
       loadAllCategories(db),
       loadNested(db, row.id, env, options),
+      db
+        .select({
+          id: productReviews.id,
+          reviewerName: productReviews.reviewerName,
+          rating: productReviews.rating,
+          comment: productReviews.comment,
+          imageUrls: productReviews.imageUrls,
+          reviewDate: productReviews.reviewDate,
+          createdAt: productReviews.createdAt,
+        })
+        .from(productReviews)
+        .where(eq(productReviews.productId, row.id))
+        .orderBy(
+          desc(productReviews.reviewDate),
+          desc(productReviews.createdAt)
+        )
+        .limit(20),
     ]);
     const assigned = await loadAssignedCategories(
       db,
@@ -847,13 +891,29 @@ export async function loadPublicProduct(
       defaultPrice: row.defaultPrice ?? null,
       description: sanitizeHtml(row.description),
       mobileDetail: sanitizeHtml(row.mobileDetail),
-      hasSizeChart: Boolean(row.hasSizeChart) && Boolean(sizeChartImage || row.sizeChartDescription),
+      hasSizeChart:
+        Boolean(row.hasSizeChart) &&
+        Boolean(sizeChartImage || row.sizeChartDescription),
       sizeChartImage,
       sizeChartDescription: row.hasSizeChart
         ? trimToNull(row.sizeChartDescription, 4000)
         : null,
       aeRating: toRating(row.aeRating),
       aeReviewCount: toReviewCount(row.aeReviewCount),
+      reviewCount: toReviewCount(row.reviewCount) ?? 0,
+      averageReview: toRating(row.averageReview),
+      reviews: reviewRows.map((review) => ({
+        id: review.id,
+        reviewerName: review.reviewerName,
+        rating: review.rating,
+        comment: review.comment ?? '',
+        imageUrls: Array.isArray(review.imageUrls)
+          ? review.imageUrls
+              .filter((url): url is string => typeof url === 'string')
+              .slice(0, 5)
+          : [],
+        reviewDate: (review.reviewDate ?? review.createdAt).toISOString(),
+      })),
       aeSalesCount: trimToNull(row.aeSalesCount, 64),
       tags: publicTags(row.tags),
       metaTitle: trimToNull(row.metaTitle, 120),
@@ -894,8 +954,7 @@ async function queryMoreLevel(
 ): Promise<ProductCardRow[]> {
   const take = Math.max(1, args.limit);
   const chainIds = args.chain.map((c) => c.id);
-  const isGlobal =
-    args.chain.length === 0 || args.level >= args.chain.length;
+  const isGlobal = args.chain.length === 0 || args.level >= args.chain.length;
 
   const filters: SQL[] = [
     eq(products.published, true),

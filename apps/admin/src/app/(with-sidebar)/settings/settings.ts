@@ -153,8 +153,13 @@ export function subscribeToSettings(
   if (!isBrowser()) return () => undefined;
 
   const onCustom = (event: Event) => {
-    const detail = (event as CustomEvent<{ id?: string; value?: boolean }>).detail;
-    if (!detail || typeof detail.id !== 'string' || typeof detail.value !== 'boolean') {
+    const detail = (event as CustomEvent<{ id?: string; value?: boolean }>)
+      .detail;
+    if (
+      !detail ||
+      typeof detail.id !== 'string' ||
+      typeof detail.value !== 'boolean'
+    ) {
       return;
     }
     listener(detail.id, detail.value);
@@ -198,10 +203,34 @@ export function isAliExpressImageUrl(url: string | null | undefined): boolean {
     const absolute = normalizeToAbsoluteUrl(trimmed);
     if (!absolute) return false;
     const parsed = new URL(absolute);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      return false;
     return ALIEXPRESS_IMAGE_HOST_RE.test(parsed.hostname);
   } catch {
     return false;
+  }
+}
+
+/**
+ * Request a small AliExpress image variant for admin previews only.
+ * The original URL is still kept in product drafts and publish payloads.
+ */
+export function aliExpressPreviewImageUrl(
+  sourceUrl: string | null | undefined
+): string | null {
+  if (!sourceUrl) return null;
+  const absolute = normalizeToAbsoluteUrl(sourceUrl);
+  if (!absolute || !isAliExpressImageUrl(absolute)) return absolute;
+
+  try {
+    const parsed = new URL(absolute);
+    parsed.pathname = parsed.pathname.replace(
+      /^(.+?\.(?:jpe?g|png|webp|gif|bmp|avif))(?:_[^/]*)?$/i,
+      '$1_220x220.jpg_.avif'
+    );
+    return parsed.toString();
+  } catch {
+    return absolute;
   }
 }
 
@@ -240,7 +269,9 @@ export function buildImageProxyUrl(sourceUrl: string): string | null {
 /**
  * Resolve a product image URL for display.
  * When the image-proxy setting is on and the URL is an AliExpress CDN image,
- * returns the Worker proxy URL; otherwise returns the original (normalized) URL.
+ * returns the Worker proxy URL; otherwise returns a normalized source URL.
+ * AliExpress sources use a 220px WebP-compatible preview transform only for
+ * rendering; the original URL remains unchanged in product data.
  */
 export function resolveProductImageSrc(
   sourceUrl: string | null | undefined,
@@ -248,7 +279,10 @@ export function resolveProductImageSrc(
 ): string {
   if (!sourceUrl) return '';
 
-  const absolute = normalizeToAbsoluteUrl(sourceUrl) ?? sourceUrl.trim();
+  const absolute =
+    aliExpressPreviewImageUrl(sourceUrl) ??
+    normalizeToAbsoluteUrl(sourceUrl) ??
+    sourceUrl.trim();
   const proxyEnabled =
     options?.proxyEnabled ?? getSettingValue(IMAGE_PROXY_SETTING_ID);
 

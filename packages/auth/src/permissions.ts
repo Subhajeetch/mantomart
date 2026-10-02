@@ -12,8 +12,9 @@ export const PERMISSIONS = {
   CATEGORY_DELETE: 'category:delete',
 
   REVIEW_WRITE: 'review:write',
+  REVIEW_READ: "review:read",
   REVIEW_DELETE: 'review:delete',
-  REVIEW_MODERATE: 'review:moderate',
+  REVIEW_MANAGE: 'review:moderate',
 
   ORDER_MANAGE: 'order:manage',
   ORDER_CREATE: 'order:create',
@@ -93,8 +94,9 @@ export const AUDIT_ACTIONS = {
   ORDER_REFUND: 'order.refund',
 
   // Reviews
-  REVIEW_MODERATE: 'review.moderate',
+  REVIEW_MANAGE: 'review.moderate',
   REVIEW_DELETE: 'review.delete',
+  REVIEW_READ: 'review:read',
 
   // AliExpress
   AE_CONNECT: 'ae.connect',
@@ -150,8 +152,9 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.CATEGORY_UPDATE,
     PERMISSIONS.CATEGORY_DELETE,
     PERMISSIONS.REVIEW_WRITE,
+    PERMISSIONS.REVIEW_READ,
     PERMISSIONS.REVIEW_DELETE,
-    PERMISSIONS.REVIEW_MODERATE,
+    PERMISSIONS.REVIEW_MANAGE,
     PERMISSIONS.ORDER_CREATE,
     PERMISSIONS.ORDER_READ,
     PERMISSIONS.ORDER_CANCEL,

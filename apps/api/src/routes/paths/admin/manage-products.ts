@@ -20,6 +20,7 @@ import {
   productCategories,
   products,
   productSkus,
+  reviews as productReviews,
   skuProperties,
   users,
   type Database,
@@ -1335,6 +1336,23 @@ manageProducts.get(
         return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
 
       const nested = await loadNestedProductData(db, id);
+      const reviewRows = await db
+        .select({
+          id: productReviews.id,
+          reviewerName: productReviews.reviewerName,
+          rating: productReviews.rating,
+          comment: productReviews.comment,
+          imageUrls: productReviews.imageUrls,
+          isAe: productReviews.isAe,
+          reviewDate: productReviews.reviewDate,
+          createdAt: productReviews.createdAt,
+        })
+        .from(productReviews)
+        .where(eq(productReviews.productId, id))
+        .orderBy(
+          desc(productReviews.reviewDate),
+          desc(productReviews.createdAt)
+        );
       const capabilities = await resolveActorCapabilities(
         db,
         actor.id,
@@ -1373,6 +1391,19 @@ manageProducts.get(
               ...prop,
               image: resolveStoredImageUrl(prop.image, c),
             })),
+          })),
+          reviews: reviewRows.map((review) => ({
+            id: review.id,
+            reviewerName: review.reviewerName,
+            rating: review.rating,
+            comment: review.comment ?? '',
+            imageUrls: Array.isArray(review.imageUrls)
+              ? review.imageUrls.filter(
+                  (url): url is string => typeof url === 'string'
+                )
+              : [],
+            isAe: Boolean(review.isAe),
+            reviewDate: (review.reviewDate ?? review.createdAt).toISOString(),
           })),
           addedBy: addedBy ?? null,
         },
@@ -1744,6 +1775,112 @@ manageProducts.patch(
 );
 
 manageProducts.delete(
+  '/:id/reviews/:reviewId',
+  requireAnyPermission(PERMISSIONS.PRODUCT_UPDATE),
+  async (c) => {
+    const actor = getActor(c);
+    const db = getDb(c);
+    const id = c.req.param('id');
+    const reviewId = c.req.param('reviewId');
+    if (!isValidId(id)) {
+      return errorJson(c, 400, 'INVALID_PRODUCT_ID', 'Invalid product id.');
+    }
+    if (!isValidId(reviewId)) {
+      return errorJson(c, 400, 'INVALID_REVIEW_ID', 'Invalid review id.');
+    }
+
+    try {
+      const [product] = await db
+        .select({ id: products.id, name: products.name })
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
+      if (!product) {
+        return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
+      }
+
+      const [review] = await db
+        .select({
+          id: productReviews.id,
+          reviewerName: productReviews.reviewerName,
+        })
+        .from(productReviews)
+        .where(
+          and(eq(productReviews.id, reviewId), eq(productReviews.productId, id))
+        )
+        .limit(1);
+      if (!review) {
+        return errorJson(c, 404, 'REVIEW_NOT_FOUND', 'Review not found.');
+      }
+
+      await db.batch([
+        db
+          .delete(productReviews)
+          .where(
+            and(
+              eq(productReviews.id, reviewId),
+              eq(productReviews.productId, id)
+            )
+          ),
+        db
+          .update(products)
+          .set({
+            reviewCount: sql`(SELECT COUNT(*) FROM reviews WHERE product_id = ${id})`,
+            averageReview: sql`(SELECT AVG(rating) FROM reviews WHERE product_id = ${id})`,
+            updatedAt: new Date(),
+          })
+          .where(eq(products.id, id)),
+      ]);
+
+      const [updatedProduct] = await db
+        .select({
+          reviewCount: products.reviewCount,
+          averageReview: products.averageReview,
+        })
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
+
+      c.executionCtx.waitUntil(
+        logAuditFromContext(c, {
+          action: AUDIT_ACTIONS.PRODUCT_UPDATE,
+          category: AUDIT_CATEGORIES.PRODUCT,
+          description: `Deleted review by "${review.reviewerName}" from "${product.name}"`,
+          targetType: AUDIT_TARGET_TYPES.PRODUCT,
+          targetId: id,
+          targetLabel: product.name,
+          metadata: {
+            reviewId,
+            deletedBy: {
+              id: actor.id,
+              name: actor.name,
+              email: actor.email,
+              role: actor.role,
+            },
+          },
+        }).then(() => undefined)
+      );
+      c.executionCtx.waitUntil(
+        invalidateHomepageCache(c.env.KV).then(() => undefined)
+      );
+
+      return c.json({
+        success: true,
+        message: 'Review deleted.',
+        data: {
+          reviewId,
+          reviewCount: updatedProduct?.reviewCount ?? 0,
+          averageReview: updatedProduct?.averageReview ?? null,
+        },
+      });
+    } catch (error) {
+      console.error('Error deleting product review:', error);
+      return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to delete review.');
+    }
+  }
+);
+
+manageProducts.delete(
   '/:id',
   requireAnyPermission(PERMISSIONS.PRODUCT_DELETE),
   async (c) => {
@@ -1791,6 +1928,7 @@ manageProducts.delete(
       await db
         .delete(productCategories)
         .where(eq(productCategories.productId, id));
+      await db.delete(productReviews).where(eq(productReviews.productId, id));
       await db.delete(products).where(eq(products.id, id));
 
       // Reverse this product's contribution on the admin leaderboard.

@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { ProxiedNextImage } from '@/util/proxied-image';
+import { ProxiedImg, ProxiedNextImage } from '@/util/proxied-image';
 
 import ImportWizard from './import-wizard';
 import {
@@ -186,8 +186,7 @@ const MyList = () => {
               >
                 <div className="relative aspect-[4/3] overflow-hidden bg-muted">
                   {draft.imageSnapshot ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <ProxiedImg
                       src={draft.imageSnapshot}
                       alt={draft.titleSnapshot}
                       className="h-full w-full object-cover"

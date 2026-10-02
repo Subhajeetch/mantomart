@@ -115,7 +115,7 @@ const sidebarLinks: {
   {
     title: "Reviews",
     type: "link",
-    url: "#",
+    url: "/manage/reviews",
     icon: Star,
   },
   {

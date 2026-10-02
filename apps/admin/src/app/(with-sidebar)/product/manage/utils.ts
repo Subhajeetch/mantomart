@@ -97,6 +97,16 @@ export type ProductAttribute = {
   position: number;
 };
 
+export type ProductReview = {
+  id: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
+  imageUrls: string[];
+  isAe: boolean;
+  reviewDate: string;
+};
+
 /** Lightweight list item for the manage products grid. */
 export type ProductSummary = {
   id: string;
@@ -130,6 +140,8 @@ export type ProductDetail = {
   aeProductId: string | null;
   aeRating: number | null;
   aeReviewCount: number | null;
+  reviewCount: number;
+  averageReview: number | null;
   aeSalesCount: string | null;
   published: boolean;
   featured: boolean;
@@ -158,6 +170,7 @@ export type ProductDetail = {
   categoryIds: string[];
   skus: ProductSku[];
   attributes: ProductAttribute[];
+  reviews: ProductReview[];
   addedBy: {
     id: string;
     name: string;

@@ -130,8 +130,12 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const savingsLabel =
     savingsCents !== null ? formatSavingsAmount(savingsCents) : '';
 
-  const ratingLabel = formatRating(product.aeRating);
-  const reviewCountLabel = formatReviewCount(product.aeReviewCount);
+  const ratingLabel = formatRating(
+    product.reviewCount > 0 ? product.averageReview : product.aeRating
+  );
+  const reviewCountLabel = formatReviewCount(
+    product.reviewCount > 0 ? product.reviewCount : product.aeReviewCount
+  );
   const showRatingBadge = Boolean(ratingLabel);
 
   const off =

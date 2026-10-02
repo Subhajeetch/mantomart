@@ -101,6 +101,8 @@ export type PublicProductCard = {
   aeSalesCount: string | null;
   aeRating: number | null;
   aeReviewCount: number | null;
+  reviewCount: number;
+  averageReview: number | null;
 };
 
 export type PublicPromoSliderBlock = {
@@ -381,6 +383,8 @@ export const PRODUCT_CARD_COLUMNS = {
   aeSalesCount: products.aeSalesCount,
   aeRating: products.aeRating,
   aeReviewCount: products.aeReviewCount,
+  reviewCount: products.reviewCount,
+  averageReview: products.averageReview,
   position: products.position,
 };
 
@@ -392,6 +396,8 @@ export type ProductCardRow = {
   aeSalesCount: string | null;
   aeRating: number | null;
   aeReviewCount: number | null;
+  reviewCount: number;
+  averageReview: number | null;
   position: number;
   defaultPrice: ProductDefaultPrice | null;
 };
@@ -707,6 +713,8 @@ function toPublicProductCard(
     aeSalesCount: optionalTrimmed(row.aeSalesCount, 64),
     aeRating: toRating(row.aeRating),
     aeReviewCount: toReviewCount(row.aeReviewCount),
+    reviewCount: toReviewCount(row.reviewCount) ?? 0,
+    averageReview: toRating(row.averageReview),
   };
 }
 
@@ -1269,6 +1277,8 @@ function normalizeProductCard(raw: unknown): PublicProductCard | null {
     aeSalesCount: optionalTrimmed(raw.aeSalesCount, 64),
     aeRating: toRating(raw.aeRating),
     aeReviewCount: toReviewCount(raw.aeReviewCount),
+    reviewCount: toReviewCount(raw.reviewCount) ?? 0,
+    averageReview: toRating(raw.averageReview),
   };
 }
 

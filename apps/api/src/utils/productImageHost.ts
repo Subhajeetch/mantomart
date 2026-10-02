@@ -19,6 +19,7 @@ import {
 } from '@repo/db';
 import type Env from '@/types/env';
 import {
+  buildPublicObjectUrl,
   deleteFromR2,
   getR2PublicBaseUrl,
   hasR2Binding,
@@ -27,6 +28,7 @@ import {
   type R2UrlOptions,
 } from '@/utils/r2';
 import config from '@/mine.config';
+import { isWebPBuffer } from '@/utils/imageUpload';
 
 // ─── Public constants ─────────────────────────────────────────────────────────
 
@@ -438,7 +440,8 @@ function assertNotAborted(signal?: AbortSignal) {
 
 async function fetchAliExpressImage(
   sourceUrl: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  accept = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
 ): Promise<{ body: ArrayBuffer; contentType: string }> {
   if (!isAliExpressImageUrl(sourceUrl)) {
     throw new ProductImageHostError(
@@ -461,7 +464,7 @@ async function fetchAliExpressImage(
       'User-Agent',
       `Mozilla/5.0 (compatible; ${config.brandName}ImageHost/1.0; +${config.brandDomain})`
     );
-    headers.set('Accept', 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8');
+    headers.set('Accept', accept);
     headers.set('Accept-Language', 'en-US,en;q=0.9');
     headers.set('Referer', 'https://www.aliexpress.com/');
 
@@ -601,6 +604,106 @@ async function putWithRetry(
     'R2_UPLOAD_FAILED',
     `${lastMessage} Tried ${R2_UPLOAD_ATTEMPTS} times.`
   );
+}
+
+/**
+ * Fetch review photos on the server and store WebP copies under
+ * `user/reviews/`, keeping upload traffic off the admin's connection.
+ */
+export async function hostAliExpressReviewImages(input: {
+  env: Env;
+  imageUrls: string[][];
+  origin?: string;
+  signal?: AbortSignal;
+  onProgress?: (event: HostProgressEvent) => void | Promise<void>;
+}): Promise<
+  | {
+      ok: true;
+      imageUrls: string[][];
+      uploadedKeys: string[];
+      hostedCount: number;
+    }
+  | { ok: false; error: HostedImageError; uploadedKeys: string[] }
+> {
+  const total = input.imageUrls.reduce((sum, images) => sum + images.length, 0);
+  const uploadedKeys: string[] = [];
+  const hostedImages = input.imageUrls.map(() => [] as string[]);
+  if (total === 0) {
+    return { ok: true, imageUrls: hostedImages, uploadedKeys, hostedCount: 0 };
+  }
+
+  let cursor = 0;
+  let completed = 0;
+  let failure: HostedImageError | null = null;
+  const jobs = input.imageUrls.flatMap((urls, reviewIndex) =>
+    urls.map((url, imageIndex) => ({ url, reviewIndex, imageIndex }))
+  );
+
+  const worker = async () => {
+    while (!failure) {
+      const jobIndex = cursor++;
+      const job = jobs[jobIndex];
+      if (!job) return;
+      try {
+        assertNotAborted(input.signal);
+        const { body, contentType } = await fetchAliExpressImage(
+          applyAeImageTransform(job.url, '_640x640q75.jpg_.webp'),
+          input.signal,
+          'image/webp,image/*,*/*;q=0.8'
+        );
+        if (contentType !== 'image/webp' || !isWebPBuffer(body)) {
+          throw new ProductImageHostError(
+            'REVIEW_IMAGE_CONVERSION_FAILED',
+            'AliExpress did not return a valid WebP review image. Please retry or remove this review photo.'
+          );
+        }
+
+        const key = `user/reviews/${nanoid()}.webp`;
+        await putWithRetry(input.env, key, body, 'image/webp', input.origin);
+        uploadedKeys.push(key);
+        const url = buildPublicObjectUrl(input.env, key, {
+          origin: input.origin,
+        });
+        if (!url) {
+          throw new ProductImageHostError(
+            'R2_PUBLIC_URL_UNAVAILABLE',
+            'Could not create a public URL for a hosted review image.'
+          );
+        }
+        hostedImages[job.reviewIndex]![job.imageIndex] = url;
+      } catch (error) {
+        failure =
+          error instanceof ProductImageHostError
+            ? { code: error.code, message: error.message }
+            : {
+                code: 'REVIEW_IMAGE_UPLOAD_FAILED',
+                message: 'Failed to host a review image.',
+              };
+        return;
+      }
+
+      completed++;
+      await input.onProgress?.({
+        current: completed,
+        total,
+        message: `Uploading review images (${completed}/${total})…`,
+      });
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker())
+  );
+
+  if (failure) {
+    return { ok: false, error: failure, uploadedKeys };
+  }
+  return {
+    ok: true,
+    imageUrls: hostedImages,
+    uploadedKeys,
+    hostedCount: total,
+  };
 }
 
 export async function deleteUploadedProductImageKeys(

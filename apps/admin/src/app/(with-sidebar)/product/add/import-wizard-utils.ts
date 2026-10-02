@@ -160,14 +160,22 @@ export function normalizeImportForm(form: ImportFormState): ImportFormState {
       images: dedupeProductImages(
         Array.isArray(sku.images) ? sku.images : []
       ).map((img) =>
-        hydrateImageForVariant(
-          img,
-          getColorVariantOptions([sku]),
-          form.name
-        )
+        hydrateImageForVariant(img, getColorVariantOptions([sku]), form.name)
       ),
     })),
     attributes,
+    aeReviews: Array.isArray(form.aeReviews) ? form.aeReviews : null,
+    reviewSelectionLimit:
+      Number.isInteger(form.reviewSelectionLimit) &&
+      form.reviewSelectionLimit > 0
+        ? Math.min(form.reviewSelectionLimit, 347)
+        : 347,
+    reviewTargetAverage:
+      typeof form.reviewTargetAverage === 'number' &&
+      form.reviewTargetAverage >= 4.1 &&
+      form.reviewTargetAverage <= 4.9
+        ? form.reviewTargetAverage
+        : null,
   };
 }
 
@@ -451,6 +459,9 @@ export function buildInitialForm(
     aeSalesCount:
       getString(baseInfo.sales_count) || listItem.normalized.orders || null,
     aeStatus: getString(baseInfo.product_status_type) || null,
+    aeReviews: null,
+    reviewSelectionLimit: 347,
+    reviewTargetAverage: null,
   };
 }
 
@@ -500,8 +511,7 @@ export function isColorLikePropertyName(propertyName: string): boolean {
 
 export function isSizeLikePropertyName(propertyName: string): boolean {
   return (
-    SIZE_PROPERTY_RE.test(propertyName) &&
-    !COLOR_PROPERTY_RE.test(propertyName)
+    SIZE_PROPERTY_RE.test(propertyName) && !COLOR_PROPERTY_RE.test(propertyName)
   );
 }
 
@@ -834,8 +844,9 @@ export const WIZARD_STEPS = [
   { id: 2, key: 'media', label: 'Media' },
   { id: 3, key: 'attributes', label: 'Attributes' },
   { id: 4, key: 'categories', label: 'Categories & Size' },
-  { id: 5, key: 'seo', label: 'SEO & Tags' },
-  { id: 6, key: 'publish', label: 'Publish' },
+  { id: 5, key: 'reviews', label: 'Reviews' },
+  { id: 6, key: 'seo', label: 'SEO & Tags' },
+  { id: 7, key: 'publish', label: 'Publish' },
 ] as const;
 
 export type WizardStepId = (typeof WIZARD_STEPS)[number]['id'];
@@ -957,12 +968,20 @@ export function validateStep(
       return 'Select or create at least one category.';
     }
   }
-  if (step === 5) {
+  if (step === 6) {
     const derivedSlug = slugify(form.name);
     if (!derivedSlug) {
       return 'Product title must produce a valid URL slug.';
     }
     if (!form.metaTitle.trim()) return 'Meta title is required.';
+  }
+  if (step === 5) {
+    const selectedReviews = (form.aeReviews ?? []).filter(
+      (review) => review.selected
+    );
+    if (selectedReviews.length > form.reviewSelectionLimit) {
+      return `Select no more than ${form.reviewSelectionLimit} reviews.`;
+    }
   }
   return null;
 }
@@ -1097,6 +1116,17 @@ export function buildPublishPayload(form: ImportFormState) {
     aeReviewCount: form.aeReviewCount,
     aeSalesCount: form.aeSalesCount,
     aeStatus: form.aeStatus,
+    reviews: (form.aeReviews ?? [])
+      .filter((review) => review.selected)
+      .slice(0, Math.min(form.reviewSelectionLimit, 347))
+      .map((review) => ({
+        sourceReviewId: review.sourceReviewId,
+        reviewerName: review.reviewerName,
+        rating: review.rating,
+        comment: review.comment,
+        images: review.imageUrls.slice(0, 5),
+        reviewDate: review.reviewDate,
+      })),
     images: selectedImages,
     videos: resolvedVideos,
     mainVideo,

@@ -64,6 +64,16 @@ export type ProductVideoForm = {
   alt?: string;
 };
 
+export type ImportedReviewDraft = {
+  sourceReviewId: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
+  imageUrls: string[];
+  reviewDate: string;
+  selected: boolean;
+};
+
 export type SkuDraft = {
   aeSkuId: string;
   aeSkuAttr: string;
@@ -123,6 +133,10 @@ export type ImportFormState = {
   aeReviewCount: number | null;
   aeSalesCount: string | null;
   aeStatus: string | null;
+  /** null means not fetched yet; [] means fetching completed with no results. */
+  aeReviews: ImportedReviewDraft[] | null;
+  reviewSelectionLimit: number;
+  reviewTargetAverage: number | null;
 };
 
 /** Draft schema:
@@ -130,7 +144,7 @@ export type ImportFormState = {
  *  - v2: 7 wizard steps (variants = 1, images = 2; later steps +1)
  */
 export type ProductImportDraft = {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   listItemId: string;
   aeProductId: string;
   updatedAt: string;
@@ -142,15 +156,15 @@ export type ProductImportDraft = {
 };
 
 /** Latest draft schema written by the import wizard. */
-export const PRODUCT_IMPORT_DRAFT_SCHEMA_VERSION = 2 as const;
+export const PRODUCT_IMPORT_DRAFT_SCHEMA_VERSION = 3 as const;
 
-/** Total steps in the current import wizard (v2). */
-export const IMPORT_WIZARD_STEP_COUNT = 7;
+/** Total steps in the current import wizard (v3). */
+export const IMPORT_WIZARD_STEP_COUNT = 8;
 
 /**
- * Normalize a loaded draft to the current 7-step wizard.
- * v1 drafts stored a combined Variants & Images step at index 1; steps after
- * that shift +1 so attributes/categories/seo/publish land on the right screen.
+ * Normalize a loaded draft to the current 8-step wizard.
+ * v1 drafts stored a combined Variants & Images step at index 1. v1/v2 steps
+ * after Categories & Size shift +1 for the new Reviews step.
  */
 export function migrateImportDraft(
   draft: ProductImportDraft
@@ -161,22 +175,58 @@ export function migrateImportDraft(
       IMPORT_WIZARD_STEP_COUNT - 1
     );
 
-  if (draft.schemaVersion >= 2) {
+  if (draft.schemaVersion === 3) {
     return {
       ...draft,
-      schemaVersion: 2,
+      schemaVersion: 3,
       currentStep: clampStep(draft.currentStep),
+      form: {
+        ...draft.form,
+        aeReviews: Array.isArray(draft.form.aeReviews)
+          ? draft.form.aeReviews
+          : null,
+        reviewSelectionLimit:
+          Number.isInteger(draft.form.reviewSelectionLimit) &&
+          draft.form.reviewSelectionLimit > 0
+            ? draft.form.reviewSelectionLimit
+            : 347,
+        reviewTargetAverage:
+          typeof draft.form.reviewTargetAverage === 'number'
+            ? draft.form.reviewTargetAverage
+            : null,
+      },
     };
   }
 
   const oldStep = draft.currentStep ?? 0;
-  // 0 basics, 1 combined variants+images stay; 2–5 become 3–6
-  const nextStep = oldStep <= 1 ? oldStep : oldStep + 1;
+  const nextStep =
+    draft.schemaVersion === 1
+      ? oldStep <= 1
+        ? oldStep
+        : oldStep + (oldStep >= 4 ? 2 : 1)
+      : oldStep <= 4
+        ? oldStep
+        : oldStep + 1;
 
   return {
     ...draft,
-    schemaVersion: 2,
+    schemaVersion: 3,
     currentStep: clampStep(nextStep),
+    form: {
+      ...draft.form,
+      aeReviews: Array.isArray(draft.form.aeReviews)
+        ? draft.form.aeReviews
+        : null,
+      reviewSelectionLimit:
+        Number.isInteger(draft.form.reviewSelectionLimit) &&
+        draft.form.reviewSelectionLimit > 0
+          ? draft.form.reviewSelectionLimit
+          : 347,
+      reviewTargetAverage:
+        typeof draft.form.reviewTargetAverage === 'number'
+          ? draft.form.reviewTargetAverage
+          : null,
+    },
   };
 }
 
@@ -196,7 +246,9 @@ function isSavedProduct(value: unknown): value is SavedAliExpressProduct {
 function isDraft(value: unknown): value is ProductImportDraft {
   return (
     isRecord(value) &&
-    (value.schemaVersion === 1 || value.schemaVersion === 2) &&
+    (value.schemaVersion === 1 ||
+      value.schemaVersion === 2 ||
+      value.schemaVersion === 3) &&
     typeof value.listItemId === 'string' &&
     typeof value.aeProductId === 'string' &&
     isRecord(value.form)

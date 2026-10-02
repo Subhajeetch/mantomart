@@ -14,6 +14,7 @@ import type {
   PublicOptionGroup,
   PublicOptionValue,
   PublicProduct,
+  PublicReview,
   PublicSku,
 } from './types';
 
@@ -51,6 +52,34 @@ function normalizeCategory(raw: unknown): PublicCategoryRef | null {
   if (!id || !name || !slug) return null;
   const href = asString(raw.href) || `/category/${slug}`;
   return { id, name, slug, href };
+}
+
+function normalizeReview(raw: unknown): PublicReview | null {
+  if (!isRecord(raw)) return null;
+  const id = asString(raw.id);
+  const reviewerName = asString(raw.reviewerName);
+  const rating = asNullableNumber(raw.rating);
+  const reviewDate = asString(raw.reviewDate);
+  if (
+    !id ||
+    !reviewerName ||
+    rating === null ||
+    !Number.isInteger(rating) ||
+    rating < 1 ||
+    rating > 5 ||
+    !reviewDate ||
+    !Number.isFinite(Date.parse(reviewDate))
+  ) {
+    return null;
+  }
+  return {
+    id,
+    reviewerName,
+    rating,
+    comment: asString(raw.comment) ?? '',
+    imageUrls: asStringArray(raw.imageUrls).slice(0, 5),
+    reviewDate,
+  };
 }
 
 function normalizeGalleryItem(raw: unknown): PublicGalleryItem | null {
@@ -161,9 +190,14 @@ function normalizeProduct(raw: unknown): PublicProduct | null {
   const breadcrumbs = (Array.isArray(raw.breadcrumbs) ? raw.breadcrumbs : [])
     .map(normalizeCategory)
     .filter((item): item is PublicCategoryRef => item !== null);
+  const reviews = (Array.isArray(raw.reviews) ? raw.reviews : [])
+    .map(normalizeReview)
+    .filter((item): item is PublicReview => item !== null);
 
   const rating = asNullableNumber(raw.aeRating);
-  const reviewCount = asNullableNumber(raw.aeReviewCount);
+  const aeReviewCount = asNullableNumber(raw.aeReviewCount);
+  const reviewCount = asNullableNumber(raw.reviewCount);
+  const averageReview = asNullableNumber(raw.averageReview);
 
   return {
     id,
@@ -177,7 +211,16 @@ function normalizeProduct(raw: unknown): PublicProduct | null {
     sizeChartDescription: asString(raw.sizeChartDescription),
     aeRating: rating !== null && rating > 0 && rating <= 5 ? rating : null,
     aeReviewCount:
-      reviewCount !== null && reviewCount >= 0 ? Math.floor(reviewCount) : null,
+      aeReviewCount !== null && aeReviewCount >= 0
+        ? Math.floor(aeReviewCount)
+        : null,
+    reviewCount:
+      reviewCount !== null && reviewCount >= 0 ? Math.floor(reviewCount) : 0,
+    averageReview:
+      averageReview !== null && averageReview > 0 && averageReview <= 5
+        ? averageReview
+        : null,
+    reviews,
     aeSalesCount: asString(raw.aeSalesCount),
     tags: asStringArray(raw.tags),
     metaTitle: asString(raw.metaTitle),
@@ -274,9 +317,7 @@ async function fetchMore(
       console.warn(`fetchMoreForYou: API responded ${response.status}`);
       return null;
     }
-    return (await response.json()) as
-      | MoreForYouResponse
-      | ProductErrorResponse;
+    return (await response.json()) as MoreForYouResponse | ProductErrorResponse;
   } catch (error) {
     console.warn('fetchMoreForYou: fetch failed.', error);
     return null;

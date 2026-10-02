@@ -180,6 +180,10 @@ export const products = sqliteTable(
     aeCategoryId: text('ae_category_id'), // ae: category_id
     aeRating: real('ae_rating'), // ae: avg_evaluation_rating
     aeReviewCount: integer('ae_review_count'), // ae: evaluation_count
+    /** Number of customer / imported reviews published with this product. */
+    reviewCount: integer('review_count').notNull().default(0),
+    /** Average rating of the reviews stored for this product. */
+    averageReview: real('average_review'),
     aeSalesCount: text('ae_sales_count'), // ae: sales_count (can be "1000+")
     aeStatus: text('ae_status'), // ae: product_status_type "onSelling"
     aeLastSynced: integer('ae_last_synced', { mode: 'timestamp' }),

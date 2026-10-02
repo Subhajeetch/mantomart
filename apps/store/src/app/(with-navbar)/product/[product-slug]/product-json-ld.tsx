@@ -27,7 +27,10 @@ export function ProductJsonLd({ product }: ProductJsonLdProps) {
     image: images,
     description:
       product.metaDescription ||
-      product.description?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() ||
+      product.description
+        ?.replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() ||
       product.name,
     sku: product.skus[0]?.id,
     category: product.category?.name,
@@ -51,11 +54,15 @@ export function ProductJsonLd({ product }: ProductJsonLdProps) {
     };
   }
 
-  if (product.aeRating && product.aeReviewCount && product.aeReviewCount > 0) {
+  const rating =
+    product.reviewCount > 0 ? product.averageReview : product.aeRating;
+  const reviewCount =
+    product.reviewCount > 0 ? product.reviewCount : product.aeReviewCount;
+  if (rating && reviewCount && reviewCount > 0) {
     jsonLd.aggregateRating = {
       '@type': 'AggregateRating',
-      ratingValue: product.aeRating,
-      reviewCount: product.aeReviewCount,
+      ratingValue: rating,
+      reviewCount,
       bestRating: 5,
       worstRating: 1,
     };

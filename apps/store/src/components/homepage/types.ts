@@ -33,6 +33,8 @@ export type PublicProductCard = {
   aeSalesCount: string | null;
   aeRating: number | null;
   aeReviewCount: number | null;
+  reviewCount: number;
+  averageReview: number | null;
 };
 
 export type PromoSlideLayout =
