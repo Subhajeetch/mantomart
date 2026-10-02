@@ -42,6 +42,9 @@ export const R2_UPLOAD_ATTEMPTS = 3;
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
+const ALIEXPRESS_IMAGE_REQUEST_INTERVAL_MS = 500;
+const IMAGE_FETCH_MAX_RETRIES = 3;
+const PRODUCT_HOST_SSE_HEARTBEAT_MS = 15_000;
 const MAX_SLUG_IN_KEY = 80;
 const CONCURRENCY = 3;
 
@@ -83,6 +86,10 @@ export type HostProgressEvent = {
   message: string;
 };
 
+export type AliExpressImageRateLimiter = (
+  signal?: AbortSignal
+) => Promise<void>;
+
 export type HostProductImagesInput = {
   env: Env;
   slug: string;
@@ -92,6 +99,7 @@ export type HostProductImagesInput = {
   sizeChartImage: string | null;
   origin?: string;
   signal?: AbortSignal;
+  rateLimiter?: AliExpressImageRateLimiter;
   onProgress?: (event: HostProgressEvent) => void | Promise<void>;
 };
 
@@ -124,10 +132,12 @@ export type HostProductImagesFailure = {
 
 export class ProductImageHostError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  retryable: boolean;
+  constructor(code: string, message: string, retryable = false) {
     super(message);
     this.name = 'ProductImageHostError';
     this.code = code;
+    this.retryable = retryable;
   }
 }
 
@@ -438,10 +448,64 @@ function assertNotAborted(signal?: AbortSignal) {
   }
 }
 
-async function fetchAliExpressImage(
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  assertNotAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(
+        new ProductImageHostError(
+          'UPLOAD_ABORTED',
+          'Image upload was cancelled.'
+        )
+      );
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
+/**
+ * Pace requests within one import. This is deliberately scoped to the batch:
+ * Worker isolates are not a shared/distributed rate-limit store.
+ */
+export function createAliExpressImageRateLimiter(
+  intervalMs = ALIEXPRESS_IMAGE_REQUEST_INTERVAL_MS
+): AliExpressImageRateLimiter {
+  let queue = Promise.resolve();
+  let nextRequestAt = 0;
+
+  return async (signal) => {
+    let release = () => {};
+    const slot = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const previous = queue;
+    queue = previous.then(() => slot);
+    await previous;
+
+    try {
+      assertNotAborted(signal);
+      const waitMs = nextRequestAt - Date.now();
+      if (waitMs > 0) await abortableDelay(waitMs, signal);
+      assertNotAborted(signal);
+      nextRequestAt = Date.now() + intervalMs;
+    } finally {
+      release();
+    }
+  };
+}
+
+async function fetchAliExpressImageAttempt(
   sourceUrl: string,
   signal?: AbortSignal,
-  accept = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
+  accept = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+  rateLimiter?: AliExpressImageRateLimiter
 ): Promise<{ body: ArrayBuffer; contentType: string }> {
   if (!isAliExpressImageUrl(sourceUrl)) {
     throw new ProductImageHostError(
@@ -468,6 +532,8 @@ async function fetchAliExpressImage(
     headers.set('Accept-Language', 'en-US,en;q=0.9');
     headers.set('Referer', 'https://www.aliexpress.com/');
 
+    await rateLimiter?.(signal);
+    assertNotAborted(signal);
     let response = await fetch(sourceUrl, {
       method: 'GET',
       headers,
@@ -498,6 +564,8 @@ async function fetchAliExpressImage(
           'AliExpress redirected an image to a host we do not allow.'
         );
       }
+      await rateLimiter?.(signal);
+      assertNotAborted(signal);
       response = await fetch(redirectUrl.toString(), {
         method: 'GET',
         headers,
@@ -509,7 +577,10 @@ async function fetchAliExpressImage(
     if (!response.ok) {
       throw new ProductImageHostError(
         'IMAGE_FETCH_FAILED',
-        `Failed to download a product image from AliExpress (${response.status}).`
+        `AliExpress returned HTTP ${response.status} for a product image.`,
+        response.status === 408 ||
+          response.status === 429 ||
+          response.status >= 500
       );
     }
 
@@ -558,20 +629,79 @@ async function fetchAliExpressImage(
     };
   } catch (error) {
     if (error instanceof ProductImageHostError) throw error;
+    if (signal?.aborted) {
+      throw new ProductImageHostError(
+        'UPLOAD_ABORTED',
+        'Image upload was cancelled.'
+      );
+    }
     if (error instanceof Error && error.name === 'AbortError') {
       throw new ProductImageHostError(
         'IMAGE_FETCH_TIMEOUT',
-        'Timed out downloading a product image from AliExpress.'
+        'Timed out downloading a product image from AliExpress.',
+        true
       );
     }
     throw new ProductImageHostError(
       'IMAGE_FETCH_FAILED',
-      'Failed to download a product image from AliExpress. Please try again.'
+      error instanceof Error
+        ? `AliExpress image request failed: ${error.message}`
+        : 'AliExpress image request failed.',
+      true
     );
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
   }
+}
+
+async function fetchAliExpressImage(
+  sourceUrl: string,
+  signal?: AbortSignal,
+  accept = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+  rateLimiter?: AliExpressImageRateLimiter
+): Promise<{ body: ArrayBuffer; contentType: string }> {
+  let lastError: ProductImageHostError | null = null;
+
+  for (let attempt = 1; attempt <= IMAGE_FETCH_MAX_RETRIES + 1; attempt++) {
+    try {
+      return await fetchAliExpressImageAttempt(
+        sourceUrl,
+        signal,
+        accept,
+        rateLimiter
+      );
+    } catch (error) {
+      const mapped =
+        error instanceof ProductImageHostError
+          ? error
+          : new ProductImageHostError(
+              'IMAGE_FETCH_FAILED',
+              'AliExpress image request failed.',
+              true
+            );
+      if (mapped.code === 'UPLOAD_ABORTED' || signal?.aborted) throw mapped;
+      lastError = mapped;
+
+      if (!mapped.retryable || attempt > IMAGE_FETCH_MAX_RETRIES) {
+        const attemptSummary =
+          attempt > 1
+            ? ` after ${attempt} attempts (${attempt - 1} retries)`
+            : '';
+        throw new ProductImageHostError(
+          mapped.code,
+          `Failed to download image from AliExpress${attemptSummary}. Image URL: ${sourceUrl}. ${mapped.message}`
+        );
+      }
+
+      await abortableDelay(500 * 2 ** (attempt - 1), signal);
+    }
+  }
+
+  throw new ProductImageHostError(
+    lastError?.code ?? 'IMAGE_FETCH_FAILED',
+    `Failed to download image from AliExpress. Image URL: ${sourceUrl}.`
+  );
 }
 
 async function putWithRetry(
@@ -615,6 +745,7 @@ export async function hostAliExpressReviewImages(input: {
   imageUrls: string[][];
   origin?: string;
   signal?: AbortSignal;
+  rateLimiter?: AliExpressImageRateLimiter;
   onProgress?: (event: HostProgressEvent) => void | Promise<void>;
 }): Promise<
   | {
@@ -628,6 +759,7 @@ export async function hostAliExpressReviewImages(input: {
   const total = input.imageUrls.reduce((sum, images) => sum + images.length, 0);
   const uploadedKeys: string[] = [];
   const hostedImages = input.imageUrls.map(() => [] as string[]);
+  const rateLimiter = input.rateLimiter ?? createAliExpressImageRateLimiter();
   if (total === 0) {
     return { ok: true, imageUrls: hostedImages, uploadedKeys, hostedCount: 0 };
   }
@@ -649,17 +781,29 @@ export async function hostAliExpressReviewImages(input: {
         const { body, contentType } = await fetchAliExpressImage(
           applyAeImageTransform(job.url, '_640x640q75.jpg_.webp'),
           input.signal,
-          'image/webp,image/*,*/*;q=0.8'
+          'image/webp,image/*,*/*;q=0.8',
+          rateLimiter
         );
         if (contentType !== 'image/webp' || !isWebPBuffer(body)) {
           throw new ProductImageHostError(
             'REVIEW_IMAGE_CONVERSION_FAILED',
-            'AliExpress did not return a valid WebP review image. Please retry or remove this review photo.'
+            `AliExpress did not return a valid WebP review image. Image URL: ${job.url}. Please retry or remove this review photo.`
           );
         }
 
         const key = `user/reviews/${nanoid()}.webp`;
-        await putWithRetry(input.env, key, body, 'image/webp', input.origin);
+        try {
+          await putWithRetry(input.env, key, body, 'image/webp', input.origin);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'Unknown storage error.';
+          throw new ProductImageHostError(
+            error instanceof ProductImageHostError
+              ? error.code
+              : 'REVIEW_IMAGE_UPLOAD_FAILED',
+            `Failed to upload review image. Image URL: ${job.url}. ${message}`
+          );
+        }
         uploadedKeys.push(key);
         const url = buildPublicObjectUrl(input.env, key, {
           origin: input.origin,
@@ -674,10 +818,15 @@ export async function hostAliExpressReviewImages(input: {
       } catch (error) {
         failure =
           error instanceof ProductImageHostError
-            ? { code: error.code, message: error.message }
+            ? {
+                code: error.code,
+                message: error.message.includes(job.url)
+                  ? error.message
+                  : `${error.message} Image URL: ${job.url}`,
+              }
             : {
                 code: 'REVIEW_IMAGE_UPLOAD_FAILED',
-                message: 'Failed to host a review image.',
+                message: `Failed to host review image ${job.url}.`,
               };
         return;
       }
@@ -806,6 +955,7 @@ export async function hostProductImages(
   input: HostProductImagesInput
 ): Promise<HostProductImagesSuccess | HostProductImagesFailure> {
   const uploadedKeys: string[] = [];
+  const rateLimiter = input.rateLimiter ?? createAliExpressImageRateLimiter();
 
   try {
     if (!hasR2Binding(input.env)) {
@@ -922,15 +1072,41 @@ export async function hostProductImages(
     let completed = 0;
     await runPool(jobs, CONCURRENCY, input.signal, async (job) => {
       assertNotAborted(input.signal);
-      const fetched = await fetchAliExpressImage(job.sourceUrl, input.signal);
+      let fetched: { body: ArrayBuffer; contentType: string };
+      try {
+        fetched = await fetchAliExpressImage(
+          job.sourceUrl,
+          input.signal,
+          undefined,
+          rateLimiter
+        );
+      } catch (error) {
+        if (error instanceof ProductImageHostError) throw error;
+        throw new ProductImageHostError(
+          'IMAGE_FETCH_FAILED',
+          `Failed to download ${job.label}. Image URL: ${job.sourceUrl}.`,
+          false
+        );
+      }
       assertNotAborted(input.signal);
-      await putWithRetry(
-        input.env,
-        job.key,
-        fetched.body,
-        fetched.contentType,
-        input.origin
-      );
+      try {
+        await putWithRetry(
+          input.env,
+          job.key,
+          fetched.body,
+          fetched.contentType,
+          input.origin
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown storage error.';
+        throw new ProductImageHostError(
+          error instanceof ProductImageHostError
+            ? error.code
+            : 'R2_UPLOAD_FAILED',
+          `Failed to upload ${job.label} to object storage. Image URL: ${job.sourceUrl}. ${message}`
+        );
+      }
       uploadedKeys.push(job.key);
       completed += 1;
       const kindLabel =
@@ -1076,6 +1252,15 @@ export function createProductHostSseResponse(
         return;
       }
 
+      const heartbeat = setInterval(() => {
+        if (ac.signal.aborted) return;
+        try {
+          controller.enqueue(encodeSse('ping', {}));
+        } catch {
+          abort();
+        }
+      }, PRODUCT_HOST_SSE_HEARTBEAT_MS);
+
       try {
         await run(write, ac.signal);
       } catch (error) {
@@ -1091,6 +1276,7 @@ export function createProductHostSseResponse(
           write('error', { success: false, ...mapped, error: mapped.message });
         }
       } finally {
+        clearInterval(heartbeat);
         clientSignal.removeEventListener('abort', abort);
         try {
           controller.close();

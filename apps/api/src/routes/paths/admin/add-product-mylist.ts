@@ -33,6 +33,7 @@ import {
 import { incrementAdminProductsAdded } from '@/utils/adminStats';
 import { invalidateHomepageCache } from '@/utils/homepageContent';
 import {
+  createAliExpressImageRateLimiter,
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
   hostProductImages,
@@ -1666,6 +1667,7 @@ addProductMyList.post(
     const slug = await ensureUniqueSlug(db, slugInput);
     const origin = requestOriginFromUrl(c.req.url);
     const env = c.env;
+    const rateLimiter = createAliExpressImageRateLimiter();
 
     return createProductHostSseResponse(c.req.raw, async (write, signal) => {
       const hosted = await hostProductImages({
@@ -1679,6 +1681,7 @@ addProductMyList.post(
           sku.properties.map((prop) => prop.image)
         ),
         sizeChartImage: sizeChartImage ?? null,
+        rateLimiter,
         onProgress: (event) => {
           write('progress', event);
         },
@@ -1700,6 +1703,7 @@ addProductMyList.post(
         imageUrls: importedReviews.map((review) => review.images),
         origin,
         signal,
+        rateLimiter,
         onProgress: (event) => write('progress', event),
       });
       if (!hostedReviews.ok) {
