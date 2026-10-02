@@ -104,6 +104,37 @@ import {
   type SavedAliExpressProduct,
 } from './storage';
 
+const IMAGE_HOST_BATCH_SIZE = 45;
+const OPTIMISED_IMAGE_BATCH_SIZE = 5;
+const IMAGE_HOST_BATCH_GAP_MS = 250;
+
+type HostedImageMapping = {
+  sourceUrl: string;
+  hostedUrl: string;
+  optimisedUrl?: string;
+};
+
+function isAliExpressImageSource(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const normalized = url.startsWith('//') ? `https:${url}` : url;
+    const hostname = new URL(normalized).hostname;
+    return /^(?:[a-z0-9-]+\.)*(?:alicdn\.com|aliexpress-media\.com|aliexpress\.com|alibaba\.com)$/i.test(
+      hostname
+    );
+  } catch {
+    return false;
+  }
+}
+
+function imageSourceKey(url: string): string {
+  return (url.startsWith('//') ? `https:${url}` : url).trim();
+}
+
+function waitForNextImageBatch(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, IMAGE_HOST_BATCH_GAP_MS));
+}
+
 const MDEditor = dynamic(() => import('@uiw/react-md-editor'), {
   ssr: false,
   loading: () => (
@@ -1079,6 +1110,7 @@ export default function ImportWizard({
     });
     setStepError(null);
 
+    let imageUploadId: string | null = null;
     try {
       const payload = buildPublishPayload(form);
       // Prefer HTML conversion client-side for richer markdown
@@ -1088,6 +1120,242 @@ export default function ImportWizard({
         mobileDetail: html || null,
       };
 
+      const productImageUrls = new Set<string>();
+      const reviewImageUrls = new Set<string>();
+      const addProductImageUrl = (url: string | null | undefined) => {
+        if (isAliExpressImageSource(url)) productImageUrls.add(url!.trim());
+      };
+      payload.images.forEach((image) => addProductImageUrl(image.url));
+      payload.skus.forEach((sku) => {
+        sku.images.forEach((image) => addProductImageUrl(image.url));
+        sku.properties.forEach((property) =>
+          addProductImageUrl(property.image)
+        );
+      });
+      addProductImageUrl(payload.sizeChartImage);
+      payload.reviews.forEach((review) => {
+        review.images.forEach((url) => {
+          if (isAliExpressImageSource(url)) reviewImageUrls.add(url.trim());
+        });
+      });
+
+      const optimisedSourceUrls = new Set(
+        payload.images
+          .slice(0, 5)
+          .filter((image) => isAliExpressImageSource(image.url))
+          .map((image) => image.url.trim())
+      );
+      const optimisedUrls = [...optimisedSourceUrls];
+      const totalImageCount =
+        productImageUrls.size + reviewImageUrls.size + optimisedUrls.length;
+      const productMappings = new Map<string, HostedImageMapping>();
+      const reviewMappings = new Map<string, HostedImageMapping>();
+      const batches = [
+        { kind: 'product' as const, urls: [...productImageUrls] },
+        { kind: 'review' as const, urls: [...reviewImageUrls] },
+      ].flatMap(({ kind, urls }) =>
+        Array.from(
+          { length: Math.ceil(urls.length / IMAGE_HOST_BATCH_SIZE) },
+          (_, index) => ({
+            kind,
+            urls: urls.slice(
+              index * IMAGE_HOST_BATCH_SIZE,
+              (index + 1) * IMAGE_HOST_BATCH_SIZE
+            ),
+          })
+        )
+      );
+
+      if (totalImageCount > 0) {
+        imageUploadId = crypto.randomUUID();
+        setPublishProgress({
+          current: 0,
+          total: totalImageCount,
+          message: 'Uploading AliExpress images…',
+        });
+      }
+
+      let completedImages = 0;
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex]!;
+        const response = await streamHostImages<{
+          images: HostedImageMapping[];
+        }>({
+          url: '/api/products/mylist/host-images',
+          method: 'POST',
+          body: {
+            uploadId: imageUploadId,
+            kind: batch.kind,
+            urls: batch.urls,
+            ...(batch.kind === 'product'
+              ? {
+                  slug: payload.slug,
+                  optimisedUrls: [],
+                }
+              : {}),
+          },
+          onProgress: (event) => {
+            const current = Math.min(
+              completedImages + event.current,
+              completedImages + batch.urls.length
+            );
+            setPublishProgress({
+              current,
+              total: totalImageCount,
+              message: `Uploading AliExpress images (${current} of ${totalImageCount})…`,
+            });
+          },
+        });
+
+        const mappings =
+          batch.kind === 'product' ? productMappings : reviewMappings;
+        for (const mapping of response.data.images) {
+          mappings.set(imageSourceKey(mapping.sourceUrl), mapping);
+        }
+        if (response.data.images.length !== batch.urls.length) {
+          throw new HostImagesError(
+            'The server did not return every uploaded image. Please retry.',
+            { code: 'IMAGE_BATCH_INCOMPLETE' }
+          );
+        }
+
+        completedImages += batch.urls.length;
+        setPublishProgress({
+          current: completedImages,
+          total: totalImageCount,
+          message: `Uploaded AliExpress images (${completedImages} of ${totalImageCount})`,
+        });
+        if (batchIndex + 1 < batches.length) {
+          await waitForNextImageBatch();
+        }
+      }
+
+      const optimisedBatches = Array.from(
+        {
+          length: Math.ceil(optimisedUrls.length / OPTIMISED_IMAGE_BATCH_SIZE),
+        },
+        (_, index) =>
+          optimisedUrls.slice(
+            index * OPTIMISED_IMAGE_BATCH_SIZE,
+            (index + 1) * OPTIMISED_IMAGE_BATCH_SIZE
+          )
+      );
+      for (
+        let batchIndex = 0;
+        batchIndex < optimisedBatches.length;
+        batchIndex++
+      ) {
+        const batchUrls = optimisedBatches[batchIndex]!;
+        const fullImagePaths = batchUrls.map((url) => {
+          const fullImagePath = productMappings.get(
+            imageSourceKey(url)
+          )?.hostedUrl;
+          if (!fullImagePath) {
+            throw new HostImagesError(
+              'Could not find the hosted full-size image for a product card image.',
+              { code: 'OPTIMISED_IMAGE_SOURCE_MISSING' }
+            );
+          }
+          return fullImagePath;
+        });
+        const response = await streamHostImages<{
+          images: HostedImageMapping[];
+        }>({
+          url: '/api/products/mylist/host-images',
+          method: 'POST',
+          body: {
+            uploadId: imageUploadId,
+            kind: 'optimised',
+            urls: batchUrls,
+            fullImagePaths,
+          },
+          onProgress: (event) => {
+            const current = productImageUrls.size + reviewImageUrls.size;
+            setPublishProgress({
+              current: Math.min(current + event.current, totalImageCount),
+              total: totalImageCount,
+              message: `Uploading optimized product-card images (${event.current} of ${batchUrls.length})…`,
+            });
+          },
+        });
+        for (const mapping of response.data.images) {
+          const key = imageSourceKey(mapping.sourceUrl);
+          const fullMapping = productMappings.get(key);
+          if (!fullMapping) {
+            throw new HostImagesError(
+              'The server returned an optimised image without its full-size image.',
+              { code: 'OPTIMISED_IMAGE_MAPPING_INVALID' }
+            );
+          }
+          fullMapping.optimisedUrl = mapping.hostedUrl;
+        }
+        if (response.data.images.length !== batchUrls.length) {
+          throw new HostImagesError(
+            'The server did not return every optimised product-card image.',
+            { code: 'OPTIMISED_IMAGE_BATCH_INCOMPLETE' }
+          );
+        }
+        if (batchIndex + 1 < optimisedBatches.length || batches.length > 0) {
+          await waitForNextImageBatch();
+        }
+      }
+
+      const replaceImageUrl = (
+        url: string | null,
+        mappings: Map<string, HostedImageMapping>
+      ) => {
+        if (!url) return url;
+        return mappings.get(imageSourceKey(url))?.hostedUrl ?? url;
+      };
+      const hostedGallery = payload.images.map((image) => ({
+        ...image,
+        url: replaceImageUrl(image.url, productMappings) ?? image.url,
+      }));
+      const optimisedGallery = payload.images.flatMap((image, index) => {
+        const mapping = productMappings.get(imageSourceKey(image.url));
+        if (!mapping?.optimisedUrl) return [];
+        return [
+          {
+            url: mapping.optimisedUrl,
+            isOp: true,
+            position: image.position ?? index,
+            forVariant: image.forVariant,
+            variantKeys: image.variantKeys,
+          },
+        ];
+      });
+      const preparedBody = {
+        ...body,
+        ...(imageUploadId ? { imageUploadId } : {}),
+        images: [...hostedGallery, ...optimisedGallery],
+        skus: payload.skus.map((sku) => ({
+          ...sku,
+          images: sku.images.map((image) => ({
+            ...image,
+            url: replaceImageUrl(image.url, productMappings) ?? image.url,
+          })),
+          properties: sku.properties.map((property) => ({
+            ...property,
+            image: replaceImageUrl(property.image, productMappings),
+          })),
+        })),
+        sizeChartImage: replaceImageUrl(
+          payload.sizeChartImage,
+          productMappings
+        ),
+        reviews: payload.reviews.map((review) => ({
+          ...review,
+          images: review.images.map(
+            (url) => replaceImageUrl(url, reviewMappings) ?? url
+          ),
+        })),
+      };
+
+      setPublishProgress((prev) =>
+        prev
+          ? { ...prev, message: 'Publishing product…' }
+          : { current: 0, total: 0, message: 'Publishing product…' }
+      );
       const res = await streamHostImages<{
         id: string;
         slug: string;
@@ -1095,9 +1363,12 @@ export default function ImportWizard({
       }>({
         url: '/api/products/mylist',
         method: 'POST',
-        body,
-        onProgress: (event) => setPublishProgress(event),
+        body: preparedBody,
+        onProgress: (event) => {
+          if (event.total > 0) setPublishProgress(event);
+        },
       });
+      imageUploadId = null;
 
       removeDraft(listItemId);
       removeSavedProduct(listItemId);
@@ -1109,8 +1380,24 @@ export default function ImportWizard({
           `Product "${truncateNameForToast(res.data.name)}" published.`
       );
     } catch (err) {
-      const message =
+      let message =
         err instanceof Error ? err.message : 'Failed to publish product.';
+      if (imageUploadId) {
+        try {
+          await streamHostImages<{ deletedCount: number }>({
+            url: '/api/products/mylist/host-images/cleanup',
+            method: 'POST',
+            body: { uploadId: imageUploadId },
+          });
+        } catch (cleanupError) {
+          console.error(
+            'Failed to clean up staged product images:',
+            cleanupError
+          );
+          message +=
+            ' Some staged images could not be cleaned up automatically.';
+        }
+      }
       const code = err instanceof HostImagesError ? err.code : undefined;
       const isDuplicate =
         code === 'AE_PRODUCT_EXISTS' ||

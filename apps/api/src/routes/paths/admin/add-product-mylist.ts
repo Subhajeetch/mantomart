@@ -33,13 +33,22 @@ import {
 import { incrementAdminProductsAdded } from '@/utils/adminStats';
 import { invalidateHomepageCache } from '@/utils/homepageContent';
 import {
+  MAX_IMAGES_PER_HOSTING_INVOCATION,
+  MAX_OPTIMISED_IMAGES_PER_HOSTING_INVOCATION,
+  MAX_OPTIMISED_IMAGES,
+  PRODUCT_IMAGE_IMPORT_SESSION_TTL_SECONDS,
   createAliExpressImageRateLimiter,
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
+  aeImageIdentity,
+  hostAliExpressOptimisedProductImages,
   hostProductImages,
   isAliExpressImageUrl,
+  isHostedReviewImageUrl,
   persistProductImageUrl,
   persistProductImages,
+  optimisedStoredPath,
+  toStoredProductImagePath,
   requestOriginFromUrl,
   hostAliExpressReviewImages,
 } from '@/utils/productImageHost';
@@ -82,10 +91,49 @@ const MAX_AE_ID_LENGTH = 64;
 const MAX_BODY_BYTES = 2_500_000; // ~2.5MB
 const INSERT_CHUNK_SIZE = 5;
 const D1_BATCH_SIZE = 100;
+const IMAGE_IMPORT_SESSION_PREFIX = 'admin:product-image-import:';
 
 const SAFE_URL_RE = /^(https?:\/\/|\/\/)/i;
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ID_RE = /^[A-Za-z0-9_-]+$/;
+const IMAGE_IMPORT_ID_RE = /^[A-Za-z0-9-]{36}$/;
+
+type ProductImageImportSession = {
+  actorId: string;
+  uploadedKeys: string[];
+  completed?: boolean;
+};
+
+function imageImportSessionKey(id: string): string {
+  return `${IMAGE_IMPORT_SESSION_PREFIX}${id}`;
+}
+
+async function readImageImportSession(
+  kv: KVNamespace,
+  id: string
+): Promise<ProductImageImportSession | null> {
+  const raw = await kv.get(imageImportSessionKey(id));
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (
+      !isRecord(value) ||
+      typeof value.actorId !== 'string' ||
+      !Array.isArray(value.uploadedKeys) ||
+      !value.uploadedKeys.every((key) => typeof key === 'string')
+    ) {
+      throw new Error('Invalid product image import session data.');
+    }
+    return {
+      actorId: value.actorId,
+      uploadedKeys: value.uploadedKeys,
+      completed: value.completed === true,
+    };
+  } catch (error) {
+    console.error('Invalid product image import session:', id, error);
+    throw error;
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -608,6 +656,11 @@ function parseSku(
     }
     images.push(img);
   }
+  if (images.some((image) => image.isOp === true)) {
+    return {
+      error: 'Optimised images are only allowed in the product gallery.',
+    };
+  }
 
   const propsRaw = Array.isArray(value.properties) ? value.properties : [];
   if (propsRaw.length > MAX_PROPERTIES_PER_SKU) {
@@ -688,7 +741,7 @@ function parseSku(
 function parseAttribute(
   value: unknown,
   index: number
-): ParsedAttribute | { error: string } {
+): ParsedAttribute | { error: string } | null {
   if (!isRecord(value)) {
     return { error: `Attribute at index ${index} must be an object.` };
   }
@@ -699,9 +752,7 @@ function parseAttribute(
     MAX_ATTR_VALUE_LENGTH
   );
   if (!attrName || !attrValue) {
-    return {
-      error: `Attribute at index ${index} requires attrName and attrValue.`,
-    };
+    return null;
   }
 
   return {
@@ -959,6 +1010,380 @@ const addProductMyList = new Hono<AppEnv>();
 
 addProductMyList.use('*', requireAdminMiddleware);
 
+addProductMyList.post(
+  '/host-images',
+  requireAnyPermission(PERMISSIONS.PRODUCT_CREATE),
+  async (c) => {
+    const actor = getActor(c);
+    const parsed = await readJsonObject(c);
+    if (!parsed.ok) return parsed.response;
+
+    const { body } = parsed;
+    const uploadId = sanitizeRequiredString(body.uploadId, 36);
+    if (!uploadId || !IMAGE_IMPORT_ID_RE.test(uploadId)) {
+      return errorJson(c, 400, 'INVALID_IMAGE_UPLOAD_ID', 'Invalid upload id.');
+    }
+
+    const kind = body.kind;
+    if (kind !== 'product' && kind !== 'review' && kind !== 'optimised') {
+      return errorJson(
+        c,
+        400,
+        'INVALID_IMAGE_BATCH_KIND',
+        'Image batch kind must be product or review.'
+      );
+    }
+
+    if (!Array.isArray(body.urls) || body.urls.length < 1) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_IMAGE_BATCH',
+        'Image URLs are required.'
+      );
+    }
+    const maxImages =
+      kind === 'optimised'
+        ? MAX_OPTIMISED_IMAGES_PER_HOSTING_INVOCATION
+        : MAX_IMAGES_PER_HOSTING_INVOCATION;
+    if (body.urls.length > maxImages) {
+      return errorJson(
+        c,
+        400,
+        'IMAGE_BATCH_TOO_LARGE',
+        `At most ${maxImages} images can be hosted per request.`
+      );
+    }
+
+    const urls: string[] = [];
+    for (const rawUrl of body.urls) {
+      const url = sanitizeUrl(rawUrl);
+      if (!url || !isAliExpressImageUrl(url)) {
+        return errorJson(
+          c,
+          400,
+          'INVALID_IMAGE_URL',
+          'Every image in a batch must be a valid AliExpress image URL.'
+        );
+      }
+      urls.push(url);
+    }
+
+    const optimisedUrls =
+      kind === 'product' && Array.isArray(body.optimisedUrls)
+        ? body.optimisedUrls.filter(
+            (url): url is string =>
+              typeof url === 'string' && urls.includes(url)
+          )
+        : [];
+    if (kind !== 'product' && body.optimisedUrls !== undefined) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_OPTIMISED_IMAGES',
+        'Only product image batches can request optimised copies.'
+      );
+    }
+    let fullImagePaths: string[] = [];
+    if (kind === 'optimised') {
+      if (
+        !Array.isArray(body.fullImagePaths) ||
+        body.fullImagePaths.length !== urls.length ||
+        !body.fullImagePaths.every(
+          (path): path is string => typeof path === 'string'
+        )
+      ) {
+        return errorJson(
+          c,
+          400,
+          'INVALID_OPTIMISED_IMAGE_PATHS',
+          'A hosted full-image path is required for every optimised image.'
+        );
+      }
+      fullImagePaths = body.fullImagePaths;
+    } else if (body.fullImagePaths !== undefined) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_OPTIMISED_IMAGE_PATHS',
+        'Full-image paths are only accepted for optimised image batches.'
+      );
+    }
+
+    let session: ProductImageImportSession;
+    try {
+      session = (await readImageImportSession(c.env.KV, uploadId)) ?? {
+        actorId: actor.id,
+        uploadedKeys: [],
+      };
+    } catch {
+      return errorJson(
+        c,
+        500,
+        'IMAGE_IMPORT_SESSION_FAILED',
+        'Could not read the image upload session.'
+      );
+    }
+    if (session.actorId !== actor.id || session.completed) {
+      return errorJson(
+        c,
+        409,
+        'IMAGE_IMPORT_SESSION_INVALID',
+        'This image upload session is no longer available.'
+      );
+    }
+
+    try {
+      await c.env.KV.put(
+        imageImportSessionKey(uploadId),
+        JSON.stringify(session),
+        { expirationTtl: PRODUCT_IMAGE_IMPORT_SESSION_TTL_SECONDS }
+      );
+    } catch (error) {
+      console.error(
+        'Could not initialize product image import session:',
+        error
+      );
+      return errorJson(
+        c,
+        500,
+        'IMAGE_IMPORT_SESSION_FAILED',
+        'Could not initialize the image upload session.'
+      );
+    }
+
+    const env = c.env;
+    const origin = requestOriginFromUrl(c.req.url);
+    const rateLimiter = createAliExpressImageRateLimiter();
+
+    return createProductHostSseResponse(c.req.raw, async (write, signal) => {
+      const uploadedKeys: string[] = [];
+      let mappings: Array<{
+        sourceUrl: string;
+        hostedUrl: string;
+        optimisedUrl?: string;
+      }>;
+
+      try {
+        if (kind === 'optimised') {
+          const hosted = await hostAliExpressOptimisedProductImages({
+            env,
+            images: urls.map((sourceUrl, index) => ({
+              sourceUrl,
+              fullImagePath: fullImagePaths[index]!,
+            })),
+            origin,
+            signal,
+            rateLimiter,
+            onProgress: (event) => write('progress', event),
+          });
+          if (!hosted.ok) {
+            await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+            write('error', {
+              success: false,
+              code: hosted.error.code,
+              message: hosted.error.message,
+              error: hosted.error.message,
+            });
+            return;
+          }
+          uploadedKeys.push(...hosted.uploadedKeys);
+          mappings = hosted.images.map((image) => ({
+            sourceUrl: image.sourceUrl,
+            hostedUrl: image.optimisedImagePath,
+          }));
+        } else if (kind === 'product') {
+          const slug = slugify(
+            sanitizeOptionalString(body.slug, MAX_SLUG_LENGTH) ??
+              'imported-product'
+          );
+          let completedSourceImages = 0;
+          const hosted = await hostProductImages({
+            env,
+            slug: slug || 'imported-product',
+            productImages: urls.map((url, position) => ({ url, position })),
+            skuImages: [],
+            propertyImages: [],
+            sizeChartImage: null,
+            optimisedImageUrls: optimisedUrls,
+            origin,
+            signal,
+            rateLimiter,
+            onProgress: (event) => {
+              if (
+                event.current > 0 &&
+                !event.message.startsWith('Uploaded optimised card image')
+              ) {
+                completedSourceImages += 1;
+              }
+              write('progress', {
+                current: completedSourceImages,
+                total: urls.length,
+                message:
+                  event.current === 0
+                    ? `Preparing ${urls.length} product image${urls.length === 1 ? '' : 's'}…`
+                    : `Uploaded ${completedSourceImages} of ${urls.length} product images`,
+              });
+            },
+          });
+          if (!hosted.ok) {
+            await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+            write('error', {
+              success: false,
+              code: hosted.error.code,
+              message: hosted.error.message,
+              error: hosted.error.message,
+            });
+            return;
+          }
+          uploadedKeys.push(...hosted.uploadedKeys);
+          const fullImages = hosted.productImages.filter(
+            (image) => image.isOp !== true
+          );
+          const optimisedImages = hosted.productImages.filter(
+            (image) => image.isOp === true
+          );
+          mappings = urls.map((sourceUrl, position) => {
+            const full = fullImages.find(
+              (image) => image.position === position
+            );
+            const optimised = optimisedImages.find(
+              (image) => image.position === position
+            );
+            if (!full) {
+              throw new Error(
+                `Hosted image mapping missing at position ${position}.`
+              );
+            }
+            return {
+              sourceUrl,
+              hostedUrl: full.url,
+              ...(optimised ? { optimisedUrl: optimised.url } : {}),
+            };
+          });
+        } else {
+          const hosted = await hostAliExpressReviewImages({
+            env,
+            imageUrls: [urls],
+            origin,
+            signal,
+            rateLimiter,
+            onProgress: (event) => write('progress', event),
+          });
+          if (!hosted.ok) {
+            await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+            write('error', {
+              success: false,
+              code: hosted.error.code,
+              message: hosted.error.message,
+              error: hosted.error.message,
+            });
+            return;
+          }
+          uploadedKeys.push(...hosted.uploadedKeys);
+          mappings = urls.map((sourceUrl, index) => {
+            const hostedUrl = hosted.imageUrls[0]?.[index];
+            if (!hostedUrl) {
+              throw new Error(
+                `Hosted review image mapping missing at index ${index}.`
+              );
+            }
+            return { sourceUrl, hostedUrl };
+          });
+        }
+
+        try {
+          const updatedSession: ProductImageImportSession = {
+            ...session,
+            uploadedKeys: [...session.uploadedKeys, ...uploadedKeys],
+          };
+          await env.KV.put(
+            imageImportSessionKey(uploadId),
+            JSON.stringify(updatedSession),
+            { expirationTtl: PRODUCT_IMAGE_IMPORT_SESSION_TTL_SECONDS }
+          );
+        } catch (error) {
+          console.error(
+            'Could not persist product image import session:',
+            error
+          );
+          await deleteUploadedProductImageKeys(env, uploadedKeys);
+          write('error', {
+            success: false,
+            code: 'IMAGE_IMPORT_SESSION_FAILED',
+            message: 'Could not save uploaded images to the import session.',
+            error: 'Could not save uploaded images to the import session.',
+          });
+          return;
+        }
+
+        write('complete', {
+          success: true,
+          message: 'Image batch uploaded.',
+          data: { images: mappings },
+        });
+      } catch (error) {
+        console.error('Product image batch failed unexpectedly:', error);
+        await deleteUploadedProductImageKeys(env, uploadedKeys);
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Unexpected image batch failure.';
+        write('error', {
+          success: false,
+          code: 'IMAGE_BATCH_FAILED',
+          message,
+          error: message,
+        });
+      }
+    });
+  }
+);
+
+addProductMyList.post(
+  '/host-images/cleanup',
+  requireAnyPermission(PERMISSIONS.PRODUCT_CREATE),
+  async (c) => {
+    const actor = getActor(c);
+    const parsed = await readJsonObject(c);
+    if (!parsed.ok) return parsed.response;
+    const uploadId = sanitizeRequiredString(parsed.body.uploadId, 36);
+    if (!uploadId || !IMAGE_IMPORT_ID_RE.test(uploadId)) {
+      return errorJson(c, 400, 'INVALID_IMAGE_UPLOAD_ID', 'Invalid upload id.');
+    }
+
+    try {
+      const session = await readImageImportSession(c.env.KV, uploadId);
+      if (!session) return c.json({ success: true, deletedCount: 0 });
+      if (session.actorId !== actor.id) {
+        return errorJson(
+          c,
+          403,
+          'IMAGE_IMPORT_SESSION_FORBIDDEN',
+          'This image upload session belongs to another admin.'
+        );
+      }
+      if (session.completed) {
+        return c.json({ success: true, deletedCount: 0, completed: true });
+      }
+      await deleteUploadedProductImageKeys(c.env, session.uploadedKeys);
+      await c.env.KV.delete(imageImportSessionKey(uploadId));
+      return c.json({
+        success: true,
+        deletedCount: session.uploadedKeys.length,
+      });
+    } catch (error) {
+      console.error('Could not clean up product image import session:', error);
+      return errorJson(
+        c,
+        500,
+        'IMAGE_IMPORT_CLEANUP_FAILED',
+        'Could not clean up the uploaded images.'
+      );
+    }
+  }
+);
+
 /**
  * GET /reviews/:aeProductId
  * Retrieve a bounded, randomized sample from AliExpress' public review page.
@@ -1149,6 +1574,56 @@ addProductMyList.post(
     const parsed = await readJsonObject(c);
     if (!parsed.ok) return parsed.response;
     const { body } = parsed;
+    const rawUploadId = sanitizeOptionalString(body.imageUploadId, 36);
+    if (rawUploadId === undefined && body.imageUploadId !== undefined) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_IMAGE_UPLOAD_ID',
+        'Invalid image upload session id.'
+      );
+    }
+    if (rawUploadId && !IMAGE_IMPORT_ID_RE.test(rawUploadId)) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_IMAGE_UPLOAD_ID',
+        'Invalid image upload session id.'
+      );
+    }
+    const imageUploadId = rawUploadId || null;
+    let imageImportSession: ProductImageImportSession | null = null;
+    if (imageUploadId) {
+      try {
+        imageImportSession = await readImageImportSession(
+          c.env.KV,
+          imageUploadId
+        );
+      } catch {
+        return errorJson(
+          c,
+          500,
+          'IMAGE_IMPORT_SESSION_FAILED',
+          'Could not read the image upload session.'
+        );
+      }
+      if (!imageImportSession || imageImportSession.actorId !== actor.id) {
+        return errorJson(
+          c,
+          409,
+          'IMAGE_IMPORT_SESSION_INVALID',
+          'The image upload session expired or is not available.'
+        );
+      }
+      if (imageImportSession.completed) {
+        return errorJson(
+          c,
+          409,
+          'IMAGE_IMPORT_SESSION_INVALID',
+          'The image upload session has already been completed.'
+        );
+      }
+    }
 
     // ── Core fields ──────────────────────────────────────────────────────────
 
@@ -1384,12 +1859,19 @@ addProductMyList.post(
     // ── Media ────────────────────────────────────────────────────────────────
 
     const imagesRaw = Array.isArray(body.images) ? body.images : [];
-    if (imagesRaw.length > MAX_IMAGES) {
+    const fullImagesRawCount = imagesRaw.filter(
+      (image) => !isRecord(image) || image.isOp !== true
+    ).length;
+    const optimisedImagesRawCount = imagesRaw.length - fullImagesRawCount;
+    if (
+      fullImagesRawCount > MAX_IMAGES ||
+      optimisedImagesRawCount > MAX_OPTIMISED_IMAGES
+    ) {
       return errorJson(
         c,
         400,
         'TOO_MANY_IMAGES',
-        `At most ${MAX_IMAGES} product images are allowed.`
+        `At most ${MAX_IMAGES} product images and ${MAX_OPTIMISED_IMAGES} optimised images are allowed.`
       );
     }
     const images: ProductImage[] = [];
@@ -1404,6 +1886,31 @@ addProductMyList.post(
         );
       }
       images.push(img);
+    }
+    const firstFiveFullGalleryPaths = new Set(
+      images
+        .filter((image) => image.isOp !== true)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .slice(0, 5)
+        .map((image) => toStoredProductImagePath(image.url))
+        .filter((path): path is string => path !== null)
+        .map(optimisedStoredPath)
+    );
+    if (
+      images.some(
+        (image) =>
+          image.isOp === true &&
+          !firstFiveFullGalleryPaths.has(
+            toStoredProductImagePath(image.url) ?? ''
+          )
+      )
+    ) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_OPTIMISED_IMAGE',
+        'Optimised images are only allowed for the first five product gallery images.'
+      );
     }
 
     const videosRaw = Array.isArray(body.videos) ? body.videos : [];
@@ -1502,6 +2009,14 @@ addProductMyList.post(
       }
       skus.push(sku);
     }
+    if (skus.some((sku) => sku.images.some((image) => image.isOp === true))) {
+      return errorJson(
+        c,
+        400,
+        'INVALID_OPTIMISED_IMAGE',
+        'Optimised images are only allowed in the product gallery.'
+      );
+    }
 
     // ── Attributes ───────────────────────────────────────────────────────────
 
@@ -1517,6 +2032,7 @@ addProductMyList.post(
     const attributes: ParsedAttribute[] = [];
     for (let i = 0; i < attrsRaw.length; i++) {
       const attr = parseAttribute(attrsRaw[i], i);
+      if (attr === null) continue;
       if ('error' in attr) {
         return errorJson(c, 400, 'INVALID_ATTRIBUTE', attr.error);
       }
@@ -1600,15 +2116,18 @@ addProductMyList.post(
         const image = sanitizeUrl(rawImage);
         if (
           typeof image !== 'string' ||
-          !isAliExpressImageUrl(
+          (!isAliExpressImageUrl(
             image.startsWith('//') ? `https:${image}` : image
-          )
+          ) &&
+            !isHostedReviewImageUrl(image, c.env, {
+              origin: requestOriginFromUrl(c.req.url),
+            }))
         ) {
           return errorJson(
             c,
             400,
             'INVALID_REVIEW_IMAGE',
-            `Review ${i + 1} contains an invalid AliExpress image URL.`
+            `Review ${i + 1} contains an invalid image URL.`
           );
         }
         images.push(image.startsWith('//') ? `https:${image}` : image);
@@ -1622,6 +2141,40 @@ addProductMyList.post(
         images,
         reviewDate,
       });
+    }
+
+    const directRemoteImageIdentities = new Set<string>();
+    const addDirectRemoteImage = (url: string | null | undefined) => {
+      if (url && isAliExpressImageUrl(url)) {
+        directRemoteImageIdentities.add(aeImageIdentity(url));
+      }
+    };
+    images.forEach((image) => addDirectRemoteImage(image.url));
+    skus.forEach((sku) => {
+      sku.images.forEach((image) => addDirectRemoteImage(image.url));
+      sku.properties.forEach((property) =>
+        addDirectRemoteImage(property.image)
+      );
+    });
+    addDirectRemoteImage(sizeChartImage);
+    importedReviews.forEach((review) =>
+      review.images.forEach(addDirectRemoteImage)
+    );
+    if (imageUploadId && directRemoteImageIdentities.size > 0) {
+      return errorJson(
+        c,
+        400,
+        'IMAGE_BATCH_INCOMPLETE',
+        'Some AliExpress images were not included in the image upload batches. Please retry publishing.'
+      );
+    }
+    if (!imageUploadId && directRemoteImageIdentities.size > 0) {
+      return errorJson(
+        c,
+        400,
+        'IMAGE_BATCH_REQUIRED',
+        `AliExpress images must be uploaded in batches of at most ${MAX_IMAGES_PER_HOSTING_INVOCATION} before publishing.`
+      );
     }
 
     // ── Pre-flight (JSON errors — before the upload stream starts) ───────────
@@ -1668,6 +2221,20 @@ addProductMyList.post(
     const origin = requestOriginFromUrl(c.req.url);
     const env = c.env;
     const rateLimiter = createAliExpressImageRateLimiter();
+    const stagedImageKeys = imageImportSession?.uploadedKeys ?? [];
+    const rollbackStagedImages = async (additionalKeys: string[] = []) => {
+      await deleteUploadedProductImageKeys(env, [
+        ...stagedImageKeys,
+        ...additionalKeys,
+      ]);
+      if (imageUploadId) {
+        try {
+          await env.KV.delete(imageImportSessionKey(imageUploadId));
+        } catch (error) {
+          console.error('Failed to clear product image import session:', error);
+        }
+      }
+    };
 
     return createProductHostSseResponse(c.req.raw, async (write, signal) => {
       const hosted = await hostProductImages({
@@ -1688,7 +2255,7 @@ addProductMyList.post(
       });
 
       if (!hosted.ok) {
-        await deleteUploadedProductImageKeys(env, hosted.uploadedKeys);
+        await rollbackStagedImages(hosted.uploadedKeys);
         write('error', {
           success: false,
           code: hosted.error.code,
@@ -1707,7 +2274,7 @@ addProductMyList.post(
         onProgress: (event) => write('progress', event),
       });
       if (!hostedReviews.ok) {
-        await deleteUploadedProductImageKeys(env, [
+        await rollbackStagedImages([
           ...hosted.uploadedKeys,
           ...hostedReviews.uploadedKeys,
         ]);
@@ -1734,6 +2301,7 @@ addProductMyList.post(
             ) / 100
           : null;
       const uploadedKeys = [
+        ...stagedImageKeys,
         ...hosted.uploadedKeys,
         ...hostedReviews.uploadedKeys,
       ];
@@ -1893,7 +2461,7 @@ addProductMyList.post(
         await incrementAdminProductsAdded(db, actor.id, now);
       } catch (error) {
         console.error('Error creating product from my-list:', error);
-        await deleteUploadedProductImageKeys(env, uploadedKeys);
+        await rollbackStagedImages(uploadedKeys);
 
         const message =
           error instanceof Error ? error.message.toLowerCase() : '';
@@ -1915,6 +2483,21 @@ addProductMyList.post(
           error: 'Failed to create product.',
         });
         return;
+      }
+
+      if (imageUploadId && imageImportSession) {
+        try {
+          await env.KV.put(
+            imageImportSessionKey(imageUploadId),
+            JSON.stringify({ ...imageImportSession, completed: true }),
+            { expirationTtl: PRODUCT_IMAGE_IMPORT_SESSION_TTL_SECONDS }
+          );
+        } catch (error) {
+          console.error(
+            'Could not mark product image import session complete:',
+            error
+          );
+        }
       }
 
       c.executionCtx.waitUntil(

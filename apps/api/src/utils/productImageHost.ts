@@ -36,14 +36,18 @@ export const PRODUCT_IMAGE_KEY_PREFIX = 'product/image';
 export const PRODUCT_IMAGE_PATH_PREFIX = '/product/image/';
 export const PRODUCT_IMAGE_EXT = 'avif';
 export const AE_FULL_TRANSFORM = '_960x960q100.jpg_.avif';
-export const AE_OP_TRANSFORM = '_480x480q75.jpg_.avif';
+export const AE_OP_TRANSFORM = '_220x220.jpg_.avif';
 export const MAX_OPTIMISED_IMAGES = 5;
 export const R2_UPLOAD_ATTEMPTS = 3;
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
-const ALIEXPRESS_IMAGE_REQUEST_INTERVAL_MS = 500;
+const ALIEXPRESS_IMAGE_REQUEST_INTERVAL_MS = 250;
 const IMAGE_FETCH_MAX_RETRIES = 3;
+export const MAX_IMAGES_PER_HOSTING_INVOCATION = 45;
+export const MAX_OPTIMISED_IMAGES_PER_HOSTING_INVOCATION = 5;
+export const MAX_ALIEXPRESS_REQUESTS_PER_HOSTING_INVOCATION = 45;
+export const PRODUCT_IMAGE_IMPORT_SESSION_TTL_SECONDS = 86_400;
 const PRODUCT_HOST_SSE_HEARTBEAT_MS = 15_000;
 const MAX_SLUG_IN_KEY = 80;
 const CONCURRENCY = 3;
@@ -97,6 +101,7 @@ export type HostProductImagesInput = {
   skuImages: ProductImage[][];
   propertyImages: Array<Array<string | null>>;
   sizeChartImage: string | null;
+  optimisedImageUrls?: string[];
   origin?: string;
   signal?: AbortSignal;
   rateLimiter?: AliExpressImageRateLimiter;
@@ -201,6 +206,29 @@ export function isAliExpressImageUrl(url: string | null | undefined): boolean {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
   if (isPrivateOrLocalHostname(parsed.hostname)) return false;
   return AE_HOST_RE.test(parsed.hostname);
+}
+
+export function isHostedReviewImageUrl(
+  url: string | null | undefined,
+  env: Env,
+  options?: R2UrlOptions
+): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const baseUrl = getR2PublicBaseUrl(env, options);
+  if (!baseUrl) return false;
+
+  try {
+    const base = new URL(baseUrl);
+    const image = new URL(normalizeImageUrl(url), base);
+    const reviewPrefix = `${base.pathname.replace(/\/+$/, '')}/user/reviews/`;
+    return (
+      image.origin === base.origin &&
+      image.pathname.startsWith(reviewPrefix) &&
+      image.pathname.length > reviewPrefix.length
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -475,10 +503,12 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
  * Worker isolates are not a shared/distributed rate-limit store.
  */
 export function createAliExpressImageRateLimiter(
-  intervalMs = ALIEXPRESS_IMAGE_REQUEST_INTERVAL_MS
+  intervalMs = ALIEXPRESS_IMAGE_REQUEST_INTERVAL_MS,
+  maxRequests = MAX_ALIEXPRESS_REQUESTS_PER_HOSTING_INVOCATION
 ): AliExpressImageRateLimiter {
   let queue = Promise.resolve();
   let nextRequestAt = 0;
+  let requestsStarted = 0;
 
   return async (signal) => {
     let release = () => {};
@@ -491,9 +521,16 @@ export function createAliExpressImageRateLimiter(
 
     try {
       assertNotAborted(signal);
+      if (requestsStarted >= maxRequests) {
+        throw new ProductImageHostError(
+          'ALIEXPRESS_REQUEST_BUDGET_EXCEEDED',
+          `AliExpress request budget of ${maxRequests} requests was reached. Split the remaining images into another batch.`
+        );
+      }
       const waitMs = nextRequestAt - Date.now();
       if (waitMs > 0) await abortableDelay(waitMs, signal);
       assertNotAborted(signal);
+      requestsStarted += 1;
       nextRequestAt = Date.now() + intervalMs;
     } finally {
       release();
@@ -756,9 +793,15 @@ export async function hostAliExpressReviewImages(input: {
     }
   | { ok: false; error: HostedImageError; uploadedKeys: string[] }
 > {
-  const total = input.imageUrls.reduce((sum, images) => sum + images.length, 0);
+  const total = input.imageUrls.reduce(
+    (sum, images) =>
+      sum + images.filter((url) => isAliExpressImageUrl(url)).length,
+    0
+  );
   const uploadedKeys: string[] = [];
-  const hostedImages = input.imageUrls.map(() => [] as string[]);
+  const hostedImages = input.imageUrls.map((images) =>
+    images.map((url) => (isAliExpressImageUrl(url) ? '' : url))
+  );
   const rateLimiter = input.rateLimiter ?? createAliExpressImageRateLimiter();
   if (total === 0) {
     return { ok: true, imageUrls: hostedImages, uploadedKeys, hostedCount: 0 };
@@ -768,7 +811,9 @@ export async function hostAliExpressReviewImages(input: {
   let completed = 0;
   let failure: HostedImageError | null = null;
   const jobs = input.imageUrls.flatMap((urls, reviewIndex) =>
-    urls.map((url, imageIndex) => ({ url, reviewIndex, imageIndex }))
+    urls.flatMap((url, imageIndex) =>
+      isAliExpressImageUrl(url) ? [{ url, reviewIndex, imageIndex }] : []
+    )
   );
 
   const worker = async () => {
@@ -1023,6 +1068,9 @@ export async function hostProductImages(
     }
 
     const opIdentities = new Set<string>();
+    const requestedOptimisedIdentities = input.optimisedImageUrls
+      ? new Set(input.optimisedImageUrls.map(aeImageIdentity))
+      : null;
     let opCount = 0;
     for (const img of gallery) {
       if (img.isOp === true) continue;
@@ -1030,6 +1078,12 @@ export async function hostProductImages(
       const remote = collectRemoteUrl(img.url);
       if (!remote) continue;
       const identity = aeImageIdentity(remote);
+      if (
+        requestedOptimisedIdentities &&
+        !requestedOptimisedIdentities.has(identity)
+      ) {
+        continue;
+      }
       const paths = identityToFull.get(identity);
       if (!paths || opIdentities.has(identity)) continue;
       opIdentities.add(identity);
@@ -1194,6 +1248,120 @@ export async function hostProductImages(
             code: 'IMAGE_HOST_FAILED',
             message:
               'Failed to host product images. Uploaded files were rolled back.',
+          };
+    return { ok: false, error: mapped, uploadedKeys };
+  }
+}
+
+export async function hostAliExpressOptimisedProductImages(input: {
+  env: Env;
+  images: Array<{ sourceUrl: string; fullImagePath: string }>;
+  origin?: string;
+  signal?: AbortSignal;
+  rateLimiter?: AliExpressImageRateLimiter;
+  onProgress?: (event: HostProgressEvent) => void | Promise<void>;
+}): Promise<
+  | {
+      ok: true;
+      images: Array<{ sourceUrl: string; optimisedImagePath: string }>;
+      uploadedKeys: string[];
+    }
+  | { ok: false; error: HostedImageError; uploadedKeys: string[] }
+> {
+  const uploadedKeys: string[] = [];
+  try {
+    if (input.images.length > MAX_OPTIMISED_IMAGES) {
+      throw new ProductImageHostError(
+        'TOO_MANY_OPTIMISED_IMAGES',
+        `At most ${MAX_OPTIMISED_IMAGES} product card images can be optimised.`
+      );
+    }
+    if (!hasR2Binding(input.env)) {
+      throw new ProductImageHostError(
+        'R2_NOT_CONFIGURED',
+        'Object storage is not configured. Bind R2_IMAGES in wrangler.jsonc.'
+      );
+    }
+
+    const images = input.images.map(({ sourceUrl, fullImagePath }) => {
+      const storedPath = toStoredProductImagePath(fullImagePath);
+      if (
+        !isAliExpressImageUrl(sourceUrl) ||
+        !storedPath ||
+        !storedPath.startsWith(PRODUCT_IMAGE_PATH_PREFIX)
+      ) {
+        throw new ProductImageHostError(
+          'INVALID_OPTIMISED_IMAGE',
+          'The product image source or hosted full-image path is invalid.'
+        );
+      }
+      const fullKey = storedPath.replace(/^\/+/, '');
+      return {
+        sourceUrl,
+        fetchUrl: applyAeImageTransform(sourceUrl, AE_OP_TRANSFORM),
+        key: `${fullKey}_op.${PRODUCT_IMAGE_EXT}`,
+        path: optimisedStoredPath(storedPath),
+      };
+    });
+
+    const rateLimiter = input.rateLimiter ?? createAliExpressImageRateLimiter();
+    await input.onProgress?.({
+      current: 0,
+      total: images.length,
+      message: `Preparing ${images.length} optimised card image${images.length === 1 ? '' : 's'}…`,
+    });
+
+    let completed = 0;
+    await runPool(images, CONCURRENCY, input.signal, async (image) => {
+      const fetched = await fetchAliExpressImage(
+        image.fetchUrl,
+        input.signal,
+        undefined,
+        rateLimiter
+      );
+      assertNotAborted(input.signal);
+      try {
+        await putWithRetry(
+          input.env,
+          image.key,
+          fetched.body,
+          fetched.contentType,
+          input.origin
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown storage error.';
+        throw new ProductImageHostError(
+          error instanceof ProductImageHostError
+            ? error.code
+            : 'R2_UPLOAD_FAILED',
+          `Failed to upload optimised card image. Image URL: ${image.sourceUrl}. ${message}`
+        );
+      }
+      uploadedKeys.push(image.key);
+      completed += 1;
+      await input.onProgress?.({
+        current: completed,
+        total: images.length,
+        message: `Uploaded optimised card image (${completed} of ${images.length})`,
+      });
+    });
+
+    return {
+      ok: true,
+      images: images.map(({ sourceUrl, path }) => ({
+        sourceUrl,
+        optimisedImagePath: path,
+      })),
+      uploadedKeys,
+    };
+  } catch (error) {
+    const mapped =
+      error instanceof ProductImageHostError
+        ? { code: error.code, message: error.message }
+        : {
+            code: 'IMAGE_HOST_FAILED',
+            message: 'Failed to host optimised product images.',
           };
     return { ok: false, error: mapped, uploadedKeys };
   }

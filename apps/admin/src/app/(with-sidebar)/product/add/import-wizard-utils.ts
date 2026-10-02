@@ -954,7 +954,7 @@ export function validateStep(
     }
   }
   if (step === 3) {
-    const selectedAttributes = form.attributes.filter(
+    const selectedAttributes = normalizeImportForm(form).attributes.filter(
       (attr) => attr.selected !== false
     );
     for (const attr of selectedAttributes) {
@@ -1171,7 +1171,12 @@ export function buildPublishPayload(form: ImportFormState) {
       })),
     })),
     attributes: normalizeImportForm(form)
-      .attributes.filter((attr) => attr.selected !== false)
+      .attributes.filter(
+        (attr) =>
+          attr.selected !== false &&
+          attr.attrName.trim().length > 0 &&
+          attr.attrValue.trim().length > 0
+      )
       .map((attr, index) => ({
         aeAttrNameId: attr.aeAttrNameId,
         attrName: attr.attrName.trim(),

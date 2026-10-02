@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type Env from '@/types/env';
 import {
+  MAX_ALIEXPRESS_REQUESTS_PER_HOSTING_INVOCATION,
+  MAX_IMAGES_PER_HOSTING_INVOCATION,
   createAliExpressImageRateLimiter,
   createProductHostSseResponse,
+  hostAliExpressOptimisedProductImages,
   hostProductImages,
+  isHostedReviewImageUrl,
 } from '@/utils/productImageHost';
 
 const imageUrl = 'https://ae01.alicdn.com/kf/sample.jpg';
@@ -35,7 +39,7 @@ afterEach(() => {
 });
 
 describe('product image hosting', () => {
-  it('starts AliExpress requests no faster than two per second', async () => {
+  it('starts AliExpress requests no faster than four per second', async () => {
     const limit = createAliExpressImageRateLimiter();
     const startedAt: number[] = [];
 
@@ -47,8 +51,89 @@ describe('product image hosting', () => {
     );
 
     startedAt.sort((a, b) => a - b);
-    expect(startedAt[1]! - startedAt[0]!).toBeGreaterThanOrEqual(500);
-    expect(startedAt[2]! - startedAt[1]!).toBeGreaterThanOrEqual(500);
+    expect(startedAt[1]! - startedAt[0]!).toBeGreaterThanOrEqual(250);
+    expect(startedAt[2]! - startedAt[1]!).toBeGreaterThanOrEqual(250);
+  });
+
+  it('keeps image batches and AliExpress requests within the 45-request budget', () => {
+    expect(MAX_IMAGES_PER_HOSTING_INVOCATION).toBe(45);
+    expect(MAX_ALIEXPRESS_REQUESTS_PER_HOSTING_INVOCATION).toBe(45);
+  });
+
+  it('rejects AliExpress requests once the per-invocation budget is exhausted', async () => {
+    const limit = createAliExpressImageRateLimiter(0, 2);
+
+    await limit();
+    await limit();
+    await expect(limit()).rejects.toMatchObject({
+      code: 'ALIEXPRESS_REQUEST_BUDGET_EXCEEDED',
+    });
+  });
+
+  it('creates optimised copies only for explicitly selected gallery images', async () => {
+    const put = vi.fn(async () => ({ etag: 'test-etag' }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([1, 2, 3]), {
+            headers: { 'Content-Type': 'image/avif' },
+          })
+      )
+    );
+    const firstUrl = 'https://ae01.alicdn.com/kf/first.jpg';
+    const secondUrl = 'https://ae01.alicdn.com/kf/second.jpg';
+    const result = await hostProductImages({
+      ...hostInput({
+        API_URL: 'https://api.example.com',
+        R2_IMAGES: { put },
+      } as Env),
+      productImages: [{ url: firstUrl }, { url: secondUrl }],
+      optimisedImageUrls: [firstUrl],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.optimisedCount).toBe(1);
+    expect(put).toHaveBeenCalledTimes(3);
+  });
+
+  it('stores optimized product-card images beside the full image with the _op suffix', async () => {
+    const put = vi.fn(async () => ({ etag: 'test-etag' }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), {
+          headers: { 'Content-Type': 'image/avif' },
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await hostAliExpressOptimisedProductImages({
+      env: {
+        API_URL: 'https://api.example.com',
+        R2_IMAGES: { put },
+      } as Env,
+      images: [
+        {
+          sourceUrl: imageUrl,
+          fullImagePath: '/product/image/sample.avif',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.images[0]?.optimisedImagePath).toBe(
+      '/product/image/sample.avif_op.avif'
+    );
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'https://ae01.alicdn.com/kf/sample.jpg_220x220.jpg_.avif'
+    );
+    expect(put).toHaveBeenCalledWith(
+      'product/image/sample.avif_op.avif',
+      expect.any(ArrayBuffer),
+      expect.any(Object)
+    );
   });
 
   it('retries transient download failures up to three times', async () => {
@@ -84,6 +169,25 @@ describe('product image hosting', () => {
     expect(result.error.code).toBe('IMAGE_FETCH_FAILED');
     expect(result.error.message).toContain(imageUrl);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('recognizes review images only on the configured object host', () => {
+    const env = {
+      API_URL: 'https://api.example.com',
+    } as Env;
+
+    expect(
+      isHostedReviewImageUrl(
+        'https://api.example.com/api/images/user/reviews/test.webp',
+        env
+      )
+    ).toBe(true);
+    expect(
+      isHostedReviewImageUrl(
+        'https://attacker.example/api/images/user/reviews/test.webp',
+        env
+      )
+    ).toBe(false);
   });
 
   it('keeps the SSE connection alive until the upload work completes', async () => {
