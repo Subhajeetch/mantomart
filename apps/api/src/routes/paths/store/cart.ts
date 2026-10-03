@@ -12,12 +12,12 @@ import {
 } from '@repo/db';
 import { createAuth } from '@repo/auth/server';
 import type Env from '@/types/env';
-import { errorJson, type EnvContext } from '@/utils/errorJson';
+import { errorJson, type EnvContext } from '@/utils/http/errorJson';
 import config from '@/mine.config';
 import {
   requestOriginFromUrl,
   resolveProductImageUrlForClient,
-} from '@/utils/productImageHost';
+} from '@/utils/images/productImageHost';
 
 const storeCart = new Hono<{ Bindings: Env }>();
 export const MAX_QUANTITY = 10;

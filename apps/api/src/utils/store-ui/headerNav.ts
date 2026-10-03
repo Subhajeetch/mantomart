@@ -6,7 +6,7 @@ import {
   type Database,
   type HeaderMenuNode,
 } from '@repo/db';
-import kvManager from '@/utils/kvManager';
+import kvManager from '@/utils/cf-tools/kvManager';
 
 /** Public storefront nav cache key. */
 export const HEADER_NAV_KV_KEY = 'store:header:nav';

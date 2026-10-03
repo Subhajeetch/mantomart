@@ -30,7 +30,7 @@ import {
   errorJson,
   type AppEnv,
   type AppContext,
-} from '@/utils/errorJson';
+} from '@/utils/http/errorJson';
 import {
   requireAdminMiddleware,
   getActor,
@@ -40,7 +40,7 @@ import {
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
-} from '@/utils/auditLog';
+} from '@/utils/admin/auditLog';
 import {
   MAX_UPLOAD_BYTES,
   ALLOWED_IMAGE_FOLDERS,
@@ -48,14 +48,14 @@ import {
   isWebPBuffer,
   isAllowedUploadContentType,
   parseUploadMeta,
-} from '@/utils/imageUpload';
+} from '@/utils/images/imageUpload';
 import {
   isR2Configured,
   uploadToR2,
   buildPublicObjectUrl,
   hasR2Binding,
   getR2PublicBaseUrl,
-} from '@/utils/r2';
+} from '@/utils/cf-tools/r2';
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 

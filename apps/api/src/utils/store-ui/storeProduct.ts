@@ -33,12 +33,12 @@ import {
   PRODUCT_CARD_COLUMNS,
   type ProductCardRow,
   type PublicProductCard,
-} from '@/utils/homepageContent';
+} from '@/utils/store-ui/homepageContent';
 import {
   resolveProductImageUrlForClient,
   resolveProductImagesForClient,
-} from '@/utils/productImageHost';
-import type { R2UrlOptions } from '@/utils/r2';
+} from '@/utils/images/productImageHost';
+import type { R2UrlOptions } from '@/utils/cf-tools/r2';
 
 const MAX_SLUG_LENGTH = 180;
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

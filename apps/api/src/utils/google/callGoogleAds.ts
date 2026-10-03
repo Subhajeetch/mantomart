@@ -3,7 +3,7 @@ import {
   assertGoogleAdsConfig,
   getGoogleAccessToken,
   type GoogleAdsEnv,
-} from '@/utils/manageGoogleAuthTokens';
+} from '@/utils/google/manageGoogleAuthTokens';
 
 const { GOOGLE_ADS_API_BASE } = config;
 

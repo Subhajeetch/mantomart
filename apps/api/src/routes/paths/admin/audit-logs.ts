@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import { auditLogs } from '@repo/db';
-import { errorJson, type AppEnv, type AppContext } from '@/utils/errorJson';
+import { errorJson, type AppEnv, type AppContext } from '@/utils/http/errorJson';
 import {
   requireAdminMiddleware,
   requireAnyPermission,
@@ -25,7 +25,7 @@ import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
-} from '@/utils/auditLog';
+} from '@/utils/admin/auditLog';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

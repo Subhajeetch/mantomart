@@ -26,9 +26,9 @@ import {
   sanitizeObjectKey,
   uploadToR2,
   type R2UrlOptions,
-} from '@/utils/r2';
+} from '@/utils/cf-tools/r2';
 import config from '@/mine.config';
-import { isWebPBuffer } from '@/utils/imageUpload';
+import { isWebPBuffer } from '@/utils/images/imageUpload';
 
 // ─── Public constants ─────────────────────────────────────────────────────────
 

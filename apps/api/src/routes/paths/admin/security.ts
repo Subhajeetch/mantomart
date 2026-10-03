@@ -35,7 +35,7 @@ import { eq } from 'drizzle-orm';
 import { createAuth } from '@repo/auth/server';
 import { createDb, users } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson, type EnvContext } from '@/utils/errorJson';
+import { errorJson, type EnvContext } from '@/utils/http/errorJson';
 import {
   ADMIN_ACCESS_CACHE_TTL_SECONDS,
   getCachedAdminAccess,
@@ -44,8 +44,8 @@ import {
   setCachedAdminAccess,
   type AdminAccessRole,
   type CachedAccessDecision,
-} from '@/utils/adminAccessCache';
-import { touchLastActive } from '@/utils/userActivity';
+} from '@/utils/authorization/adminAccessCache';
+import { touchLastActive } from '@/utils/users/userActivity';
 
 const security = new Hono<{ Bindings: Env }>();
 

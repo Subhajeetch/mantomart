@@ -2,9 +2,9 @@ import { sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { AUDIT_ACTIONS, type AuditAction } from '@repo/auth/permissions';
 import { auditLogs, type Database } from '@repo/db';
-import type { AppContext } from '@/utils/errorJson';
-import type { AdminActor } from '@/utils/errorJson';
-import { extractClientIp } from '@/utils/userActivity';
+import type { AppContext } from '@/utils/http/errorJson';
+import type { AdminActor } from '@/utils/http/errorJson';
+import { extractClientIp } from '@/utils/users/userActivity';
 import { getActor, getDb } from '@/middleware/permission';
 
 // ─── Limits ───────────────────────────────────────────────────────────────────

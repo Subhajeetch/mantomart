@@ -2,12 +2,12 @@ import { Hono } from "hono";
 import { cache } from "hono/cache";
 import { createDb } from "@repo/db";
 import type Env from "@/types/env";
-import { errorJson } from "@/utils/errorJson";
+import { errorJson } from "@/utils/http/errorJson";
 import {
   getPublicHeaderNav,
   HEADER_NAV_CACHE_TTL_SECONDS,
   MAX_VISIBLE_HEADER_COLLECTIONS,
-} from "@/utils/headerNav";
+} from "@/utils/store-ui/headerNav";
 
 /**
  * Public storefront header / navigation menu.

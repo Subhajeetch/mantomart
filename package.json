@@ -2,9 +2,10 @@
   "name": "mantomart",
   "private": true,
   "scripts": {
-    "build": "turbo run build",
+    "build": "turbo run build --filter=api... && turbo run build:cloudflare --filter=admin... --filter=store...",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
+    "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
     "db:generate": "pnpm --filter @repo/db generate",

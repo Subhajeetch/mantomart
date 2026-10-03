@@ -14,8 +14,8 @@ import {
   errorJson,
   type AppEnv,
   type AppContext,
-} from '@/utils/errorJson';
-import { getFromR2, R2_PUBLIC_SERVE_PREFIX } from '@/utils/r2';
+} from '@/utils/http/errorJson';
+import { getFromR2, R2_PUBLIC_SERVE_PREFIX } from '@/utils/cf-tools/r2';
 
 const imagesRouter = new Hono<AppEnv>();
 

@@ -12,12 +12,12 @@ import {
   SeoParseError,
   SEO_STREAM_FIELD_ORDER,
   type SeoStreamFieldName,
-} from '@/utils/seoMarkerStream';
+} from '@/utils/seo/seoMarkerStream';
 
 export {
   SEO_STREAM_FIELD_ORDER,
   type SeoStreamFieldName,
-} from '@/utils/seoMarkerStream';
+} from '@/utils/seo/seoMarkerStream';
 
 export function isAllowedModel(modelId: string): boolean {
   return Boolean(getAiModelConfig(modelId));

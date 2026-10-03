@@ -2,15 +2,15 @@ import { Hono } from 'hono';
 import { cache } from 'hono/cache';
 import { createDb } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson } from '@/utils/errorJson';
+import { errorJson } from '@/utils/http/errorJson';
 import {
   DEFAULT_FEED_PAGE_SIZE,
   getPublicHomepage,
   getPublicProductFeedPage,
   HOMEPAGE_CACHE_TTL_SECONDS,
   HOMEPAGE_FEED_CACHE_TTL_SECONDS,
-} from '@/utils/homepageContent';
-import { requestOriginFromUrl } from '@/utils/productImageHost';
+} from '@/utils/store-ui/homepageContent';
+import { requestOriginFromUrl } from '@/utils/images/productImageHost';
 
 /**
  * Public storefront homepage.

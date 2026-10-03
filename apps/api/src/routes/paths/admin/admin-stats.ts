@@ -18,7 +18,7 @@ import {
   users,
   type Database,
 } from '@repo/db';
-import { errorJson, type AppEnv, type AppContext } from '@/utils/errorJson';
+import { errorJson, type AppEnv, type AppContext } from '@/utils/http/errorJson';
 import {
   requireAdminMiddleware,
   requireAnyPermission,
@@ -26,13 +26,13 @@ import {
   getActor,
   getDb,
 } from '@/middleware/permission';
-import { adminHasPermission } from '@/utils/permissions';
+import { adminHasPermission } from '@/utils/authorization/permissions';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
-} from '@/utils/auditLog';
+} from '@/utils/admin/auditLog';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

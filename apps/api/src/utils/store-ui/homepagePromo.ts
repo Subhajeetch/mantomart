@@ -20,8 +20,8 @@ import {
   type ProductDefaultPrice,
 } from '@repo/db';
 import type Env from '@/types/env';
-import { productCardImagesForClient } from '@/utils/productImageHost';
-import type { R2UrlOptions } from '@/utils/r2';
+import { productCardImagesForClient } from '@/utils/images/productImageHost';
+import type { R2UrlOptions } from '@/utils/cf-tools/r2';
 
 export type PublicProductCardImage = {
   url: string;

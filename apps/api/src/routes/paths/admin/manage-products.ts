@@ -29,8 +29,8 @@ import {
   calculateProductDefaultPrice,
   calculateProductDefaultEstProfit,
 } from '@repo/db';
-import { errorJson, type AppContext, type AppEnv } from '@/utils/errorJson';
-import { adminHasPermission } from '@/utils/permissions';
+import { errorJson, type AppContext, type AppEnv } from '@/utils/http/errorJson';
+import { adminHasPermission } from '@/utils/authorization/permissions';
 import {
   getActor,
   getDb,
@@ -43,9 +43,9 @@ import {
   AUDIT_TARGET_TYPES,
   buildChanges,
   logAuditFromContext,
-} from '@/utils/auditLog';
-import { decrementAdminProductContribution } from '@/utils/adminStats';
-import { invalidateHomepageCache } from '@/utils/homepageContent';
+} from '@/utils/admin/auditLog';
+import { decrementAdminProductContribution } from '@/utils/admin/adminStats';
+import { invalidateHomepageCache } from '@/utils/store-ui/homepageContent';
 import {
   createProductHostSseResponse,
   deleteUploadedProductImageKeys,
@@ -56,7 +56,7 @@ import {
   requestOriginFromUrl,
   resolveProductImageUrlForClient,
   resolveProductImagesForClient,
-} from '@/utils/productImageHost';
+} from '@/utils/images/productImageHost';
 
 const MAX_ID_LENGTH = 128;
 const MAX_PAGE_SIZE = 100;

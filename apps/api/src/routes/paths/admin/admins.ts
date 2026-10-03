@@ -11,9 +11,9 @@ import {
 } from '@repo/auth/permissions';
 import { createDb, userPermissions, users } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson, type EnvContext } from '@/utils/errorJson';
-import { touchLastActive } from '@/utils/userActivity';
-import { invalidateAdminAccessForUser } from '@/utils/adminAccessCache';
+import { errorJson, type EnvContext } from '@/utils/http/errorJson';
+import { touchLastActive } from '@/utils/users/userActivity';
+import { invalidateAdminAccessForUser } from '@/utils/authorization/adminAccessCache';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
@@ -21,7 +21,7 @@ import {
   createAuditLog,
   extractRequestAuditContext,
   type AuditActor,
-} from '@/utils/auditLog';
+} from '@/utils/admin/auditLog';
 
 /** Bust admin-panel access KV so demotions/promotions take effect immediately. */
 function scheduleAccessCacheInvalidation(

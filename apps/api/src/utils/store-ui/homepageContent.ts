@@ -16,25 +16,25 @@ import {
   type ProductImageRecord,
   type ProductDefaultPrice,
 } from '@repo/db';
-import kvManager from '@/utils/kvManager';
+import kvManager from '@/utils/cf-tools/kvManager';
 import {
   normalizePublicPromoSlides,
   sanitizePromoSliderConfig,
   serializePublicPromoSlides,
   type PublicPromoSlide,
-} from '@/utils/homepagePromo';
+} from '@/utils/store-ui/homepagePromo';
 import {
   productCardImagesForClient,
   resolveProductImageUrlForClient,
-} from '@/utils/productImageHost';
-import type { R2UrlOptions } from '@/utils/r2';
+} from '@/utils/images/productImageHost';
+import type { R2UrlOptions } from '@/utils/cf-tools/r2';
 import type Env from '@/types/env';
 
 export type {
   PublicPromoSlide,
   PublicPromoSlideOffer,
   PublicPromoSlideProduct,
-} from '@/utils/homepagePromo';
+} from '@/utils/store-ui/homepagePromo';
 
 /** Public storefront homepage cache key. Bump when the product-card payload changes. */
 export const HOMEPAGE_KV_KEY = 'store:homepage:v4';

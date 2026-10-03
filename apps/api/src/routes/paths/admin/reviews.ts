@@ -3,15 +3,15 @@ import { and, asc, count, desc, eq, like, or, sql } from 'drizzle-orm';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import { products, reviews, users } from '@repo/db';
 import { getActor, getDb, requirePermission } from '@/middleware/permission';
-import { errorJson, type AppEnv } from '@/utils/errorJson';
+import { errorJson, type AppEnv } from '@/utils/http/errorJson';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
-} from '@/utils/auditLog';
-import { invalidateHomepageCache } from '@/utils/homepageContent';
-import { resolveProductImagesForClient } from '@/utils/productImageHost';
+} from '@/utils/admin/auditLog';
+import { invalidateHomepageCache } from '@/utils/store-ui/homepageContent';
+import { resolveProductImagesForClient } from '@/utils/images/productImageHost';
 
 const MAX_ID_LENGTH = 128;
 const MAX_SEARCH_LENGTH = 100;

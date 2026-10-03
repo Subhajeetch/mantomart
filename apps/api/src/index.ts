@@ -3,9 +3,9 @@ import { cors } from 'hono/cors';
 import type Env from '@/types/env';
 import { createAuth } from '@repo/auth/server';
 import { createDb } from '@repo/db';
-import { warnIfLiveWebhookMissing } from '@/utils/paypal';
-import sendResetPassEmail from '@/utils/sendResetPassEmail';
-import { recordUserLogin, touchLastActive } from '@/utils/userActivity';
+import { warnIfLiveWebhookMissing } from '@/utils/payments/paypal/paypal';
+import sendResetPassEmail from '@/utils/users/sendResetPassEmail';
+import { recordUserLogin, touchLastActive } from '@/utils/users/userActivity';
 
 // routes import
 import {

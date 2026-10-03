@@ -8,9 +8,9 @@ import {
   type AdminActor,
   type AppEnv,
   type AppContext,
-} from '@/utils/errorJson';
-import { adminHasPermission } from '@/utils/permissions';
-import { touchLastActive } from '@/utils/userActivity';
+} from '@/utils/http/errorJson';
+import { adminHasPermission } from '@/utils/authorization/permissions';
+import { touchLastActive } from '@/utils/users/userActivity';
 
 export type { AdminActor, Permission };
 

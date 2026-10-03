@@ -6,14 +6,14 @@ import {
   createPayPalRequestId,
   persistPayPalOrder,
   shouldApplyPaymentStatus,
-} from '@/utils/paypalOrder';
-import { capturePayPalOrder, PayPalOrderMismatchError } from '@/utils/paypalCapture';
+} from '@/utils/payments/paypal/paypalOrder';
+import { capturePayPalOrder, PayPalOrderMismatchError } from '@/utils/payments/paypal/paypalCapture';
 import {
   paypalErrorResponse,
   PayPalApiError,
   getPayPalAccessToken,
   warnIfLiveWebhookMissing,
-} from '@/utils/paypal';
+} from '@/utils/payments/paypal/paypal';
 
 const orderId = 'PAYPAL-ORDER-1';
 const sessionId = 'checkout-session-1';

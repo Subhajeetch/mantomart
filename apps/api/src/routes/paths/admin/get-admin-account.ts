@@ -20,8 +20,8 @@ import { and, count, eq, gt } from 'drizzle-orm';
 import { createAuth } from '@repo/auth/server';
 import { accounts, createDb, sessions, users } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson, type EnvContext } from '@/utils/errorJson';
-import { touchLastActive } from '@/utils/userActivity';
+import { errorJson, type EnvContext } from '@/utils/http/errorJson';
+import { touchLastActive } from '@/utils/users/userActivity';
 
 type AdminRole = 'admin' | 'owner';
 

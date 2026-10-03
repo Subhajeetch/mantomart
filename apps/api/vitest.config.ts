@@ -9,6 +9,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.vitest.test.ts'],
+    include: ['src/tests/**/*.test.ts'],
   },
 });

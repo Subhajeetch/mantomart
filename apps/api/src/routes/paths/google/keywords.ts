@@ -9,14 +9,14 @@ import {
   generateKeywordIdeas,
   GoogleAdsApiError,
   type KeywordResearchInput,
-} from '@/utils/callGoogleAds';
+} from '@/utils/google/callGoogleAds';
 import {
   GoogleAdsConfigError,
   GoogleAdsNotConnectedError,
   GoogleAdsTokenError,
-} from '@/utils/manageGoogleAuthTokens';
-import type { AppEnv, ErrorStatus } from '@/utils/errorJson';
-import { errorJson } from '@/utils/errorJson';
+} from '@/utils/google/manageGoogleAuthTokens';
+import type { AppEnv, ErrorStatus } from '@/utils/http/errorJson';
+import { errorJson } from '@/utils/http/errorJson';
 
 const googleKeywords = new Hono<AppEnv>();
 

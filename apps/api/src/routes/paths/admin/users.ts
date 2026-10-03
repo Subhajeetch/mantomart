@@ -6,8 +6,8 @@ import {
   errorJson,
   type AppEnv,
   type AppContext,
-} from '@/utils/errorJson';
-import { adminHasPermission } from '@/utils/permissions';
+} from '@/utils/http/errorJson';
+import { adminHasPermission } from '@/utils/authorization/permissions';
 import {
   requireAdminMiddleware,
   requireAnyPermission,
@@ -19,8 +19,8 @@ import {
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
-} from '@/utils/auditLog';
-import { invalidateAdminAccessForUser } from '@/utils/adminAccessCache';
+} from '@/utils/admin/auditLog';
+import { invalidateAdminAccessForUser } from '@/utils/authorization/adminAccessCache';
 
 type UserRole = 'customer' | 'admin' | 'owner';
 type UserStatus = 'active' | 'banned' | 'deleted';

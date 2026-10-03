@@ -2,19 +2,19 @@ import { Hono } from 'hono';
 import { cache } from 'hono/cache';
 import { createDb } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson } from '@/utils/errorJson';
-import { requestOriginFromUrl } from '@/utils/productImageHost';
+import { errorJson } from '@/utils/http/errorJson';
+import { requestOriginFromUrl } from '@/utils/images/productImageHost';
 import {
   DEFAULT_FEED_PAGE_SIZE,
   MAX_FEED_PAGE_SIZE,
   MIN_FEED_PAGE_SIZE,
-} from '@/utils/homepageContent';
+} from '@/utils/store-ui/homepageContent';
 import {
   isValidProductSlug,
   getPublicProduct,
   loadMoreForYou,
   PUBLIC_PRODUCT_CACHE_TTL_SECONDS,
-} from '@/utils/storeProduct';
+} from '@/utils/store-ui/storeProduct';
 
 /**
  * Public storefront product page.

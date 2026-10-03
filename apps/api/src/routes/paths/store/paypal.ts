@@ -2,8 +2,8 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { checkoutSessionItems, checkoutSessions, createDb } from '@repo/db';
 import type Env from '@/types/env';
-import { logPayPalEvent, paypalRequest, PayPalApiError } from '@/utils/paypal';
-import { moneyValue, payPalCaptures, persistPayPalOrder, validatePayPalOrder } from '@/utils/paypalOrder';
+import { logPayPalEvent, paypalRequest, PayPalApiError } from '@/utils/payments/paypal/paypal';
+import { moneyValue, payPalCaptures, persistPayPalOrder, validatePayPalOrder } from '@/utils/payments/paypal/paypalOrder';
 
 const storePayPal = new Hono<{ Bindings: Env }>();
 

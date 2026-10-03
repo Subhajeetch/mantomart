@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import type Env from '@/types/env';
-import { callAE } from '@/utils/callAE';
+import { callAE } from '@/utils/aliexpress/callAE';
 import {
   AliExpressNotConnectedError,
   AliExpressTokenError,
   getAccessToken,
-} from '@/utils/manageAEauthTokens';
-import { errorJson } from '@/utils/errorJson';
+} from '@/utils/aliexpress/manageAEauthTokens';
+import { errorJson } from '@/utils/http/errorJson';
 
 const aeProduct = new Hono<{ Bindings: Env }>();
 

@@ -12,8 +12,8 @@ import {
   errorJson,
   type AppEnv,
   type AppContext,
-} from '@/utils/errorJson';
-import { adminHasPermission } from '@/utils/permissions';
+} from '@/utils/http/errorJson';
+import { adminHasPermission } from '@/utils/authorization/permissions';
 import {
   requireAdminMiddleware,
   requireAnyPermission,
@@ -25,7 +25,7 @@ import {
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
-} from '@/utils/auditLog';
+} from '@/utils/admin/auditLog';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

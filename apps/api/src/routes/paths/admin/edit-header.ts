@@ -9,20 +9,20 @@ import {
   type Database,
   type HeaderMenuNode,
 } from '@repo/db';
-import { errorJson, type AppEnv, type AppContext } from '@/utils/errorJson';
+import { errorJson, type AppEnv, type AppContext } from '@/utils/http/errorJson';
 import {
   requireAdminMiddleware,
   requirePermission,
   getActor,
   getDb,
 } from '@/middleware/permission';
-import { adminHasPermission } from '@/utils/permissions';
+import { adminHasPermission } from '@/utils/authorization/permissions';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
-} from '@/utils/auditLog';
+} from '@/utils/admin/auditLog';
 import {
   getNodeDepthFromMap,
   invalidateHeaderNavCache,
@@ -30,7 +30,7 @@ import {
   MAX_HEADER_ITEM_DEPTH,
   MAX_VISIBLE_HEADER_COLLECTIONS,
   type HeaderAdminCollection,
-} from '@/utils/headerNav';
+} from '@/utils/store-ui/headerNav';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

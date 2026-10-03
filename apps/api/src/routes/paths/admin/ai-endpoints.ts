@@ -11,12 +11,12 @@ import {
   getDefaultModel,
   isAllowedModel,
   type SeoGenerateInput,
-} from '@/utils/callModels';
+} from '@/utils/ai/callModels';
 import {
   AI_PROVIDERS,
   type AiProviderId,
 } from '@/data-raw/ai-models-config';
-import { errorJson, type AppEnv, type ErrorStatus } from '@/utils/errorJson';
+import { errorJson, type AppEnv, type ErrorStatus } from '@/utils/http/errorJson';
 
 const aiEndpoints = new Hono<AppEnv>();
 

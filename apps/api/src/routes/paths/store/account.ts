@@ -3,7 +3,7 @@ import { and, asc, eq, gt } from 'drizzle-orm';
 import { createAuth } from '@repo/auth/server';
 import { accounts, createDb, sessions, users } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson, type EnvContext } from '@/utils/errorJson';
+import { errorJson, type EnvContext } from '@/utils/http/errorJson';
 import config from '@/mine.config';
 
 const storeAccount = new Hono<{ Bindings: Env }>();

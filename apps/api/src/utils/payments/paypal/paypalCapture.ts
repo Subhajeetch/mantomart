@@ -1,6 +1,6 @@
 import type Env from '@/types/env';
-import { logPayPalEvent, paypalRequest, PayPalApiError } from '@/utils/paypal';
-import { moneyValue, payPalCaptures, validatePayPalOrder } from '@/utils/paypalOrder';
+import { logPayPalEvent, paypalRequest, PayPalApiError } from '@/utils/payments/paypal/paypal';
+import { moneyValue, payPalCaptures, validatePayPalOrder } from '@/utils/payments/paypal/paypalOrder';
 
 export class PayPalOrderMismatchError extends Error {}
 

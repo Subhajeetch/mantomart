@@ -2,15 +2,15 @@ import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { addresses, checkoutSessionItems, checkoutSessions, productSkus, products } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson } from '@/utils/errorJson';
-import { callAE } from '@/utils/callAE';
-import { getAccessToken } from '@/utils/manageAEauthTokens';
+import { errorJson } from '@/utils/http/errorJson';
+import { callAE } from '@/utils/aliexpress/callAE';
+import { getAccessToken } from '@/utils/aliexpress/manageAEauthTokens';
 import {
   createShippingQuoteToken,
   fingerprintShippingAddress,
   getShippingQuoteSecret,
   type ShippingQuotePayload,
-} from '@/utils/checkoutShipping';
+} from '@/utils/aliexpress/checkoutShipping';
 import { requireJson, requireStoreUser, requireTrustedMutationOrigin } from './cart';
 
 const storeShipping = new Hono<{ Bindings: Env }>();

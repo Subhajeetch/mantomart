@@ -8,11 +8,11 @@ import {
   GoogleAdsNotConnectedError,
   GoogleAdsTokenError,
   refreshGoogleAdsTokens,
-} from '@/utils/manageGoogleAuthTokens';
+} from '@/utils/google/manageGoogleAuthTokens';
 import {
   GoogleAdsApiError,
   listAccessibleGoogleAdsCustomers,
-} from '@/utils/callGoogleAds';
+} from '@/utils/google/callGoogleAds';
 import { PERMISSIONS } from '@repo/auth/permissions';
 import {
   getActor,
@@ -20,7 +20,7 @@ import {
   requireAdminMiddleware,
   requireAnyPermission,
 } from '@/middleware/permission';
-import { adminHasPermission } from '@/utils/permissions';
+import { adminHasPermission } from '@/utils/authorization/permissions';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
@@ -30,8 +30,8 @@ import {
   type AuditChangeMap,
   type AuditSeverity,
   type AuditStatus,
-} from '@/utils/auditLog';
-import type { AppContext, AppEnv } from '@/utils/errorJson';
+} from '@/utils/admin/auditLog';
+import type { AppContext, AppEnv } from '@/utils/http/errorJson';
 import { Hono } from 'hono';
 
 const googleAuth = new Hono<AppEnv>();

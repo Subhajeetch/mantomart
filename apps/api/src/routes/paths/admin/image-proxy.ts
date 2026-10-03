@@ -39,7 +39,7 @@ import {
   errorJson,
   type AppEnv,
   type AppContext,
-} from '@/utils/errorJson';
+} from '@/utils/http/errorJson';
 import { requireAdminMiddleware } from '@/middleware/permission';
 import config from '@/mine.config';
 

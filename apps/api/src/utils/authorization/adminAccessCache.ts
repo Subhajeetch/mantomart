@@ -19,7 +19,7 @@
  * Session tokens themselves are never stored in plaintext — only a SHA-256.
  */
 
-import kvManager from '@/utils/kvManager';
+import kvManager from '@/utils/cf-tools/kvManager';
 
 /** Positive + negative cache lifetime. Short enough for role changes to converge. */
 export const ADMIN_ACCESS_CACHE_TTL_SECONDS = 5 * 60; // 5 minutes

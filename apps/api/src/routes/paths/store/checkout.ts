@@ -11,12 +11,12 @@ import {
   products,
 } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson } from '@/utils/errorJson';
+import { errorJson } from '@/utils/http/errorJson';
 import {
   fingerprintShippingAddress,
   getShippingQuoteSecret,
   readShippingQuoteToken,
-} from '@/utils/checkoutShipping';
+} from '@/utils/aliexpress/checkoutShipping';
 import {
   getOrCreateCart,
   guestIdFromHeader,
@@ -29,20 +29,20 @@ import {
 import {
   requestOriginFromUrl,
   resolveProductImageUrlForClient,
-} from '@/utils/productImageHost';
+} from '@/utils/images/productImageHost';
 import {
   getPayPalAccessToken,
   logPayPalEvent,
   paypalRequest,
   paypalErrorResponse,
   PayPalApiError,
-} from '@/utils/paypal';
+} from '@/utils/payments/paypal/paypal';
 import {
   createPayPalRequestId,
   moneyValue,
   persistPayPalOrder,
-} from '@/utils/paypalOrder';
-import { capturePayPalOrder as capturePayPalPayment, PayPalOrderMismatchError } from '@/utils/paypalCapture';
+} from '@/utils/payments/paypal/paypalOrder';
+import { capturePayPalOrder as capturePayPalPayment, PayPalOrderMismatchError } from '@/utils/payments/paypal/paypalCapture';
 
 const storeCheckout = new Hono<{ Bindings: Env }>();
 const SESSION_TTL_MS = 30 * 60 * 1000;

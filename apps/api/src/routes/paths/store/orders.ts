@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import { and, desc, eq, lt, or } from 'drizzle-orm';
 import { orders } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson } from '@/utils/errorJson';
+import { errorJson } from '@/utils/http/errorJson';
 import {
   requestOriginFromUrl,
   resolveProductImageUrlForClient,
-} from '@/utils/productImageHost';
+} from '@/utils/images/productImageHost';
 import { requireStoreUser } from './cart';
 
 const storeOrders = new Hono<{ Bindings: Env }>();

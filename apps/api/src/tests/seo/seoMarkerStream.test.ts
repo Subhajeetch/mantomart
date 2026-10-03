@@ -1,9 +1,10 @@
+import { expect, it as test } from 'vitest';
 import {
   markerHoldIndex,
   parseSeoCopyText,
   SeoMarkerStreamParser,
   SeoParseError,
-} from './seoMarkerStream.ts';
+} from '@/utils/seo/seoMarkerStream';
 
 const SAMPLE = `<<<title>>>
 Wireless Noise Cancelling Earbuds
@@ -30,13 +31,11 @@ Shop wireless noise cancelling earbuds with long battery life.
 <<<end>>>`;
 
 function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(msg);
+  expect(cond, msg).toBeTruthy();
 }
 
 function eq<T>(actual: T, expected: T, msg: string) {
-  const a = JSON.stringify(actual);
-  const b = JSON.stringify(expected);
-  if (a !== b) throw new Error(`${msg}\n  expected: ${b}\n  actual:   ${a}`);
+  expect(actual, msg).toEqual(expected);
 }
 
 function runParser(chunks: string[]) {
@@ -52,14 +51,6 @@ function titleDeltas(events: { field: string; delta: string; done: boolean }[]) 
     .filter((e) => e.field === 'title' && e.delta)
     .map((e) => e.delta)
     .join('');
-}
-
-let passed = 0;
-
-function test(name: string, fn: () => void) {
-  fn();
-  passed += 1;
-  console.log(`ok  ${name}`);
 }
 
 test('parses a complete marked document', () => {
@@ -207,5 +198,3 @@ test('dedupes tags and caps length', () => {
   ]);
   eq(parser.assembled.tags, ['Alpha', 'Beta'], 'deduped tags');
 });
-
-console.log(`\n${passed} tests passed`);

@@ -9,21 +9,21 @@ import {
   type HomepageBlock,
   type HomepageBlockType,
 } from '@repo/db';
-import { errorJson, type AppEnv, type AppContext } from '@/utils/errorJson';
+import { errorJson, type AppEnv, type AppContext } from '@/utils/http/errorJson';
 import {
   requireAdminMiddleware,
   requirePermission,
   getActor,
   getDb,
 } from '@/middleware/permission';
-import { adminHasPermission } from '@/utils/permissions';
+import { adminHasPermission } from '@/utils/authorization/permissions';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   buildChanges,
   logAuditFromContext,
-} from '@/utils/auditLog';
+} from '@/utils/admin/auditLog';
 import {
   assertFeedLastInvariant,
   defaultHomepageConfig,
@@ -39,13 +39,13 @@ import {
   MAX_SLIDES_PER_SLIDER,
   sanitizeHomepageConfig,
   type BlockOrderRow,
-} from '@/utils/homepageContent';
+} from '@/utils/store-ui/homepageContent';
 import {
   collectPromoProductIds,
   loadExistingProductIdSet,
   searchHomepageProducts,
-} from '@/utils/homepagePromo';
-import { requestOriginFromUrl } from '@/utils/productImageHost';
+} from '@/utils/store-ui/homepagePromo';
+import { requestOriginFromUrl } from '@/utils/images/productImageHost';
 
 const MAX_BODY_BYTES = 64 * 1024;
 

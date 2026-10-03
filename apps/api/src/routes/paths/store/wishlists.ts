@@ -8,13 +8,13 @@ import {
   wishlistProducts,
 } from '@repo/db';
 import type Env from '@/types/env';
-import { errorJson, type EnvContext } from '@/utils/errorJson';
+import { errorJson, type EnvContext } from '@/utils/http/errorJson';
 import config from '@/mine.config';
 import { createAuth } from '@repo/auth/server';
 import {
   resolveProductImageUrlForClient,
   requestOriginFromUrl,
-} from '@/utils/productImageHost';
+} from '@/utils/images/productImageHost';
 
 const storeWishlists = new Hono<{ Bindings: Env }>();
 

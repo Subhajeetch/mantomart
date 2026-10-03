@@ -17,7 +17,7 @@ import {
   calculateProductDefaultPrice,
   calculateProductDefaultEstProfit,
 } from '@repo/db';
-import { errorJson, type AppEnv, type AppContext } from '@/utils/errorJson';
+import { errorJson, type AppEnv, type AppContext } from '@/utils/http/errorJson';
 import {
   requireAdminMiddleware,
   requireAnyPermission,
@@ -29,9 +29,9 @@ import {
   AUDIT_CATEGORIES,
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
-} from '@/utils/auditLog';
-import { incrementAdminProductsAdded } from '@/utils/adminStats';
-import { invalidateHomepageCache } from '@/utils/homepageContent';
+} from '@/utils/admin/auditLog';
+import { incrementAdminProductsAdded } from '@/utils/admin/adminStats';
+import { invalidateHomepageCache } from '@/utils/store-ui/homepageContent';
 import {
   MAX_IMAGES_PER_HOSTING_INVOCATION,
   MAX_OPTIMISED_IMAGES_PER_HOSTING_INVOCATION,
@@ -51,7 +51,7 @@ import {
   toStoredProductImagePath,
   requestOriginFromUrl,
   hostAliExpressReviewImages,
-} from '@/utils/productImageHost';
+} from '@/utils/images/productImageHost';
 
 // ─── Limits ───────────────────────────────────────────────────────────────────
 

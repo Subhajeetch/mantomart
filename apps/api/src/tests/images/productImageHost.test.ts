@@ -8,17 +8,27 @@ import {
   hostAliExpressOptimisedProductImages,
   hostProductImages,
   isHostedReviewImageUrl,
-} from '@/utils/productImageHost';
+} from '@/utils/images/productImageHost';
 
 const imageUrl = 'https://ae01.alicdn.com/kf/sample.jpg';
 
+function mockR2Put() {
+  return vi.fn(async () => ({ etag: 'test-etag' }));
+}
+
+function mockR2Bucket(put: ReturnType<typeof mockR2Put>): R2Bucket {
+  return { put } as unknown as R2Bucket;
+}
+
+function mockEnv(env: Pick<Env, 'API_URL' | 'R2_IMAGES'>): Env {
+  return env as unknown as Env;
+}
+
 function createEnv(): Env {
-  return {
+  return mockEnv({
     API_URL: 'https://api.example.com',
-    R2_IMAGES: {
-      put: vi.fn(async () => ({ etag: 'test-etag' })),
-    },
-  } as Env;
+    R2_IMAGES: mockR2Bucket(mockR2Put()),
+  });
 }
 
 function hostInput(env: Env) {
@@ -71,7 +81,7 @@ describe('product image hosting', () => {
   });
 
   it('creates optimised copies only for explicitly selected gallery images', async () => {
-    const put = vi.fn(async () => ({ etag: 'test-etag' }));
+    const put = mockR2Put();
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -84,10 +94,10 @@ describe('product image hosting', () => {
     const firstUrl = 'https://ae01.alicdn.com/kf/first.jpg';
     const secondUrl = 'https://ae01.alicdn.com/kf/second.jpg';
     const result = await hostProductImages({
-      ...hostInput({
+      ...hostInput(mockEnv({
         API_URL: 'https://api.example.com',
-        R2_IMAGES: { put },
-      } as Env),
+        R2_IMAGES: mockR2Bucket(put),
+      })),
       productImages: [{ url: firstUrl }, { url: secondUrl }],
       optimisedImageUrls: [firstUrl],
     });
@@ -99,8 +109,8 @@ describe('product image hosting', () => {
   });
 
   it('stores optimized product-card images beside the full image with the _op suffix', async () => {
-    const put = vi.fn(async () => ({ etag: 'test-etag' }));
-    const fetchMock = vi.fn(
+    const put = mockR2Put();
+    const fetchMock = vi.fn<typeof fetch>(
       async () =>
         new Response(new Uint8Array([1, 2, 3]), {
           headers: { 'Content-Type': 'image/avif' },
@@ -109,10 +119,10 @@ describe('product image hosting', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await hostAliExpressOptimisedProductImages({
-      env: {
+      env: mockEnv({
         API_URL: 'https://api.example.com',
-        R2_IMAGES: { put },
-      } as Env,
+        R2_IMAGES: mockR2Bucket(put),
+      }),
       images: [
         {
           sourceUrl: imageUrl,
@@ -157,7 +167,7 @@ describe('product image hosting', () => {
   });
 
   it('reports the source URL and does not retry a permanent HTTP failure', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = vi.fn<typeof fetch>(
       async () => new Response('not found', { status: 404 })
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -172,9 +182,9 @@ describe('product image hosting', () => {
   });
 
   it('recognizes review images only on the configured object host', () => {
-    const env = {
+    const env = mockEnv({
       API_URL: 'https://api.example.com',
-    } as Env;
+    });
 
     expect(
       isHostedReviewImageUrl(
