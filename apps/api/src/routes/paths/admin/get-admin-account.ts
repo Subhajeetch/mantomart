@@ -22,6 +22,7 @@ import { accounts, createDb, sessions, users } from '@repo/db';
 import type Env from '@/types/env';
 import { errorJson, type EnvContext } from '@/utils/http/errorJson';
 import { touchLastActive } from '@/utils/users/userActivity';
+import { resolveUserImageUrl } from '@/utils/users/userImage';
 
 type AdminRole = 'admin' | 'owner';
 
@@ -148,13 +149,17 @@ async function requireAdminSelf(c: EnvContext) {
   };
 }
 
-function serializeAccount(user: typeof users.$inferSelect) {
+function serializeAccount(
+  user: typeof users.$inferSelect,
+  env: EnvContext['env'],
+  origin: string
+) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     emailVerified: user.emailVerified,
-    image: user.image,
+    image: resolveUserImageUrl(user.image, env, origin),
     role: user.role as AdminRole,
     firstName: user.firstName,
     lastName: user.lastName,
@@ -235,7 +240,7 @@ account.get('/', async (c) => {
     {
       success: true,
       data: {
-        ...serializeAccount(user),
+        ...serializeAccount(user, c.env, new URL(c.req.url).origin),
         linkedProviders,
         activeSessionCount,
       },

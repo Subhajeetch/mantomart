@@ -187,5 +187,5 @@ export function getProfileEditUrl(): string {
   } else {
     base = 'http://localhost:8000';
   }
-  return `${base}/profile/edit`;
+  return `${base}/user/profile`;
 }

@@ -57,6 +57,7 @@ import {
   resolveProductImageUrlForClient,
   resolveProductImagesForClient,
 } from '@/utils/images/productImageHost';
+import { resolveUserImageResponse } from '@/utils/users/userImage';
 
 const MAX_ID_LENGTH = 128;
 const MAX_PAGE_SIZE = 100;
@@ -1306,7 +1307,9 @@ manageProducts.get(
           page,
           pageSize,
           totalPages: Math.max(1, Math.ceil(total / pageSize) || 1),
-          addedByOptions,
+          addedByOptions: addedByOptions.map((user) =>
+            resolveUserImageResponse(user, c.env, new URL(c.req.url).origin)
+          ),
         },
       });
     } catch (error) {
@@ -1405,7 +1408,9 @@ manageProducts.get(
             isAe: Boolean(review.isAe),
             reviewDate: (review.reviewDate ?? review.createdAt).toISOString(),
           })),
-          addedBy: addedBy ?? null,
+          addedBy: addedBy
+            ? resolveUserImageResponse(addedBy, c.env, origin)
+            : null,
         },
         meta: {
           currentUserId: actor.id,

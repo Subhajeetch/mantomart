@@ -6,6 +6,7 @@ import { createDb } from '@repo/db';
 import { warnIfLiveWebhookMissing } from '@/utils/payments/paypal/paypal';
 import sendResetPassEmail from '@/utils/users/sendResetPassEmail';
 import { recordUserLogin, touchLastActive } from '@/utils/users/userActivity';
+import { resolveAuthSessionImageResponse } from '@/utils/users/userImage';
 
 // routes import
 import {
@@ -79,7 +80,7 @@ app.use('*', async (c, next) => {
   })(c, next);
 });
 
-app.all('/api/auth/*', (c) => {
+app.all('/api/auth/*', async (c) => {
   const db = createDb(c.env.DB);
   const kv = c.env.KV;
 
@@ -110,7 +111,19 @@ app.all('/api/auth/*', (c) => {
     }
   );
 
-  return auth.handler(c.req.raw);
+  const response = await auth.handler(c.req.raw);
+  const requestUrl = new URL(c.req.url);
+  if (
+    c.req.method === 'GET' &&
+    requestUrl.pathname.endsWith('/api/auth/get-session')
+  ) {
+    return resolveAuthSessionImageResponse(
+      response,
+      c.env,
+      requestUrl.origin
+    );
+  }
+  return response;
 });
 
 app.get('/api/health', () => {

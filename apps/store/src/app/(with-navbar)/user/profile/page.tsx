@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { getAccount, updateProfile } from "../api";
 import type { AccountResponse, ConsumerProfile } from "../types";
+import { ProfileImageEditor } from "./profile-image-editor";
+import CustomImage from "@/components/custom-image";
 
 const preferenceOptions = {
   currency: ["USD", "EUR", "GBP", "INR"],
@@ -105,7 +107,15 @@ export default function ProfilePage() {
 
       <section className="border border-border">
         <div className="flex items-center gap-4 border-b border-border p-5">
-          <div className="flex size-16 shrink-0 items-center justify-center bg-muted text-lg font-semibold">{profile.image ? <img src={profile.image} alt="" className="size-full object-cover" /> : initials}</div>
+          <div className="relative size-16 shrink-0">
+            <ProfileImageEditor
+              onSaved={(updatedProfile) => setAccount((current) => current ? { ...current, profile: updatedProfile } : current)}
+            >
+              <div className="flex size-16 items-center justify-center overflow-hidden bg-muted text-lg font-semibold">
+                {profile.image ? <CustomImage src={profile.image} alt={`${profile.name}'s Avatar`} className="size-full object-cover" /> : initials}
+              </div>
+            </ProfileImageEditor>
+          </div>
           <div className="min-w-0">
             <h2 className="truncate font-semibold">{profile.name || "Your profile"}</h2>
             <p className="truncate text-sm text-muted-foreground">{profile.email}</p>

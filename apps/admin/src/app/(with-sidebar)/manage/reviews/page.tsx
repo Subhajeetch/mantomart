@@ -900,8 +900,6 @@ export default function ManageReviewsPage() {
               Review management
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Search, filter, and moderate product reviews.
-              <span className="mx-2">·</span>
               Total: {meta?.totalReviews ?? (loading ? '—' : 0)}
               <span className="mx-2">·</span>
               With current filters: {meta?.filteredTotal ?? (loading ? '—' : 0)}

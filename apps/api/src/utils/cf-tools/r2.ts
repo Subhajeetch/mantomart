@@ -55,6 +55,8 @@ export type R2UrlOptions = {
   origin?: string;
 };
 
+export type R2UrlEnv = Pick<Env, 'API_URL' | 'R2_PUBLIC_URL'>;
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 function trimOrEmpty(value: string | undefined | null): string {
@@ -81,7 +83,7 @@ export function isR2Configured(env: Env): boolean {
  *   3. request origin + /api/images
  */
 export function getR2PublicBaseUrl(
-  env: Env,
+  env: R2UrlEnv,
   options?: R2UrlOptions
 ): string | null {
   const cdn = trimOrEmpty(env.R2_PUBLIC_URL);
@@ -93,7 +95,7 @@ export function getR2PublicBaseUrl(
 }
 
 export function buildPublicObjectUrl(
-  env: Env,
+  env: R2UrlEnv,
   key: string,
   options?: R2UrlOptions
 ): string | null {

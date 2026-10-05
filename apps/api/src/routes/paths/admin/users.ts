@@ -21,6 +21,7 @@ import {
   logAuditFromContext,
 } from '@/utils/admin/auditLog';
 import { invalidateAdminAccessForUser } from '@/utils/authorization/adminAccessCache';
+import { resolveUserImageUrl } from '@/utils/users/userImage';
 
 type UserRole = 'customer' | 'admin' | 'owner';
 type UserStatus = 'active' | 'banned' | 'deleted';
@@ -146,13 +147,17 @@ function sanitizeSortBy(value: unknown): SortColumn {
 }
 
 /** Compact payload for list cards. */
-function serializeUser(user: typeof users.$inferSelect) {
+function serializeUser(
+  user: typeof users.$inferSelect,
+  env: AppContext['env'],
+  origin: string
+) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     emailVerified: user.emailVerified,
-    image: user.image,
+    image: resolveUserImageUrl(user.image, env, origin),
     role: user.role as UserRole,
     firstName: user.firstName,
     lastName: user.lastName,
@@ -172,9 +177,13 @@ function serializeUser(user: typeof users.$inferSelect) {
 }
 
 /** Full payload for view / edit pages. */
-function serializeUserDetail(user: typeof users.$inferSelect) {
+function serializeUserDetail(
+  user: typeof users.$inferSelect,
+  env: AppContext['env'],
+  origin: string
+) {
   return {
-    ...serializeUser(user),
+    ...serializeUser(user, env, origin),
     dateOfBirth: toIso(user.dateOfBirth),
     gender: (user.gender as UserGender | null) ?? null,
     phoneVerified: user.phoneVerified,
@@ -775,7 +784,9 @@ async function listUsersHandler(c: AppContext) {
 
     return c.json({
       success: true,
-      data: rows.map(serializeUser),
+      data: rows.map((user) =>
+        serializeUser(user, c.env, new URL(c.req.url).origin)
+      ),
       meta: {
         currentUserId: actor.id,
         currentUserRole: actor.role,
@@ -898,7 +909,7 @@ usersRouter.get('/:id', async (c) => {
 
     return c.json({
       success: true,
-      data: serializeUserDetail(user),
+      data: serializeUserDetail(user, c.env, new URL(c.req.url).origin),
       meta: {
         canBan: capabilities.canBan,
         canManage: capabilities.canManage,
@@ -1057,7 +1068,7 @@ usersRouter.patch(
       return c.json({
         success: true,
         message: `Updated ${changedKeys.length} field${changedKeys.length === 1 ? '' : 's'} for ${updatedUser.name}.`,
-        data: serializeUserDetail(updatedUser),
+        data: serializeUserDetail(updatedUser, c.env, new URL(c.req.url).origin),
         meta: {
           changedFields: changedKeys,
         },
@@ -1238,7 +1249,7 @@ usersRouter.patch(
         message: banned
           ? `${updatedUser.name} has been banned.`
           : `${updatedUser.name} has been unbanned.`,
-        data: serializeUser(updatedUser),
+        data: serializeUser(updatedUser, c.env, new URL(c.req.url).origin),
       });
     } catch (error) {
       console.error('Error banning/unbanning user:', error);
@@ -1359,7 +1370,7 @@ usersRouter.patch(
       return c.json({
         success: true,
         message: `${target.name} has been restored.`,
-        data: serializeUser(restored),
+        data: serializeUser(restored, c.env, new URL(c.req.url).origin),
       });
     } catch (error) {
       console.error('Error undeleting user:', error);
@@ -1492,7 +1503,7 @@ usersRouter.delete(
       return c.json({
         success: true,
         message: `${target.name} has been deleted.`,
-        data: serializeUser(deletedUser),
+        data: serializeUser(deletedUser, c.env, new URL(c.req.url).origin),
       });
     } catch (error) {
       console.error('Error deleting user:', error);

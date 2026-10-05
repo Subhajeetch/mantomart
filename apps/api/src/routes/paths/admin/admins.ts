@@ -14,6 +14,7 @@ import type Env from '@/types/env';
 import { errorJson, type EnvContext } from '@/utils/http/errorJson';
 import { touchLastActive } from '@/utils/users/userActivity';
 import { invalidateAdminAccessForUser } from '@/utils/authorization/adminAccessCache';
+import { resolveUserImageUrl } from '@/utils/users/userImage';
 import {
   AUDIT_ACTIONS,
   AUDIT_CATEGORIES,
@@ -98,13 +99,17 @@ function isValidUserId(id: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(id);
 }
 
-function serializeUser(user: typeof users.$inferSelect) {
+function serializeUser(
+  user: typeof users.$inferSelect,
+  env: EnvContext['env'],
+  origin: string
+) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     emailVerified: user.emailVerified,
-    image: user.image,
+    image: resolveUserImageUrl(user.image, env, origin),
     role: user.role,
     firstName: user.firstName,
     lastName: user.lastName,
@@ -470,7 +475,9 @@ admins.get('/all', async (c) => {
 
     return c.json({
       success: true,
-      data: rows.map(serializeUser),
+      data: rows.map((user) =>
+        serializeUser(user, c.env, new URL(c.req.url).origin)
+      ),
       meta: {
         currentUserId: access.actor.id,
         currentUserRole: access.actor.role,
@@ -533,7 +540,7 @@ admins.get('/lookup', async (c) => {
 
     return c.json({
       success: true,
-      data: serializeUser(user),
+      data: serializeUser(user, c.env, new URL(c.req.url).origin),
       meta: {
         alreadyAdmin: isAdminRole(user.role),
         canPromote: user.role === 'customer',
@@ -673,7 +680,7 @@ admins.post('/add', async (c) => {
       {
         success: true,
         message: `${promoted.name} is now an ${role}.`,
-        data: serializeUser(promoted),
+        data: serializeUser(promoted, c.env, new URL(c.req.url).origin),
       },
       201
     );
@@ -806,7 +813,7 @@ admins.patch('/:id/role', async (c) => {
     return c.json({
       success: true,
       message: `Role updated to ${newRole}.`,
-      data: serializeUser(roleUpdated),
+      data: serializeUser(roleUpdated, c.env, new URL(c.req.url).origin),
     });
   } catch (error) {
     console.error('Error updating admin role:', error);
@@ -853,7 +860,7 @@ admins.get('/:id/permissions', async (c) => {
     return c.json({
       success: true,
       data: {
-        user: serializeUser(target),
+        user: serializeUser(target, c.env, new URL(c.req.url).origin),
         permissions: serializePermissionStates(target.role, overrides),
       },
       meta: {
@@ -914,7 +921,7 @@ admins.patch('/:id/permissions', async (c) => {
         success: true,
         message: 'Owners always have all permissions.',
         data: {
-          user: serializeUser(target),
+          user: serializeUser(target, c.env, new URL(c.req.url).origin),
           permissions: serializePermissionStates(target.role, []),
         },
       });
@@ -970,7 +977,7 @@ admins.patch('/:id/permissions', async (c) => {
       success: true,
       message: 'Permissions updated.',
       data: {
-        user: serializeUser(target),
+        user: serializeUser(target, c.env, new URL(c.req.url).origin),
         permissions: serializePermissionStates(target.role, overrides),
       },
     });
@@ -1088,7 +1095,7 @@ admins.delete('/:id', async (c) => {
     return c.json({
       success: true,
       message: `${demoted.name} is no longer an admin.`,
-      data: serializeUser(demoted),
+      data: serializeUser(demoted, c.env, new URL(c.req.url).origin),
     });
   } catch (error) {
     console.error('Error removing admin:', error);

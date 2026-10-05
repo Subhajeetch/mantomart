@@ -33,6 +33,7 @@ import {
   AUDIT_TARGET_TYPES,
   logAuditFromContext,
 } from '@/utils/admin/auditLog';
+import { resolveUserImageUrl } from '@/utils/users/userImage';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -571,7 +572,7 @@ async function listAdminStatsHandler(c: AppContext) {
         userId: row.userId,
         name: row.name,
         email: row.email,
-        image: row.image,
+        image: resolveUserImageUrl(row.image, c.env, new URL(c.req.url).origin),
         role: row.role,
         isBanned: Boolean(row.isBanned),
         isDeleted: Boolean(row.isDeleted),
