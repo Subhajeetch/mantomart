@@ -62,6 +62,15 @@ export type PublicReview = {
   reviewDate: string;
 };
 
+export type PublicReviewPhoto = {
+  url: string;
+  reviewId: string;
+  reviewerName: string;
+  rating: number;
+  comment: string;
+  reviewDate: string;
+};
+
 export type PublicProduct = {
   id: string;
   slug: string;
@@ -76,6 +85,10 @@ export type PublicProduct = {
   aeReviewCount: number | null;
   reviewCount: number;
   averageReview: number | null;
+  reviewsWithImgs: number;
+  reviewsWithComs: number;
+  totalNumOfImgs: number;
+  reviewImgsSnapShot: PublicReviewPhoto[];
   reviews: PublicReview[];
   aeSalesCount: string | null;
   tags: string[];
@@ -87,6 +100,14 @@ export type PublicProduct = {
   attributes: PublicAttribute[];
   category: PublicCategoryRef | null;
   breadcrumbs: PublicCategoryRef[];
+};
+
+export type PublicReviewFilter = 'all' | 'images' | 'comments';
+
+export type PublicReviewPage = {
+  reviews: PublicReview[];
+  totalCount: number;
+  hasMore: boolean;
 };
 
 export type ProductResponse = {

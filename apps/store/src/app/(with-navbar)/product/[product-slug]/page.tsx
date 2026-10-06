@@ -10,7 +10,7 @@ import {
 } from './';
 import { getStoreUrl } from '@/lib/app-urls';
 
-export const revalidate = 432000;
+export const revalidate = 21600;
 
 type PageProps = {
   params: Promise<{ 'product-slug': string }>;

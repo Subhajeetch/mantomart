@@ -8,6 +8,7 @@ import {
   ne,
   not,
   or,
+  sql,
   type SQL,
 } from 'drizzle-orm';
 import {
@@ -36,6 +37,7 @@ import {
 } from '@/utils/store-ui/homepageContent';
 import {
   resolveProductImageUrlForClient,
+  resolveReviewImageUrlForClient,
   resolveProductImagesForClient,
 } from '@/utils/images/productImageHost';
 import type { R2UrlOptions } from '@/utils/cf-tools/r2';
@@ -47,7 +49,8 @@ const QUERY_CHUNK = 80;
 const MAX_HTML_LENGTH = 200_000;
 const MAX_MORE_FOR_YOU_ITEMS = 36;
 
-export const PUBLIC_PRODUCT_CACHE_TTL_SECONDS = 5 * 24 * 60 * 60;
+export const PUBLIC_PRODUCT_CACHE_TTL_SECONDS = 6 * 60 * 60;
+export const PUBLIC_REVIEW_PAGE_SIZE = 24;
 
 const DANGEROUS_TAG_RE =
   /<\/?(?:script|iframe|object|embed|link|meta|base|form|input|button|textarea|select|style)(?:\s[\s\S]*?)?>/gi;
@@ -116,6 +119,17 @@ export type PublicProduct = {
   aeReviewCount: number | null;
   reviewCount: number;
   averageReview: number | null;
+  reviewsWithImgs: number;
+  reviewsWithComs: number;
+  totalNumOfImgs: number;
+  reviewImgsSnapShot: Array<{
+    url: string;
+    reviewId: string;
+    reviewerName: string;
+    rating: number;
+    comment: string;
+    reviewDate: string;
+  }>;
   reviews: Array<{
     id: string;
     reviewerName: string;
@@ -147,6 +161,18 @@ export type LoadProductResult =
 
 export type LoadMoreResult =
   | { ok: true; page: MoreForYouPage }
+  | { ok: false; code: 'INVALID_SLUG' | 'NOT_FOUND' | 'INTERNAL' };
+
+export type PublicReviewFilter = 'all' | 'images' | 'comments';
+
+export type PublicReviewPage = {
+  reviews: PublicProduct['reviews'];
+  totalCount: number;
+  hasMore: boolean;
+};
+
+export type LoadPublicReviewsResult =
+  | { ok: true; page: PublicReviewPage }
   | { ok: false; code: 'INVALID_SLUG' | 'NOT_FOUND' | 'INTERNAL' };
 
 type CategoryRow = {
@@ -200,6 +226,90 @@ function toReviewCount(value: unknown): number | null {
   const n = toFiniteNumber(value);
   if (n === null || n < 0) return null;
   return Math.floor(n);
+}
+
+function reviewImageArraySql() {
+  return sql`case
+    when json_valid(${productReviews.imageUrls}) then
+      case
+        when json_type(${productReviews.imageUrls}) = 'array'
+          then ${productReviews.imageUrls}
+        when json_type(${productReviews.imageUrls}) = 'object'
+          then json_array(coalesce(
+            json_extract(${productReviews.imageUrls}, '$.url'),
+            json_extract(${productReviews.imageUrls}, '$.imageUrl'),
+            json_extract(${productReviews.imageUrls}, '$.image'),
+            ''
+          ))
+        when json_type(${productReviews.imageUrls}) = 'text'
+          then case
+            when json_valid(json_extract(${productReviews.imageUrls}, '$'))
+              and json_type(json_extract(${productReviews.imageUrls}, '$')) = 'array'
+              then json_extract(${productReviews.imageUrls}, '$')
+            when json_valid(json_extract(${productReviews.imageUrls}, '$'))
+              and json_type(json_extract(${productReviews.imageUrls}, '$')) = 'object'
+              then json_array(coalesce(
+                json_extract(json_extract(${productReviews.imageUrls}, '$'), '$.url'),
+                json_extract(json_extract(${productReviews.imageUrls}, '$'), '$.imageUrl'),
+                json_extract(json_extract(${productReviews.imageUrls}, '$'), '$.image'),
+                ''
+              ))
+            when json_extract(${productReviews.imageUrls}, '$') like 'https://%'
+              or json_extract(${productReviews.imageUrls}, '$') like 'http://%'
+              or json_extract(${productReviews.imageUrls}, '$') like '//%'
+              or json_extract(${productReviews.imageUrls}, '$') like '/user/reviews/%'
+              or json_extract(${productReviews.imageUrls}, '$') like '/api/images/user/reviews/%'
+              or json_extract(${productReviews.imageUrls}, '$') like 'user/reviews/%'
+              or json_extract(${productReviews.imageUrls}, '$') like 'api/images/user/reviews/%'
+              then json_array(json_extract(${productReviews.imageUrls}, '$'))
+            else '[]'
+          end
+        else '[]'
+      end
+    when trim(coalesce(${productReviews.imageUrls}, '')) like 'https://%'
+      or trim(coalesce(${productReviews.imageUrls}, '')) like 'http://%'
+      or trim(coalesce(${productReviews.imageUrls}, '')) like '//%'
+      or trim(coalesce(${productReviews.imageUrls}, '')) like '/user/reviews/%'
+      or trim(coalesce(${productReviews.imageUrls}, '')) like '/api/images/user/reviews/%'
+      or trim(coalesce(${productReviews.imageUrls}, '')) like 'user/reviews/%'
+      or trim(coalesce(${productReviews.imageUrls}, '')) like 'api/images/user/reviews/%'
+      then json_array(trim(${productReviews.imageUrls}))
+    else '[]'
+  end`;
+}
+
+function normalizeReviewImageUrls(value: unknown): string[] {
+  const isImageUrl = (url: string) =>
+    /^(?:https?:)?\/\//i.test(url) ||
+    /^(?:\/|)api\/images\/user\/reviews\//i.test(url) ||
+    /^(?:\/|)user\/reviews\//i.test(url);
+  let parsed = value;
+  for (let attempt = 0; attempt < 2 && typeof parsed === 'string'; attempt++) {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      const url = parsed.trim();
+      return isImageUrl(url) ? [url] : [];
+    }
+  }
+  const urls: string[] = [];
+  const visit = (entry: unknown) => {
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      if (isImageUrl(trimmed) && !urls.includes(trimmed)) urls.push(trimmed);
+      return;
+    }
+    if (Array.isArray(entry)) {
+      entry.forEach(visit);
+      return;
+    }
+    if (entry && typeof entry === 'object') {
+      const image = entry as Record<string, unknown>;
+      visit(image.url ?? image.imageUrl ?? image.image);
+    }
+  };
+  visit(parsed);
+  return urls;
 }
 
 function trimToNull(value: unknown, max = 10_000): string | null {
@@ -813,8 +923,6 @@ export async function loadPublicProduct(
         sizeChartDescription: products.sizeChartDescription,
         aeRating: products.aeRating,
         aeReviewCount: products.aeReviewCount,
-        reviewCount: products.reviewCount,
-        averageReview: products.averageReview,
         aeSalesCount: products.aeSalesCount,
         images: products.images,
         videos: products.videos,
@@ -830,7 +938,7 @@ export async function loadPublicProduct(
 
     if (!row) return { ok: false, code: 'NOT_FOUND' };
 
-    const [byId, nested, reviewRows] = await Promise.all([
+    const [byId, nested, reviewRows, reviewStats, photoReviews] = await Promise.all([
       loadAllCategories(db),
       loadNested(db, row.id, env, options),
       db
@@ -844,12 +952,51 @@ export async function loadPublicProduct(
           createdAt: productReviews.createdAt,
         })
         .from(productReviews)
-        .where(eq(productReviews.productId, row.id))
+        .where(
+          and(
+            eq(productReviews.productId, row.id),
+            sql`nullif(trim(coalesce(${productReviews.comment}, '')), '') is not null`
+          )
+        )
         .orderBy(
           desc(productReviews.reviewDate),
-          desc(productReviews.createdAt)
+          desc(productReviews.createdAt),
+          desc(productReviews.id)
         )
-        .limit(20),
+        .limit(PUBLIC_REVIEW_PAGE_SIZE),
+      db
+        .select({
+          reviewCount: sql<number>`count(*)`,
+          averageReview: sql<number | null>`avg(${productReviews.rating})`,
+          totalNumOfImgs: sql<number>`coalesce(sum((select count(*) from json_tree(${reviewImageArraySql()}) where type = 'text' and (trim(value) like 'https://%' or trim(value) like 'http://%' or trim(value) like '//%' or trim(value) like '/user/reviews/%' or trim(value) like '/api/images/user/reviews/%' or trim(value) like 'user/reviews/%' or trim(value) like 'api/images/user/reviews/%'))), 0)`,
+          reviewsWithImgs: sql<number>`count(case when exists (select 1 from json_tree(${reviewImageArraySql()}) where type = 'text' and (trim(value) like 'https://%' or trim(value) like 'http://%' or trim(value) like '//%' or trim(value) like '/user/reviews/%' or trim(value) like '/api/images/user/reviews/%' or trim(value) like 'user/reviews/%' or trim(value) like 'api/images/user/reviews/%')) then 1 end)`,
+          reviewsWithComs: sql<number>`count(case when nullif(trim(coalesce(${productReviews.comment}, '')), '') is not null then 1 end)`,
+        })
+        .from(productReviews)
+        .where(eq(productReviews.productId, row.id)),
+      db
+        .select({
+          id: productReviews.id,
+          reviewerName: productReviews.reviewerName,
+          rating: productReviews.rating,
+          comment: productReviews.comment,
+          imageUrls: productReviews.imageUrls,
+          reviewDate: productReviews.reviewDate,
+          createdAt: productReviews.createdAt,
+        })
+        .from(productReviews)
+        .where(
+          and(
+            eq(productReviews.productId, row.id),
+            sql`exists (select 1 from json_tree(${reviewImageArraySql()}) where type = 'text' and (trim(value) like 'https://%' or trim(value) like 'http://%' or trim(value) like '//%' or trim(value) like '/user/reviews/%' or trim(value) like '/api/images/user/reviews/%' or trim(value) like 'user/reviews/%' or trim(value) like 'api/images/user/reviews/%'))`
+          )
+        )
+        .orderBy(
+          desc(productReviews.reviewDate),
+          desc(productReviews.createdAt),
+          desc(productReviews.id)
+        )
+        .limit(5),
     ]);
     const assigned = await loadAssignedCategories(
       db,
@@ -900,18 +1047,29 @@ export async function loadPublicProduct(
         : null,
       aeRating: toRating(row.aeRating),
       aeReviewCount: toReviewCount(row.aeReviewCount),
-      reviewCount: toReviewCount(row.reviewCount) ?? 0,
-      averageReview: toRating(row.averageReview),
+      reviewCount: toReviewCount(reviewStats[0]?.reviewCount) ?? 0,
+      averageReview: toRating(reviewStats[0]?.averageReview),
+      totalNumOfImgs: toReviewCount(reviewStats[0]?.totalNumOfImgs) ?? 0,
+      reviewsWithImgs: toReviewCount(reviewStats[0]?.reviewsWithImgs) ?? 0,
+      reviewsWithComs: toReviewCount(reviewStats[0]?.reviewsWithComs) ?? 0,
+      reviewImgsSnapShot: photoReviews.flatMap((review) =>
+        normalizeReviewImageUrls(review.imageUrls).map((url) => ({
+          url: resolveReviewImageUrlForClient(url, env, options) || url,
+          reviewId: review.id,
+          reviewerName: review.reviewerName,
+          rating: review.rating,
+          comment: review.comment ?? '',
+          reviewDate: (review.reviewDate ?? review.createdAt).toISOString(),
+        }))
+      ).slice(0, 5),
       reviews: reviewRows.map((review) => ({
         id: review.id,
         reviewerName: review.reviewerName,
         rating: review.rating,
         comment: review.comment ?? '',
-        imageUrls: Array.isArray(review.imageUrls)
-          ? review.imageUrls
-              .filter((url): url is string => typeof url === 'string')
-              .slice(0, 5)
-          : [],
+        imageUrls: normalizeReviewImageUrls(review.imageUrls)
+          .slice(0, 5)
+          .map((url) => resolveReviewImageUrlForClient(url, env, options) || url),
         reviewDate: (review.reviewDate ?? review.createdAt).toISOString(),
       })),
       aeSalesCount: trimToNull(row.aeSalesCount, 64),
@@ -940,6 +1098,92 @@ export async function getPublicProduct(
   origin?: string
 ): Promise<LoadProductResult> {
   return loadPublicProduct(db, slug, env, origin);
+}
+
+export async function loadPublicProductReviews(
+  db: Database,
+  slug: string,
+  filter: PublicReviewFilter,
+  offset: number,
+  env: Env,
+  origin?: string,
+  limit = PUBLIC_REVIEW_PAGE_SIZE
+): Promise<LoadPublicReviewsResult> {
+  const cleaned = slug.trim().toLowerCase();
+  if (!isValidProductSlug(cleaned)) {
+    return { ok: false, code: 'INVALID_SLUG' };
+  }
+
+  try {
+    const options: R2UrlOptions | undefined = origin ? { origin } : undefined;
+    const [product] = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(and(eq(products.slug, cleaned), eq(products.published, true)))
+      .limit(1);
+
+    if (!product) return { ok: false, code: 'NOT_FOUND' };
+
+    const filterCondition =
+      filter === 'images'
+        ? sql`exists (select 1 from json_tree(${reviewImageArraySql()}) where type = 'text' and (trim(value) like 'https://%' or trim(value) like 'http://%' or trim(value) like '//%' or trim(value) like '/user/reviews/%' or trim(value) like '/api/images/user/reviews/%' or trim(value) like 'user/reviews/%' or trim(value) like 'api/images/user/reviews/%'))`
+        : filter === 'comments'
+          ? sql`length(trim(coalesce(${productReviews.comment}, ''))) > 0`
+          : undefined;
+    const conditions = [
+      eq(productReviews.productId, product.id),
+      ...(filterCondition ? [filterCondition] : []),
+    ];
+    const where = and(...conditions);
+    const [rows, countRows] = await Promise.all([
+      db
+        .select({
+          id: productReviews.id,
+          reviewerName: productReviews.reviewerName,
+          rating: productReviews.rating,
+          comment: productReviews.comment,
+          imageUrls: productReviews.imageUrls,
+          reviewDate: productReviews.reviewDate,
+          createdAt: productReviews.createdAt,
+        })
+        .from(productReviews)
+        .where(where)
+        .orderBy(
+          desc(productReviews.reviewDate),
+          desc(productReviews.createdAt),
+          desc(productReviews.id)
+        )
+        .limit(limit)
+        .offset(offset),
+      db
+        .select({ totalCount: sql<number>`count(*)` })
+        .from(productReviews)
+        .where(where),
+    ]);
+    const totalCount = toReviewCount(countRows[0]?.totalCount) ?? 0;
+    const reviews = rows.map((review) => ({
+      id: review.id,
+      reviewerName: review.reviewerName,
+      rating: review.rating,
+      comment: review.comment ?? '',
+      imageUrls: normalizeReviewImageUrls(review.imageUrls).map(
+        (url) => resolveReviewImageUrlForClient(url, env, options) || url
+      ),
+      reviewDate: (review.reviewDate ?? review.createdAt).toISOString(),
+    }));
+
+    return {
+      ok: true,
+      page: {
+        reviews,
+        totalCount,
+        hasMore: offset + reviews.length < totalCount,
+      },
+    };
+  } catch (error) {
+    console.error('loadPublicProductReviews failed:', error);
+    return { ok: false, code: 'INTERNAL' };
+  }
 }
 
 async function queryMoreLevel(

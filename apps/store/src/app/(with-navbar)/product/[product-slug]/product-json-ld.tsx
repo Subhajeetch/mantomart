@@ -68,10 +68,31 @@ export function ProductJsonLd({ product }: ProductJsonLdProps) {
     };
   }
 
+  if (product.reviews.length > 0) {
+    jsonLd.review = product.reviews.map((review) => ({
+      '@type': 'Review',
+      author: {
+        '@type': 'Person',
+        name: review.reviewerName,
+      },
+      datePublished: review.reviewDate,
+      name: `${review.rating} out of 5 stars`,
+      reviewBody: review.comment || undefined,
+      reviewRating: {
+        '@type': 'Rating',
+        ratingValue: review.rating,
+        bestRating: 5,
+        worstRating: 1,
+      },
+    }));
+  }
+
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{
+        __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c'),
+      }}
     />
   );
 }

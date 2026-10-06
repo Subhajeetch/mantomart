@@ -12,17 +12,21 @@ import {
 import {
   isValidProductSlug,
   getPublicProduct,
+  loadPublicProductReviews,
   loadMoreForYou,
+  PUBLIC_REVIEW_PAGE_SIZE,
   PUBLIC_PRODUCT_CACHE_TTL_SECONDS,
+  type PublicReviewFilter,
 } from '@/utils/store-ui/storeProduct';
 
 /**
  * Public storefront product page.
  *
  * GET /:slug        — published product, public-safe fields only
- * GET /:slug/more   — "More for you" infinite feed (category → parent → rest)
+ * GET /:slug/reviews — one bounded, optionally filtered review page
+ * GET /:slug/more    — "More for you" infinite feed (category → parent → rest)
  *
- * Responses are cached in the Cloudflare Cache API for five days. Product
+ * Responses are cached in the Cloudflare Cache API for six hours. Product
  * responses intentionally do not use KV, avoiding one KV entry and read per
  * product.
  */
@@ -31,8 +35,8 @@ const storeProduct = new Hono<{ Bindings: Env }>();
 storeProduct.use(
   '*',
   cache({
-    cacheName: 'store-product',
-    cacheControl: `public, max-age=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+    cacheName: 'store-product-v4',
+    cacheControl: `public, max-age=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}`,
     vary: 'Origin',
   })
 );
@@ -40,7 +44,7 @@ storeProduct.use(
 function cacheHeaders(c: { header: (name: string, value: string) => void }) {
   c.header(
     'Cache-Control',
-    `public, max-age=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, stale-while-revalidate=86400`
+    `public, max-age=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_PRODUCT_CACHE_TTL_SECONDS}`
   );
   c.header('Vary', 'Origin');
 }
@@ -51,6 +55,73 @@ function parsePageSize(raw: string | undefined): number {
   if (!Number.isFinite(parsed)) return DEFAULT_FEED_PAGE_SIZE;
   return Math.max(MIN_FEED_PAGE_SIZE, Math.min(MAX_FEED_PAGE_SIZE, parsed));
 }
+
+storeProduct.get('/:slug/reviews', async (c) => {
+  const slug = c.req.param('slug')?.trim().toLowerCase() ?? '';
+  if (!isValidProductSlug(slug)) {
+    return errorJson(c, 400, 'INVALID_SLUG', 'Invalid product slug.');
+  }
+
+  const rawFilter = c.req.query('filter') ?? 'all';
+  if (
+    rawFilter !== 'all' &&
+    rawFilter !== 'images' &&
+    rawFilter !== 'comments'
+  ) {
+    return errorJson(
+      c,
+      400,
+      'INVALID_REVIEW_FILTER',
+      'Review filter must be all, images, or comments.'
+    );
+  }
+  const rawOffset = c.req.query('offset') ?? '0';
+  const offset = Number(rawOffset);
+  if (
+    !/^\d+$/.test(rawOffset) ||
+    !Number.isSafeInteger(offset) ||
+    offset > 1_000_000
+  ) {
+    return errorJson(
+      c,
+      400,
+      'INVALID_REVIEW_OFFSET',
+      'Review offset must be a non-negative integer no greater than 1000000.'
+    );
+  }
+
+  try {
+    const db = createDb(c.env.DB);
+    const result = await loadPublicProductReviews(
+      db,
+      slug,
+      rawFilter as PublicReviewFilter,
+      offset,
+      c.env,
+      requestOriginFromUrl(c.req.url),
+      PUBLIC_REVIEW_PAGE_SIZE
+    );
+
+    if (!result.ok) {
+      if (result.code === 'NOT_FOUND') {
+        return errorJson(c, 404, 'PRODUCT_NOT_FOUND', 'Product not found.');
+      }
+      if (result.code === 'INVALID_SLUG') {
+        return errorJson(c, 400, 'INVALID_SLUG', 'Invalid product slug.');
+      }
+      return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load reviews.');
+    }
+
+    cacheHeaders(c);
+    return c.json({
+      success: true,
+      data: result.page,
+    });
+  } catch (error) {
+    console.error('Error loading product reviews:', error);
+    return errorJson(c, 500, 'INTERNAL_ERROR', 'Failed to load reviews.');
+  }
+});
 
 storeProduct.get('/:slug/more', async (c) => {
   const slug = c.req.param('slug')?.trim().toLowerCase() ?? '';

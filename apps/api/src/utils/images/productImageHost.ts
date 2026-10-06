@@ -318,6 +318,23 @@ export function resolveProductImageUrlForClient(
   return `${stripTrailingSlash(base)}/${key}`;
 }
 
+export function resolveReviewImageUrlForClient(
+  url: string | null | undefined,
+  env: Env,
+  options?: R2UrlOptions
+): string {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^(?:https?:)?\/\//i.test(trimmed)) return trimmed;
+
+  const key = sanitizeObjectKey(
+    trimmed.replace(/^\/api\/images(?=\/)/, '').replace(/^\/+/, '')
+  );
+  if (!key?.startsWith('user/reviews/')) return trimmed;
+  return buildPublicObjectUrl(env, key, options) ?? trimmed;
+}
+
 export function resolveProductImagesForClient(
   images: ProductImage[] | null | undefined,
   env: Env,

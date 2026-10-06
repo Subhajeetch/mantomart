@@ -15,10 +15,20 @@ import type {
   PublicOptionValue,
   PublicProduct,
   PublicReview,
+  PublicReviewFilter,
+  PublicReviewPage,
+  PublicReviewPhoto,
   PublicSku,
 } from './types';
 
-const PRODUCT_REVALIDATE_SECONDS = 5 * 24 * 60 * 60;
+const PRODUCT_REVALIDATE_SECONDS = 6 * 60 * 60;
+const REVIEW_PAGE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const REVIEW_PAYLOAD_VERSION = '5';
+const reviewPageCache = new Map<
+  string,
+  { page: PublicReviewPage; expiresAt: number }
+>();
+const pendingReviewPages = new Map<string, Promise<PublicReviewPage>>();
 
 function getApiBaseUrl(): string {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
@@ -54,7 +64,10 @@ function normalizeCategory(raw: unknown): PublicCategoryRef | null {
   return { id, name, slug, href };
 }
 
-function normalizeReview(raw: unknown): PublicReview | null {
+function normalizeReview(
+  raw: unknown,
+  maxImageUrls = 5
+): PublicReview | null {
   if (!isRecord(raw)) return null;
   const id = asString(raw.id);
   const reviewerName = asString(raw.reviewerName);
@@ -77,7 +90,37 @@ function normalizeReview(raw: unknown): PublicReview | null {
     reviewerName,
     rating,
     comment: asString(raw.comment) ?? '',
-    imageUrls: asStringArray(raw.imageUrls).slice(0, 5),
+    imageUrls: asStringArray(raw.imageUrls).slice(0, maxImageUrls),
+    reviewDate,
+  };
+}
+
+function normalizeReviewPhoto(raw: unknown): PublicReviewPhoto | null {
+  if (!isRecord(raw)) return null;
+  const url = asString(raw.url);
+  const reviewId = asString(raw.reviewId);
+  const reviewerName = asString(raw.reviewerName);
+  const rating = asNullableNumber(raw.rating);
+  const reviewDate = asString(raw.reviewDate);
+  if (
+    !url ||
+    !reviewId ||
+    !reviewerName ||
+    rating === null ||
+    !Number.isInteger(rating) ||
+    rating < 1 ||
+    rating > 5 ||
+    !reviewDate ||
+    !Number.isFinite(Date.parse(reviewDate))
+  ) {
+    return null;
+  }
+  return {
+    url,
+    reviewId,
+    reviewerName,
+    rating,
+    comment: asString(raw.comment) ?? '',
     reviewDate,
   };
 }
@@ -193,6 +236,13 @@ function normalizeProduct(raw: unknown): PublicProduct | null {
   const reviews = (Array.isArray(raw.reviews) ? raw.reviews : [])
     .map(normalizeReview)
     .filter((item): item is PublicReview => item !== null);
+  const reviewImgsSnapShot = (Array.isArray(raw.reviewImgsSnapShot)
+    ? raw.reviewImgsSnapShot
+    : []
+  )
+    .map(normalizeReviewPhoto)
+    .filter((item): item is PublicReviewPhoto => item !== null)
+    .slice(0, 5);
 
   const rating = asNullableNumber(raw.aeRating);
   const aeReviewCount = asNullableNumber(raw.aeReviewCount);
@@ -220,6 +270,19 @@ function normalizeProduct(raw: unknown): PublicProduct | null {
       averageReview !== null && averageReview > 0 && averageReview <= 5
         ? averageReview
         : null,
+    reviewsWithImgs: Math.max(
+      0,
+      Math.floor(asNullableNumber(raw.reviewsWithImgs) ?? 0)
+    ),
+    reviewsWithComs: Math.max(
+      0,
+      Math.floor(asNullableNumber(raw.reviewsWithComs) ?? 0)
+    ),
+    totalNumOfImgs: Math.max(
+      0,
+      Math.floor(asNullableNumber(raw.totalNumOfImgs) ?? 0)
+    ),
+    reviewImgsSnapShot,
     reviews,
     aeSalesCount: asString(raw.aeSalesCount),
     tags: asStringArray(raw.tags),
@@ -232,6 +295,85 @@ function normalizeProduct(raw: unknown): PublicProduct | null {
     category: normalizeCategory(raw.category),
     breadcrumbs,
   };
+}
+
+export async function fetchProductReviewPage(
+  slug: string,
+  filter: PublicReviewFilter,
+  offset: number
+): Promise<PublicReviewPage> {
+  const cacheKey = `${slug}:${filter}:${offset}`;
+  const cached = reviewPageCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.page;
+  if (cached) reviewPageCache.delete(cacheKey);
+
+  const pending = pendingReviewPages.get(cacheKey);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const params = new URLSearchParams({
+      filter,
+      offset: String(offset),
+      version: REVIEW_PAYLOAD_VERSION,
+    });
+    let response: Response;
+    try {
+      response = await fetch(
+        `/api/store/product/${encodeURIComponent(slug)}/reviews?${params}`,
+        {
+          headers: { Accept: 'application/json' },
+          cache: 'force-cache',
+        }
+      );
+    } catch (error) {
+      throw new Error(
+        'Reviews could not be reached. Check your connection and try again.',
+        { cause: error }
+      );
+    }
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error('The review service returned an invalid response.');
+    }
+    if (!response.ok) {
+      const message =
+        isRecord(body) && typeof body.error === 'string'
+          ? body.error
+          : 'Reviews could not be loaded. Please try again.';
+      throw new Error(message);
+    }
+    if (
+      !isRecord(body) ||
+      body.success !== true ||
+      !isRecord(body.data) ||
+      !Array.isArray(body.data.reviews) ||
+      typeof body.data.totalCount !== 'number' ||
+      typeof body.data.hasMore !== 'boolean'
+    ) {
+      throw new Error('The review service returned an invalid response.');
+    }
+
+    const page: PublicReviewPage = {
+      reviews: body.data.reviews
+        .map((review) => normalizeReview(review, Number.MAX_SAFE_INTEGER))
+        .filter((review): review is PublicReview => review !== null),
+      totalCount: Math.max(0, Math.floor(body.data.totalCount)),
+      hasMore: body.data.hasMore,
+    };
+    reviewPageCache.set(cacheKey, {
+      page,
+      expiresAt: Date.now() + REVIEW_PAGE_CACHE_TTL_MS,
+    });
+    return page;
+  })();
+  pendingReviewPages.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    pendingReviewPages.delete(cacheKey);
+  }
 }
 
 function normalizeDefaultPrice(raw: unknown): ProductDefaultPrice | null {
@@ -250,7 +392,7 @@ async function fetchProduct(
   slug: string
 ): Promise<ProductResponse | ProductErrorResponse | null> {
   const apiBaseUrl = getApiBaseUrl();
-  const path = `/api/store/product/${encodeURIComponent(slug)}`;
+  const path = `/api/store/product/${encodeURIComponent(slug)}?reviewVersion=${REVIEW_PAYLOAD_VERSION}`;
   const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
 
   try {
@@ -261,29 +403,37 @@ async function fetchProduct(
         tags: [`store-product-${slug}`],
       },
     });
-    if (response.status === 404) return null;
+    if (response.status === 404 || response.status === 400) return null;
     if (!response.ok) {
-      console.warn(
-        `getProduct: API responded ${response.status} ${response.statusText}`
+      throw new Error(
+        `Product service returned HTTP ${response.status} ${response.statusText}.`
       );
-      return null;
     }
     return (await response.json()) as ProductResponse | ProductErrorResponse;
   } catch (error) {
     console.warn('getProduct: fetch failed.', error);
-    return null;
+    throw new Error('Product details could not be loaded.', { cause: error });
   }
 }
 
 /**
- * Server-side fetch for a published product. Never throws.
+ * Server-side fetch for a published product. Returns null for a 404 and
+ * throws when the API is unavailable or returns invalid data.
  */
 export async function getProduct(slug: string): Promise<PublicProduct | null> {
   const cleaned = slug.trim().toLowerCase();
   if (!cleaned) return null;
   const body = await fetchProduct(cleaned);
-  if (!body || typeof body !== 'object' || body.success !== true) return null;
-  return normalizeProduct(body.data);
+  if (body === null) return null;
+  if (typeof body !== 'object') {
+    throw new Error('Product service returned an invalid response.');
+  }
+  if (body.success !== true) {
+    throw new Error(body.message || body.error || 'Product details are unavailable.');
+  }
+  const product = normalizeProduct(body.data);
+  if (!product) throw new Error('Product service returned invalid product data.');
+  return product;
 }
 
 async function fetchMore(

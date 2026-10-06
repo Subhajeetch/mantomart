@@ -8,6 +8,7 @@ import {
   hostAliExpressOptimisedProductImages,
   hostProductImages,
   isHostedReviewImageUrl,
+  resolveReviewImageUrlForClient,
 } from '@/utils/images/productImageHost';
 
 const imageUrl = 'https://ae01.alicdn.com/kf/sample.jpg';
@@ -198,6 +199,28 @@ describe('product image hosting', () => {
         env
       )
     ).toBe(false);
+  });
+
+  it('resolves stored relative review image paths to public object URLs', () => {
+    const env = mockEnv({
+      API_URL: 'https://api.example.com',
+    });
+
+    expect(
+      resolveReviewImageUrlForClient('/user/reviews/test.webp', env)
+    ).toBe('https://api.example.com/api/images/user/reviews/test.webp');
+    expect(
+      resolveReviewImageUrlForClient('/api/images/user/reviews/test.webp', env)
+    ).toBe('https://api.example.com/api/images/user/reviews/test.webp');
+    expect(
+      resolveReviewImageUrlForClient(
+        'https://cdn.example.com/user/reviews/test.webp',
+        env
+      )
+    ).toBe('https://cdn.example.com/user/reviews/test.webp');
+    expect(
+      resolveReviewImageUrlForClient('/user/reviews/../private.webp', env)
+    ).toBe('/user/reviews/../private.webp');
   });
 
   it('keeps the SSE connection alive until the upload work completes', async () => {
