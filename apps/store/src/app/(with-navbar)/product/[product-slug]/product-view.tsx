@@ -93,7 +93,9 @@ export function ProductView({ product, more }: ProductViewProps) {
     setIsAddingToCart(true);
     try {
       const result = await addToCart(cartInput);
-      window.dispatchEvent(new CustomEvent('cart-updated', { detail: result.summary }));
+      window.dispatchEvent(
+        new CustomEvent('cart-updated', { detail: result.summary })
+      );
       const undoToastId = toast.add({
         title: product.name,
         description: 'was added to your cart.',
@@ -122,7 +124,9 @@ export function ProductView({ product, more }: ProductViewProps) {
       toast.add({
         title: 'Unable to add this item',
         description:
-          error instanceof Error ? error.message : 'Unable to add this item to your cart.',
+          error instanceof Error
+            ? error.message
+            : 'Unable to add this item to your cart.',
         type: 'error',
       });
     } finally {
@@ -135,11 +139,10 @@ export function ProductView({ product, more }: ProductViewProps) {
     if (!session?.user?.id) {
       openNeedLogin({
         title: 'Log in to continue',
-        description: 'Log in so we can secure this item and take you straight to checkout.',
+        description:
+          'Log in so we can secure this item and take you straight to checkout.',
         returnTo:
-          typeof window !== 'undefined'
-            ? window.location.href
-            : undefined,
+          typeof window !== 'undefined' ? window.location.href : undefined,
       });
       return;
     }
@@ -149,7 +152,9 @@ export function ProductView({ product, more }: ProductViewProps) {
       toast.add({
         title: 'Unable to start checkout',
         description:
-          error instanceof Error ? error.message : 'Please try again in a moment.',
+          error instanceof Error
+            ? error.message
+            : 'Please try again in a moment.',
         type: 'error',
       });
     }
@@ -162,23 +167,30 @@ export function ProductView({ product, more }: ProductViewProps) {
   return (
     <div className="px-4 pt-4 pb-8 mx-auto max-w-7xl">
       <ProductBreadcrumbs product={product} />
-      <div className="grid gap-8 lg:grid-cols-2 lg:gap-12">
-        <ProductGallery
-          items={product.gallery}
-          productName={product.name}
-          activeVariant={activeVariant}
-        />
-        <ProductInfo
-          product={product}
-          selection={selection}
-          ctaRef={ctaRef}
-          isAddingToCart={isAddingToCart}
-          onAddToCart={onAddToCart}
-          onBuyNow={onBuyNow}
-        />
+      <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+          <ProductGallery
+            items={product.gallery}
+            productName={product.name}
+            activeVariant={activeVariant}
+          />
+        </div>
+        <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-stretch">
+          <div className="lg:sticky lg:top-20">
+            <ProductInfo
+              product={product}
+              selection={selection}
+              ctaRef={ctaRef}
+              isAddingToCart={isAddingToCart}
+              onAddToCart={onAddToCart}
+              onBuyNow={onBuyNow}
+            />
+          </div>
+        </div>
+        <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+          <ProductDetailsTabs product={product} />
+        </div>
       </div>
-
-      <ProductDetailsTabs product={product} />
 
       <MoreForYou
         slug={product.slug}
