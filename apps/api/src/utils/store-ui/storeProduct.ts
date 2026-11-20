@@ -288,7 +288,7 @@ function normalizeReviewImageUrls(value: unknown): string[] {
     try {
       parsed = JSON.parse(parsed) as unknown;
     } catch {
-      const url = parsed.trim();
+      const url = typeof parsed === 'string' ? parsed.trim() : '';
       return isImageUrl(url) ? [url] : [];
     }
   }

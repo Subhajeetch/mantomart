@@ -29,6 +29,7 @@ import {
   getAdminAccount,
   adminStats,
   reviews,
+  adminOrders,
   storeHeader,
   storeHomepage,
   storeImages,
@@ -150,6 +151,8 @@ app.route('/api/admin/image-proxy', imageProxy);
 app.route('/api/admin/account', getAdminAccount);
 app.route('/api/admin-stats', adminStats);
 app.route('/api/admin/reviews', reviews);
+app.route('/api/admin/orders', adminOrders);
+app.route('/api/orders', adminOrders);
 app.route('/api/store/header', storeHeader);
 app.route('/api/store/homepage', storeHomepage);
 app.route('/api/store/product', storeProduct);

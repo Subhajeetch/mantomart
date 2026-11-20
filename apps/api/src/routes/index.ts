@@ -22,6 +22,7 @@ import imageProxy from './paths/admin/image-proxy';
 import getAdminAccount from './paths/admin/get-admin-account';
 import adminStats from './paths/admin/admin-stats';
 import reviews from './paths/admin/reviews';
+import adminOrders from './paths/admin/orders';
 
 // from store (public)
 import storeHeader from './paths/store/header';
@@ -57,6 +58,7 @@ export {
   getAdminAccount,
   adminStats,
   reviews,
+  adminOrders,
   storeHeader,
   storeHomepage,
   storeImages,
