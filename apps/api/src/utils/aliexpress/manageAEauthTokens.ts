@@ -1,8 +1,8 @@
-import config from "@/base.config";
+import config from '@/base.config';
 
 const { AE_AUTH_BASE } = config;
 
-const KV_KEY = "ali_tokens";
+const KV_KEY = 'ali_tokens';
 const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
 export type TokenData = {
@@ -73,8 +73,10 @@ type ToTokenDataOptions = {
 
 export class AliExpressNotConnectedError extends Error {
   constructor() {
-    super("AliExpress not connected. Complete OAuth flow first via /api/ae/connect.");
-    this.name = "AliExpressNotConnectedError";
+    super(
+      'AliExpress not connected. Complete OAuth flow first via /api/ae/connect.'
+    );
+    this.name = 'AliExpressNotConnectedError';
   }
 }
 
@@ -85,43 +87,43 @@ export class AliExpressTokenError extends Error {
   constructor(context: string, raw: unknown) {
     const publicMessage = AliExpressTokenError.extractMessage(raw);
     super(`${context}: ${publicMessage}`);
-    this.name = "AliExpressTokenError";
+    this.name = 'AliExpressTokenError';
     this.publicMessage = publicMessage;
     this.raw = raw;
   }
 
   private static extractMessage(raw: unknown): string {
-    if (raw && typeof raw === "object") {
+    if (raw && typeof raw === 'object') {
       const obj = raw as Record<string, unknown>;
       const candidate =
         obj.msg ?? obj.message ?? obj.sub_msg ?? obj.error_msg ?? obj.error;
-      if (typeof candidate === "string" && candidate.length > 0) {
+      if (typeof candidate === 'string' && candidate.length > 0) {
         return candidate;
       }
     }
-    if (typeof raw === "string" && raw.length > 0) return raw;
-    return "Unexpected response from AliExpress";
+    if (typeof raw === 'string' && raw.length > 0) return raw;
+    return 'Unexpected response from AliExpress';
   }
 }
 
 async function hmacSha256(message: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(
-    "raw",
+    'raw',
     new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
+    { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ["sign"]
+    ['sign']
   );
 
   const signature = await crypto.subtle.sign(
-    "HMAC",
+    'HMAC',
     key,
     new TextEncoder().encode(message)
   );
 
   return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
     .toUpperCase();
 }
 
@@ -133,13 +135,18 @@ async function generateSignSystem(
   const filtered: Record<string, string> = {};
   for (const key in params) {
     const value = params[key];
-    if (key !== "sign" && value !== undefined && value !== null && value !== "") {
+    if (
+      key !== 'sign' &&
+      value !== undefined &&
+      value !== null &&
+      value !== ''
+    ) {
       filtered[key] = value;
     }
   }
 
   const sortedKeys = Object.keys(filtered).sort();
-  const paramString = sortedKeys.map((k) => `${k}${filtered[k]}`).join("");
+  const paramString = sortedKeys.map((k) => `${k}${filtered[k]}`).join('');
   const stringToSign = apiPath + paramString;
 
   return hmacSha256(stringToSign, appSecret);
@@ -148,7 +155,7 @@ async function generateSignSystem(
 function buildQueryString(params: Record<string, string>): string {
   return Object.entries(params)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join("&");
+    .join('&');
 }
 
 async function buildSystemParams(
@@ -159,7 +166,7 @@ async function buildSystemParams(
   const base: Record<string, string> = {
     app_key: env.AE_APP_KEY,
     timestamp: Date.now().toString(),
-    sign_method: "sha256",
+    sign_method: 'sha256',
     ...extra,
   };
 
@@ -168,16 +175,17 @@ async function buildSystemParams(
 }
 
 function pickNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   // AE docs sometimes redact with the literal "null"
-  if (trimmed.length === 0 || trimmed.toLowerCase() === "null") return undefined;
+  if (trimmed.length === 0 || trimmed.toLowerCase() === 'null')
+    return undefined;
   return trimmed;
 }
 
 function toFiniteNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const n = typeof value === "number" ? value : Number(String(value).trim());
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(String(value).trim());
   if (!Number.isFinite(n)) return null;
   return n;
 }
@@ -189,12 +197,12 @@ function toFiniteNumber(value: unknown): number | null {
 export function resolveTimestamp(
   raw: unknown,
   issuedAt: number,
-  mode: "absolute-preferred" | "relative-seconds" | "auto" = "auto"
+  mode: 'absolute-preferred' | 'relative-seconds' | 'auto' = 'auto'
 ): number | null {
   const value = toFiniteNumber(raw);
   if (value === null || value <= 0) return null;
 
-  if (mode === "relative-seconds") {
+  if (mode === 'relative-seconds') {
     return Math.trunc(issuedAt + value * 1000);
   }
 
@@ -203,7 +211,7 @@ export function resolveTimestamp(
     return Math.trunc(value);
   }
 
-  if (mode === "absolute-preferred") {
+  if (mode === 'absolute-preferred') {
     // Absolute seconds (rare) vs relative ms — prefer absolute seconds when
     // the resulting date is near "now".
     if (value >= 1_000_000_000) {
@@ -236,7 +244,7 @@ export function resolveRefreshExpiresAt(
   raw: unknown,
   issuedAt: number
 ): number | null {
-  return resolveTimestamp(raw, issuedAt, "auto");
+  return resolveTimestamp(raw, issuedAt, 'auto');
 }
 
 /**
@@ -251,7 +259,7 @@ function parseAccessExpiresAt(
   const fromAbsolute = resolveTimestamp(
     data.expire_time,
     issuedAt,
-    "absolute-preferred"
+    'absolute-preferred'
   );
   if (fromAbsolute !== null) return fromAbsolute;
 
@@ -276,9 +284,21 @@ function parseRefreshExpiresAtFromResponse(
   issuedAt: number
 ): number | null {
   const fromAbsolute =
-    resolveTimestamp(data.refresh_token_valid_time, issuedAt, "absolute-preferred") ??
-    resolveTimestamp(data.refresh_expire_time, issuedAt, "absolute-preferred") ??
-    resolveTimestamp(data.refresh_token_expire_time, issuedAt, "absolute-preferred");
+    resolveTimestamp(
+      data.refresh_token_valid_time,
+      issuedAt,
+      'absolute-preferred'
+    ) ??
+    resolveTimestamp(
+      data.refresh_expire_time,
+      issuedAt,
+      'absolute-preferred'
+    ) ??
+    resolveTimestamp(
+      data.refresh_token_expire_time,
+      issuedAt,
+      'absolute-preferred'
+    );
 
   if (fromAbsolute !== null) return fromAbsolute;
 
@@ -296,22 +316,18 @@ function parseRefreshExpiresAtFromResponse(
 
 function hasRefreshExpiryFields(data: RawTokenResponse): boolean {
   return (
-    data.refresh_token_valid_time !== undefined &&
-    data.refresh_token_valid_time !== null &&
-    data.refresh_token_valid_time !== ""
-  ) || (
-    data.refresh_expires_in !== undefined &&
-    data.refresh_expires_in !== null &&
-    data.refresh_expires_in !== ""
-  ) || (
-    data.refresh_expire_time !== undefined &&
-    data.refresh_expire_time !== null
-  ) || (
-    data.refresh_token_expire_time !== undefined &&
-    data.refresh_token_expire_time !== null
-  ) || (
-    data.refresh_token_expires_in !== undefined &&
-    data.refresh_token_expires_in !== null
+    (data.refresh_token_valid_time !== undefined &&
+      data.refresh_token_valid_time !== null &&
+      data.refresh_token_valid_time !== '') ||
+    (data.refresh_expires_in !== undefined &&
+      data.refresh_expires_in !== null &&
+      data.refresh_expires_in !== '') ||
+    (data.refresh_expire_time !== undefined &&
+      data.refresh_expire_time !== null) ||
+    (data.refresh_token_expire_time !== undefined &&
+      data.refresh_token_expire_time !== null) ||
+    (data.refresh_token_expires_in !== undefined &&
+      data.refresh_token_expires_in !== null)
   );
 }
 
@@ -320,16 +336,19 @@ function hasRefreshExpiryFields(data: RawTokenResponse): boolean {
  * `gopResponseBody` as a JSON string containing the real payload.
  */
 function unwrapTokenPayload(data: unknown): RawTokenResponse {
-  if (!data || typeof data !== "object") {
-    throw new AliExpressTokenError("AliExpress token response invalid", data);
+  if (!data || typeof data !== 'object') {
+    throw new AliExpressTokenError('AliExpress token response invalid', data);
   }
 
   const obj = data as Record<string, unknown>;
 
-  if (typeof obj.gopResponseBody === "string" && obj.gopResponseBody.length > 0) {
+  if (
+    typeof obj.gopResponseBody === 'string' &&
+    obj.gopResponseBody.length > 0
+  ) {
     try {
       const inner = JSON.parse(obj.gopResponseBody) as unknown;
-      if (inner && typeof inner === "object") {
+      if (inner && typeof inner === 'object') {
         return { ...obj, ...(inner as Record<string, unknown>) };
       }
     } catch {
@@ -338,14 +357,14 @@ function unwrapTokenPayload(data: unknown): RawTokenResponse {
   }
 
   // Some gateways nest under a single result key.
-  for (const key of ["result", "data", "response"] as const) {
+  for (const key of ['result', 'data', 'response'] as const) {
     const nested = obj[key];
     if (
       nested &&
-      typeof nested === "object" &&
-      ("access_token" in (nested as object) ||
-        "refresh_token" in (nested as object) ||
-        "expires_in" in (nested as object))
+      typeof nested === 'object' &&
+      ('access_token' in (nested as object) ||
+        'refresh_token' in (nested as object) ||
+        'expires_in' in (nested as object))
     ) {
       return { ...obj, ...(nested as Record<string, unknown>) };
     }
@@ -356,10 +375,10 @@ function unwrapTokenPayload(data: unknown): RawTokenResponse {
 
 function assertBusinessSuccess(data: RawTokenResponse, context: string): void {
   const code = data.code ?? data.gopErrorCode;
-  if (code === undefined || code === null || code === "") return;
+  if (code === undefined || code === null || code === '') return;
 
   const codeStr = String(code);
-  if (codeStr === "0" || codeStr.toLowerCase() === "true") return;
+  if (codeStr === '0' || codeStr.toLowerCase() === 'true') return;
 
   throw new AliExpressTokenError(context, data);
 }
@@ -372,18 +391,18 @@ async function readTokens(kv: KVNamespace): Promise<TokenData | null> {
     const parsed = JSON.parse(raw) as Partial<TokenData>;
 
     if (
-      typeof parsed.access_token !== "string" ||
+      typeof parsed.access_token !== 'string' ||
       parsed.access_token.length === 0 ||
-      typeof parsed.refresh_token !== "string" ||
+      typeof parsed.refresh_token !== 'string' ||
       parsed.refresh_token.length === 0 ||
-      typeof parsed.expires_at !== "number" ||
+      typeof parsed.expires_at !== 'number' ||
       !Number.isFinite(parsed.expires_at)
     ) {
       return null;
     }
 
     const refreshExpiresAt =
-      typeof parsed.refresh_expires_at === "number" &&
+      typeof parsed.refresh_expires_at === 'number' &&
       Number.isFinite(parsed.refresh_expires_at) &&
       parsed.refresh_expires_at > 0
         ? parsed.refresh_expires_at
@@ -396,7 +415,7 @@ async function readTokens(kv: KVNamespace): Promise<TokenData | null> {
       refresh_expires_at: refreshExpiresAt,
     };
   } catch (err) {
-    console.error("Failed to parse stored AliExpress tokens:", err);
+    console.error('Failed to parse stored AliExpress tokens:', err);
     return null;
   }
 }
@@ -444,8 +463,7 @@ function toTokenData(
 
   const accessToken = pickNonEmptyString(data.access_token);
   const incomingRefreshToken = pickNonEmptyString(data.refresh_token);
-  const refreshToken =
-    incomingRefreshToken ?? options.fallbackRefreshToken;
+  const refreshToken = incomingRefreshToken ?? options.fallbackRefreshToken;
 
   const accessExpiresAt = parseAccessExpiresAt(data, issuedAt);
   const parsedRefreshExpiresAt = parseRefreshExpiresAtFromResponse(
@@ -453,11 +471,7 @@ function toTokenData(
     issuedAt
   );
 
-  if (
-    !accessToken ||
-    !refreshToken ||
-    accessExpiresAt === null
-  ) {
+  if (!accessToken || !refreshToken || accessExpiresAt === null) {
     throw new AliExpressTokenError(context, data);
   }
 
@@ -504,9 +518,9 @@ async function postAuthApi(
   const url = `${AE_AUTH_BASE}${apiPath}?${buildQueryString(params)}`;
 
   const res = await fetch(url, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      Accept: "application/json",
+      Accept: 'application/json',
     },
   });
 
@@ -516,16 +530,16 @@ async function postAuthApi(
 async function fetchNewTokens(env: AEEnv, code: string): Promise<TokenData> {
   const data = await postAuthApi(
     env,
-    "/auth/token/create",
+    '/auth/token/create',
     {
       code,
       // grant_type is accepted by OAuth-style gateways; AE primarily keys on `code`.
-      grant_type: "authorization_code",
+      grant_type: 'authorization_code',
     },
-    "AliExpress token create failed"
+    'AliExpress token create failed'
   );
 
-  return toTokenData(data, "AliExpress token create failed");
+  return toTokenData(data, 'AliExpress token create failed');
 }
 
 async function fetchRefreshedTokens(
@@ -534,18 +548,18 @@ async function fetchRefreshedTokens(
 ): Promise<TokenData> {
   const data = await postAuthApi(
     env,
-    "/auth/token/refresh",
+    '/auth/token/refresh',
     {
       refresh_token: current.refresh_token,
-      grant_type: "refresh_token",
+      grant_type: 'refresh_token',
     },
-    "AliExpress token refresh failed"
+    'AliExpress token refresh failed'
   );
 
   // Persist the full rotated pair + new expiry windows from the response.
   // Fallback refresh token only if AE omits refresh_token (rare); expiry from
   // the response is always preferred when present.
-  const tokens = toTokenData(data, "AliExpress token refresh failed", {
+  const tokens = toTokenData(data, 'AliExpress token refresh failed', {
     fallbackRefreshToken: current.refresh_token,
     fallbackRefreshExpiresAt: current.refresh_expires_at,
   });
@@ -580,9 +594,9 @@ function assertRefreshTokenUsable(tokens: TokenData): void {
     tokens.refresh_expires_at !== null &&
     tokens.refresh_expires_at <= Date.now()
   ) {
-    throw new AliExpressTokenError("AliExpress refresh token expired", {
-      code: "refresh_token_expired",
-      msg: "Refresh token has expired. Please reconnect AliExpress.",
+    throw new AliExpressTokenError('AliExpress refresh token expired', {
+      code: 'refresh_token_expired',
+      msg: 'Refresh token has expired. Please reconnect AliExpress.',
       refresh_expires_at: tokens.refresh_expires_at,
     });
   }

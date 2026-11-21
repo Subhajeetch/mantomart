@@ -285,6 +285,39 @@ aeProduct.get('/product/search', async (c) => {
       session
     );
 
+    const searchResponse = (data as Record<string, unknown> | undefined)
+      ?.aliexpress_ds_text_search_response as Record<string, unknown> | undefined;
+
+    if (
+      searchResponse &&
+      typeof searchResponse.code === 'string' &&
+      searchResponse.code !== '00'
+    ) {
+      const code = searchResponse.code;
+      const message =
+        code === 'NGSELECTION_SEARCH_ERROR'
+          ? 'AliExpress dropshipping text search is currently experiencing an outage upstream (NGSELECTION_SEARCH_ERROR). Please paste a direct AliExpress product URL or Product ID to import, or try again later.'
+          : (typeof searchResponse.msg === 'string' && searchResponse.msg) ||
+            `AliExpress search failed with code ${code}.`;
+
+      return errorJson(c, 502, code, message);
+    }
+
+    const errorResponse = (data as Record<string, unknown> | undefined)
+      ?.error_response as Record<string, unknown> | undefined;
+
+    if (errorResponse) {
+      const msg =
+        typeof errorResponse.msg === 'string'
+          ? errorResponse.msg
+          : 'AliExpress request failed.';
+      const code =
+        typeof errorResponse.code === 'string'
+          ? errorResponse.code
+          : 'ALIEXPRESS_ERROR';
+      return errorJson(c, 502, code, msg);
+    }
+
     return c.json(data);
   } catch (error) {
     console.error('Error searching products:', error);
@@ -364,6 +397,38 @@ aeProduct.get('/product/:id', async (c) => {
       params,
       session
     );
+
+    const getResponse = (data as Record<string, unknown> | undefined)
+      ?.aliexpress_ds_product_get_response as Record<string, unknown> | undefined;
+
+    if (
+      getResponse &&
+      typeof getResponse.rsp_code === 'number' &&
+      getResponse.rsp_code !== 200
+    ) {
+      return errorJson(
+        c,
+        502,
+        `AE_PRODUCT_${getResponse.rsp_code}`,
+        (typeof getResponse.rsp_msg === 'string' && getResponse.rsp_msg) ||
+          'Failed to retrieve product details from AliExpress.'
+      );
+    }
+
+    const errorResponse = (data as Record<string, unknown> | undefined)
+      ?.error_response as Record<string, unknown> | undefined;
+
+    if (errorResponse) {
+      const msg =
+        typeof errorResponse.msg === 'string'
+          ? errorResponse.msg
+          : 'AliExpress request failed.';
+      const code =
+        typeof errorResponse.code === 'string'
+          ? errorResponse.code
+          : 'ALIEXPRESS_ERROR';
+      return errorJson(c, 502, code, msg);
+    }
 
     return c.json(data);
     console.log('Product info fetched successfully:', data);

@@ -98,8 +98,9 @@ function parseSearchExtendParam(value: string | null) {
 }
 
 const PLACEHOLDER_QUERIES = [
-  'Search products...',
+  'Search products or paste AliExpress URL / ID...',
   'T-Shirts',
+  'https://www.aliexpress.com/item/...',
   'Electronics',
   'Running Shoes',
   'Phone Cases',
@@ -241,6 +242,66 @@ function buildSavedProduct(
   };
 }
 
+export function extractAliExpressProductId(input: string): string | null {
+  const trimmed = input.trim();
+  if (/^\d{10,20}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const itemMatch = trimmed.match(/\/item\/(\d{10,20})(?:\.html|\b|\?)/i);
+  if (itemMatch?.[1]) {
+    return itemMatch[1];
+  }
+  const idMatch = trimmed.match(/[?&]productId=(\d{10,20})/i);
+  if (idMatch?.[1]) {
+    return idMatch[1];
+  }
+  return null;
+}
+
+export function productFromDetail(
+  productId: string,
+  detail: AliExpressProductDetailResponse
+): Product | null {
+  const result = detail?.aliexpress_ds_product_get_response?.result;
+  if (!result || typeof result !== 'object') return null;
+
+  const resultObj = result as Record<string, unknown>;
+  const baseInfo = resultObj.ae_item_base_info_dto as
+    | Record<string, unknown>
+    | undefined;
+  const skuDtos = resultObj.ae_item_sku_info_dtos as
+    | Record<string, unknown>
+    | undefined;
+  const skus = Array.isArray(skuDtos?.ae_item_sku_info_d_t_o)
+    ? (skuDtos.ae_item_sku_info_d_t_o as Record<string, unknown>[])
+    : [];
+  const firstSku = skus[0];
+
+  const multimedia = resultObj.ae_multimedia_info_dto as
+    | Record<string, unknown>
+    | undefined;
+  const imageUrls = getString(multimedia?.image_urls).split(';');
+  const mainImage = imageUrls[0] || '';
+
+  const salePrice = getString(firstSku?.offer_sale_price) || '0.00';
+  const origPrice = getString(firstSku?.sku_price) || salePrice;
+  const title = getString(baseInfo?.subject) || 'AliExpress Product';
+
+  return {
+    itemId: productId,
+    title,
+    targetSalePrice: salePrice,
+    targetOriginalPrice: origPrice,
+    salePriceFormat: `$${salePrice}`,
+    discount: getString(baseInfo?.discount) || '',
+    itemMainPic: mainImage,
+    orders: getString(baseInfo?.sales_count) || '0',
+    evaluateRate: getString(baseInfo?.evaluation_count) || '0',
+    score: getString(baseInfo?.avg_evaluation_rating) || '5.0',
+    itemUrl: `https://www.aliexpress.com/item/${productId}.html`,
+  };
+}
+
 function getApiErrorMessage(payload: unknown, status: number) {
   if (isRecord(payload)) {
     const directMessage =
@@ -260,6 +321,16 @@ function getApiErrorMessage(payload: unknown, status: number) {
 
       if (aliMessage) return aliMessage;
     }
+
+    const textSearchResp = payload.aliexpress_ds_text_search_response;
+    if (isRecord(textSearchResp)) {
+      if (textSearchResp.code === 'NGSELECTION_SEARCH_ERROR') {
+        return 'AliExpress dropshipping search service is temporarily experiencing an issue upstream (NGSELECTION_SEARCH_ERROR). Please try pasting a direct product URL or Product ID to import.';
+      }
+      const msg =
+        getString(textSearchResp.msg) || getString(textSearchResp.message);
+      if (msg) return msg;
+    }
   }
 
   if (status === 400) return 'The search request is invalid.';
@@ -268,6 +339,8 @@ function getApiErrorMessage(payload: unknown, status: number) {
   if (status === 403) return 'AliExpress denied permission for this request.';
   if (status === 429)
     return 'Too many AliExpress requests. Please try again later.';
+  if (status === 502)
+    return 'AliExpress search service is temporarily unavailable upstream. You can paste a product URL/ID directly to import, or try again later.';
   if (status >= 500) return 'AliExpress search is temporarily unavailable.';
 
   return `Search failed with status ${status}.`;
@@ -347,6 +420,24 @@ async function fetchProducts(
   const response = isRecord(json)
     ? json.aliexpress_ds_text_search_response
     : undefined;
+
+  if (
+    isRecord(response) &&
+    typeof response.code === 'string' &&
+    response.code !== '00'
+  ) {
+    if (response.code === 'NGSELECTION_SEARCH_ERROR') {
+      throw new Error(
+        'AliExpress dropshipping search is temporarily unavailable upstream (NGSELECTION_SEARCH_ERROR). Please paste a product URL or Product ID directly to import, or try again shortly.'
+      );
+    }
+    throw new Error(
+      getString(response.msg) ||
+        getString(response.message) ||
+        `AliExpress search failed with code ${response.code}.`
+    );
+  }
+
   const data = isRecord(response) ? response.data : undefined;
 
   if (!isRecord(data)) {
@@ -825,8 +916,31 @@ const SearchProduct = () => {
     setError(null);
     setNotice(null);
 
+    const directProductId = extractAliExpressProductId(trimmedQuery);
+
     const doFetch = async () => {
       try {
+        if (directProductId) {
+          const detail = await fetchAliExpressProductDetail(directProductId, {
+            shipToCountry: filters.countryCode || 'US',
+            currency: filters.currency || 'USD',
+            signal: controller.signal,
+          });
+
+          if (activeRequestRef.current !== requestId) return;
+
+          const product = productFromDetail(directProductId, detail);
+          if (!product) {
+            throw new Error('Could not parse AliExpress product details.');
+          }
+
+          setProducts([product]);
+          setPagination({ pageIndex: 1, pageSize: 30, totalCount: 1 });
+          resultsTopRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+          openProductDetails(product);
+          return;
+        }
+
         const { products: results, pagination: meta } = await fetchProducts(
           trimmedQuery,
           page,
@@ -1305,7 +1419,9 @@ const SearchProduct = () => {
                         {error}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Check the AliExpress connection and try again.
+                        {error.toLowerCase().includes('connect')
+                          ? 'Check the AliExpress connection and try again.'
+                          : 'Try searching by category, or paste a direct AliExpress product link or ID.'}
                       </p>
                     </div>
                     <Button
